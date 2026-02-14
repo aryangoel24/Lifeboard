@@ -1,0 +1,60 @@
+import { cn } from "@/lib/utils";
+import { Flame, Beef, Wheat, Droplet, type LucideIcon } from "lucide-react";
+
+interface MacroStatCardProps {
+  label: string;
+  current: number;
+  goal: number;
+  unit: string;
+  icon: LucideIcon;
+  color: string;
+  bgColor: string;
+}
+
+const MACRO_CONFIG = {
+  calories: { icon: Flame, color: "text-orange-500", bgColor: "bg-orange-500/10", barColor: "bg-orange-500" },
+  protein: { icon: Beef, color: "text-blue-500", bgColor: "bg-blue-500/10", barColor: "bg-blue-500" },
+  carbs: { icon: Wheat, color: "text-green-500", bgColor: "bg-green-500/10", barColor: "bg-green-500" },
+  fat: { icon: Droplet, color: "text-purple-500", bgColor: "bg-purple-500/10", barColor: "bg-purple-500" },
+} as const;
+
+export { MACRO_CONFIG };
+
+export function MacroStatCard({
+  label,
+  current,
+  goal,
+  unit,
+  icon: Icon,
+  color,
+  bgColor,
+}: MacroStatCardProps) {
+  const percentage = goal > 0 ? Math.min((current / goal) * 100, 100) : 0;
+  const isOver = current > goal;
+  const barColor = MACRO_CONFIG[label.toLowerCase() as keyof typeof MACRO_CONFIG]?.barColor ?? "bg-primary";
+
+  return (
+    <div className="rounded-lg border bg-card p-4 space-y-3">
+      <div className="flex items-center gap-3">
+        <div className={cn("rounded-md p-2", bgColor)}>
+          <Icon className={cn("h-4 w-4", color)} />
+        </div>
+        <span className="text-sm font-medium text-muted-foreground">{label}</span>
+      </div>
+      <div>
+        <span className={cn("text-2xl font-bold", isOver && "text-destructive")}>
+          {Math.round(current)}
+        </span>
+        <span className="text-sm text-muted-foreground ml-1">
+          / {goal} {unit}
+        </span>
+      </div>
+      <div className="h-1.5 bg-secondary rounded-full overflow-hidden">
+        <div
+          className={cn("h-full rounded-full transition-all", barColor)}
+          style={{ width: `${percentage}%` }}
+        />
+      </div>
+    </div>
+  );
+}
