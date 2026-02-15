@@ -5,7 +5,6 @@ export type Profile = {
   daily_carbs_goal: number;
   daily_fat_goal: number;
   goal_weight: number | null;
-  weight_unit: string;
   created_at: string;
   updated_at: string;
 };

@@ -19,7 +19,8 @@ import {
     Scale,
 } from "lucide-react";
 import type { WeightEntry } from "@/types/database";
-import type { WeightStats, WeightCalorieData } from "@/lib/actions/weight";
+import type { WeightStats, WeightCalorieData, TDEEResponse } from "@/lib/actions/weight";
+import { TDEECard } from "@/components/tdee-card";
 import {
     LineChart,
     Line,
@@ -62,6 +63,7 @@ interface AnalyticsClientProps {
     weightEntries?: WeightEntry[];
     weightStats?: WeightStats;
     weightCalories?: WeightCalorieData[];
+    tdee?: TDEEResponse;
 }
 
 export function AnalyticsClient({
@@ -71,6 +73,7 @@ export function AnalyticsClient({
     weightEntries = [],
     weightStats,
     weightCalories = [],
+    tdee,
 }: AnalyticsClientProps) {
     const [exporting, setExporting] = useState(false);
 
@@ -128,6 +131,9 @@ export function AnalyticsClient({
                     {exporting ? "Exporting..." : "Export CSV"}
                 </Button>
             </div>
+
+            {/* TDEE Insight Card */}
+            {tdee && <div className="mb-6"><TDEECard tdee={tdee} /></div>}
 
             {/* Weekly Summary Cards */}
             {weeklySummary && (
