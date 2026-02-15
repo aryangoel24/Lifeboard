@@ -16,7 +16,10 @@ import {
     Download,
     BarChart3,
     PieChart,
+    Scale,
 } from "lucide-react";
+import type { WeightEntry } from "@/types/database";
+import type { WeightStats, WeightCalorieData } from "@/lib/actions/weight";
 import {
     LineChart,
     Line,
@@ -28,6 +31,8 @@ import {
     PieChart as RechartsPieChart,
     Pie,
     Cell,
+    Bar,
+    ComposedChart,
 } from "recharts";
 import { exportEntriesCsv } from "@/lib/actions/analytics";
 import { subDays, format } from "date-fns";
@@ -54,12 +59,18 @@ interface AnalyticsClientProps {
         worstDay: string | null;
     } | null;
     mealBreakdown: MealBreakdown[];
+    weightEntries?: WeightEntry[];
+    weightStats?: WeightStats;
+    weightCalories?: WeightCalorieData[];
 }
 
 export function AnalyticsClient({
     trends,
     weeklySummary,
     mealBreakdown,
+    weightEntries = [],
+    weightStats,
+    weightCalories = [],
 }: AnalyticsClientProps) {
     const [exporting, setExporting] = useState(false);
 
@@ -158,7 +169,7 @@ export function AnalyticsClient({
 
             {/* Charts */}
             <Tabs defaultValue="calories" className="space-y-4">
-                <TabsList className="grid w-full grid-cols-3">
+                <TabsList className="grid w-full grid-cols-4">
                     <TabsTrigger value="calories" className="gap-2">
                         <TrendingUp className="h-4 w-4" />
                         Calories
@@ -170,6 +181,10 @@ export function AnalyticsClient({
                     <TabsTrigger value="breakdown" className="gap-2">
                         <PieChart className="h-4 w-4" />
                         Breakdown
+                    </TabsTrigger>
+                    <TabsTrigger value="weight" className="gap-2">
+                        <Scale className="h-4 w-4" />
+                        Weight
                     </TabsTrigger>
                 </TabsList>
 
@@ -358,6 +373,100 @@ export function AnalyticsClient({
                             ) : (
                                 <div className="flex items-center justify-center h-[250px] text-muted-foreground">
                                     No meals logged today
+                                </div>
+                            )}
+                        </CardContent>
+                    </Card>
+                </TabsContent>
+
+                {/* Weight Tab */}
+                <TabsContent value="weight">
+                    {/* Weight Stats Cards */}
+                    {weightStats && weightStats.current !== null && (
+                        <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
+                            <Card>
+                                <CardContent className="pt-6">
+                                    <p className="text-sm text-muted-foreground">Current</p>
+                                    <p className="text-2xl font-bold">{weightStats.current} kg</p>
+                                </CardContent>
+                            </Card>
+                            <Card>
+                                <CardContent className="pt-6">
+                                    <p className="text-sm text-muted-foreground">Week Change</p>
+                                    <p className={`text-2xl font-bold ${weightStats.weekChange !== null && weightStats.weekChange < 0 ? 'text-green-500' : weightStats.weekChange !== null && weightStats.weekChange > 0 ? 'text-red-500' : ''}`}>
+                                        {weightStats.weekChange !== null ? `${weightStats.weekChange > 0 ? '+' : ''}${weightStats.weekChange.toFixed(1)} kg` : '—'}
+                                    </p>
+                                </CardContent>
+                            </Card>
+                            <Card>
+                                <CardContent className="pt-6">
+                                    <p className="text-sm text-muted-foreground">Month Change</p>
+                                    <p className={`text-2xl font-bold ${weightStats.monthChange !== null && weightStats.monthChange < 0 ? 'text-green-500' : weightStats.monthChange !== null && weightStats.monthChange > 0 ? 'text-red-500' : ''}`}>
+                                        {weightStats.monthChange !== null ? `${weightStats.monthChange > 0 ? '+' : ''}${weightStats.monthChange.toFixed(1)} kg` : '—'}
+                                    </p>
+                                </CardContent>
+                            </Card>
+                            <Card>
+                                <CardContent className="pt-6">
+                                    <p className="text-sm text-muted-foreground">Range</p>
+                                    <p className="text-2xl font-bold">{weightStats.lowest}–{weightStats.highest}</p>
+                                    <p className="text-xs text-muted-foreground">kg (90d)</p>
+                                </CardContent>
+                            </Card>
+                        </div>
+                    )}
+
+                    {/* Weight Trend Chart */}
+                    <Card className="mb-4">
+                        <CardHeader>
+                            <CardTitle className="text-base">Weight Trend</CardTitle>
+                            <CardDescription>Daily weight over the last 90 days</CardDescription>
+                        </CardHeader>
+                        <CardContent>
+                            {weightEntries.length > 0 ? (
+                                <div style={{ minWidth: 0, width: '100%' }}>
+                                    <ResponsiveContainer width="100%" height={300}>
+                                        <LineChart data={weightEntries.map(e => ({ date: format(new Date(e.logged_at + 'T00:00:00'), 'MMM d'), weight: e.weight }))}>
+                                            <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
+                                            <XAxis dataKey="date" tick={{ fontSize: 12 }} className="fill-muted-foreground" interval="preserveStartEnd" />
+                                            <YAxis domain={['dataMin - 1', 'dataMax + 1']} tick={{ fontSize: 12 }} className="fill-muted-foreground" />
+                                            <Tooltip contentStyle={{ backgroundColor: 'hsl(var(--card))', border: '1px solid hsl(var(--border))', borderRadius: '8px' }} formatter={(value: number | undefined) => [`${value ?? 0} kg`, 'Weight']} />
+                                            <Line type="monotone" dataKey="weight" stroke="hsl(var(--primary))" strokeWidth={2} dot={{ r: 3 }} activeDot={{ r: 5 }} />
+                                        </LineChart>
+                                    </ResponsiveContainer>
+                                </div>
+                            ) : (
+                                <div className="flex items-center justify-center h-[250px] text-muted-foreground">
+                                    No weight entries yet. Log your weight from the dashboard.
+                                </div>
+                            )}
+                        </CardContent>
+                    </Card>
+
+                    {/* Weight vs Calories Correlation */}
+                    <Card>
+                        <CardHeader>
+                            <CardTitle className="text-base">Weight vs Calories</CardTitle>
+                            <CardDescription>Correlation between daily calorie intake and weight over 30 days</CardDescription>
+                        </CardHeader>
+                        <CardContent>
+                            {weightCalories.length > 0 ? (
+                                <div style={{ minWidth: 0, width: '100%' }}>
+                                    <ResponsiveContainer width="100%" height={300}>
+                                        <ComposedChart data={weightCalories.map(d => ({ date: format(new Date(d.date + 'T00:00:00'), 'MMM d'), weight: d.weight, calories: d.calories }))}>
+                                            <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
+                                            <XAxis dataKey="date" tick={{ fontSize: 12 }} className="fill-muted-foreground" interval="preserveStartEnd" />
+                                            <YAxis yAxisId="weight" orientation="left" domain={['dataMin - 1', 'dataMax + 1']} tick={{ fontSize: 12 }} className="fill-muted-foreground" label={{ value: 'kg', angle: -90, position: 'insideLeft', style: { fontSize: 11 } }} />
+                                            <YAxis yAxisId="calories" orientation="right" tick={{ fontSize: 12 }} className="fill-muted-foreground" label={{ value: 'cal', angle: 90, position: 'insideRight', style: { fontSize: 11 } }} />
+                                            <Tooltip contentStyle={{ backgroundColor: 'hsl(var(--card))', border: '1px solid hsl(var(--border))', borderRadius: '8px' }} />
+                                            <Bar yAxisId="calories" dataKey="calories" fill="hsl(var(--muted-foreground))" opacity={0.2} name="Calories" />
+                                            <Line yAxisId="weight" type="monotone" dataKey="weight" stroke="hsl(var(--primary))" strokeWidth={2} dot={{ r: 3 }} connectNulls name="Weight (kg)" />
+                                        </ComposedChart>
+                                    </ResponsiveContainer>
+                                </div>
+                            ) : (
+                                <div className="flex items-center justify-center h-[250px] text-muted-foreground">
+                                    Need both weight and food entries to show correlation
                                 </div>
                             )}
                         </CardContent>

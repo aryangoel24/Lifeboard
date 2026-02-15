@@ -84,6 +84,28 @@ export function GoalsForm({ profile }: GoalsFormProps) {
                             defaultValue={profile.daily_fat_goal}
                         />
                     </div>
+                    <div className="relative my-2">
+                        <div className="absolute inset-0 flex items-center">
+                            <span className="w-full border-t" />
+                        </div>
+                        <div className="relative flex justify-center text-xs uppercase">
+                            <span className="bg-background px-2 text-muted-foreground">
+                                Weight
+                            </span>
+                        </div>
+                    </div>
+                    <div className="space-y-2">
+                        <Label htmlFor="goal_weight">Goal Weight (kg)</Label>
+                        <Input
+                            id="goal_weight"
+                            name="goal_weight"
+                            type="number"
+                            min={0}
+                            step={0.1}
+                            defaultValue={profile.goal_weight ?? ""}
+                            placeholder="e.g. 70"
+                        />
+                    </div>
                     <Button type="submit" className="w-full" disabled={loading}>
                         {loading ? "Saving..." : "Save goals"}
                     </Button>

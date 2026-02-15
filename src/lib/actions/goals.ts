@@ -31,11 +31,14 @@ export async function updateGoals(formData: FormData) {
     return { error: "Unauthorized" };
   }
 
+  const goalWeightStr = formData.get("goal_weight") as string;
+
   const updates = {
     daily_calories_goal: parseInt(formData.get("daily_calories_goal") as string) || 2000,
     daily_protein_goal: parseInt(formData.get("daily_protein_goal") as string) || 150,
     daily_carbs_goal: parseInt(formData.get("daily_carbs_goal") as string) || 250,
     daily_fat_goal: parseInt(formData.get("daily_fat_goal") as string) || 65,
+    goal_weight: goalWeightStr ? parseFloat(goalWeightStr) : null,
     updated_at: new Date().toISOString(),
   };
 

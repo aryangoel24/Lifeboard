@@ -4,6 +4,8 @@ export type Profile = {
   daily_protein_goal: number;
   daily_carbs_goal: number;
   daily_fat_goal: number;
+  goal_weight: number | null;
+  weight_unit: string;
   created_at: string;
   updated_at: string;
 };
@@ -112,4 +114,13 @@ export type UserStreak = {
   longest_count: number;
   last_logged_date: string | null;
   updated_at: string;
+};
+
+export type WeightEntry = {
+  id: string;
+  user_id: string;
+  weight: number;
+  logged_at: string;
+  notes: string | null;
+  created_at: string;
 };
