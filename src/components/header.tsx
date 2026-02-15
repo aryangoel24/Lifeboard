@@ -12,6 +12,10 @@ import { MobileNav } from "@/components/mobile-nav";
 const navItems = [
   { href: "/dashboard", label: "Dashboard" },
   { href: "/calendar", label: "Calendar" },
+  { href: "/recipes", label: "Recipes" },
+  { href: "/budget", label: "Budget" },
+  { href: "/analytics", label: "Analytics" },
+  { href: "/achievements", label: "Achievements" },
   { href: "/goals", label: "Goals" },
 ];
 
