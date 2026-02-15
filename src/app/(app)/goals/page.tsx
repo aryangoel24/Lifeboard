@@ -1,19 +1,17 @@
-import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
+import { getAuthUserId } from "@/lib/auth";
+import { redirect } from "next/navigation";
 import { GoalsForm } from "@/components/goals-form";
 
 export default async function GoalsPage() {
+  const userId = await getAuthUserId();
+  if (!userId) redirect("/login");
+
   const supabase = createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-
-  if (!user) redirect("/login");
-
   const { data: profile } = await supabase
     .from("profiles")
     .select("*")
-    .eq("id", user.id)
+    .eq("id", userId)
     .single();
 
   if (!profile) {

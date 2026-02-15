@@ -1,17 +1,8 @@
-import { redirect } from "next/navigation";
-import { createClient } from "@/lib/supabase/server";
 import { getBudgetGoal, getBudgetSummary, getCookingStats } from "@/lib/actions/budget";
 import { BudgetClient } from "@/components/budget-client";
 import { startOfWeek, endOfWeek, startOfMonth, endOfMonth } from "date-fns";
 
 export default async function BudgetPage() {
-    const supabase = createClient();
-    const {
-        data: { user },
-    } = await supabase.auth.getUser();
-
-    if (!user) redirect("/login");
-
     const now = new Date();
     const weekStart = startOfWeek(now, { weekStartsOn: 1 }).toISOString();
     const weekEnd = endOfWeek(now, { weekStartsOn: 1 }).toISOString();

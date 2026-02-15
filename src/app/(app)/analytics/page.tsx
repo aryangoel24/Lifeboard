@@ -1,17 +1,8 @@
-import { redirect } from "next/navigation";
-import { createClient } from "@/lib/supabase/server";
 import { getMacroTrends, getWeeklySummary, getMealBreakdown } from "@/lib/actions/analytics";
 import { formatDate } from "@/lib/utils";
 import { AnalyticsClient } from "@/components/analytics-client";
 
 export default async function AnalyticsPage() {
-    const supabase = createClient();
-    const {
-        data: { user },
-    } = await supabase.auth.getUser();
-
-    if (!user) redirect("/login");
-
     const today = formatDate(new Date());
 
     const [trends, weeklySummary, mealBreakdown] = await Promise.all([
