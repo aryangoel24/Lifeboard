@@ -15,7 +15,7 @@ import {
 import { PhotoUpload } from "@/components/photo-upload";
 import { toast } from "sonner";
 import { getDefaultMealCategory } from "@/lib/utils";
-import type { FoodEntry, MealCategory } from "@/types/database";
+import type { FoodEntry, MealCategory, MealSource } from "@/types/database";
 
 interface FoodEntryFormProps {
   userId: string;
@@ -36,12 +36,16 @@ export function FoodEntryForm({
   const [mealCategory, setMealCategory] = useState<MealCategory>(
     entry?.meal_category ?? getDefaultMealCategory()
   );
+  const [mealSource, setMealSource] = useState<MealSource | "">(
+    entry?.meal_source ?? ""
+  );
   const [loading, setLoading] = useState(false);
 
   async function handleSubmit(formData: FormData) {
     setLoading(true);
     formData.set("photo_url", photoUrl ?? "");
     formData.set("meal_category", mealCategory);
+    formData.set("meal_source", mealSource);
     formData.set("logged_at", new Date(date + "T12:00:00").toISOString());
 
     const result = entry
@@ -138,6 +142,39 @@ export function FoodEntryForm({
         </div>
       </div>
 
+      {/* Budget & Cooking Tracking */}
+      <div className="grid grid-cols-2 gap-3">
+        <div className="space-y-2">
+          <Label htmlFor="cost">Cost ($)</Label>
+          <Input
+            id="cost"
+            name="cost"
+            type="number"
+            min={0}
+            step={0.01}
+            defaultValue={entry?.cost ?? ""}
+            placeholder="0.00"
+          />
+        </div>
+        <div className="space-y-2">
+          <Label>Source</Label>
+          <Select
+            value={mealSource}
+            onValueChange={(v) => setMealSource(v as MealSource)}
+          >
+            <SelectTrigger>
+              <SelectValue placeholder="Optional" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="homemade">Homemade</SelectItem>
+              <SelectItem value="restaurant">Restaurant</SelectItem>
+              <SelectItem value="takeout">Takeout</SelectItem>
+              <SelectItem value="grocery_prepared">Grocery (prepared)</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+      </div>
+
       <PhotoUpload
         userId={userId}
         currentUrl={entry?.photo_url}
@@ -150,8 +187,8 @@ export function FoodEntryForm({
             ? "Updating..."
             : "Adding..."
           : entry
-          ? "Update entry"
-          : "Add entry"}
+            ? "Update entry"
+            : "Add entry"}
       </Button>
     </form>
   );

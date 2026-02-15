@@ -39,4 +39,9 @@ next-env.d.ts
 .claude
 CLAUDE.md
 IMPLEMENTATION_PLAN.md
+docs/
+
+# Supabase
+supabase/
+
 

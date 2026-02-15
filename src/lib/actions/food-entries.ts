@@ -5,6 +5,7 @@ import { createClient } from "@/lib/supabase/server";
 import { getDayRange } from "@/lib/utils";
 import type { FoodEntry } from "@/types/database";
 import { deletePhoto } from "./storage";
+import { updateStreaks, checkAndUnlockAchievements } from "./achievements";
 
 export async function getFoodEntries(date: string): Promise<FoodEntry[]> {
   const supabase = createClient();
@@ -35,6 +36,9 @@ export async function createFoodEntry(formData: FormData) {
     return { error: "Unauthorized" };
   }
 
+  const costStr = formData.get("cost") as string;
+  const mealSource = formData.get("meal_source") as string;
+
   const entry = {
     user_id: user.id,
     name: formData.get("name") as string,
@@ -45,6 +49,8 @@ export async function createFoodEntry(formData: FormData) {
     meal_category: formData.get("meal_category") as string,
     photo_url: (formData.get("photo_url") as string) || null,
     logged_at: (formData.get("logged_at") as string) || new Date().toISOString(),
+    cost: costStr ? parseFloat(costStr) : null,
+    meal_source: mealSource || null,
   };
 
   const { error } = await supabase.from("food_entries").insert(entry);
@@ -53,8 +59,11 @@ export async function createFoodEntry(formData: FormData) {
     return { error: error.message };
   }
 
+  // Update streaks and check achievements (fire-and-forget)
+  updateStreaks().catch(console.error);
+  checkAndUnlockAchievements().catch(console.error);
+
   revalidatePath("/dashboard");
-  revalidatePath("/calendar");
   return { success: true };
 }
 
@@ -68,6 +77,9 @@ export async function updateFoodEntry(id: string, formData: FormData) {
     return { error: "Unauthorized" };
   }
 
+  const costStr = formData.get("cost") as string;
+  const mealSource = formData.get("meal_source") as string;
+
   const updates = {
     name: formData.get("name") as string,
     calories: parseInt(formData.get("calories") as string) || 0,
@@ -76,6 +88,8 @@ export async function updateFoodEntry(id: string, formData: FormData) {
     fat: parseFloat(formData.get("fat") as string) || 0,
     meal_category: formData.get("meal_category") as string,
     photo_url: (formData.get("photo_url") as string) || null,
+    cost: costStr ? parseFloat(costStr) : null,
+    meal_source: mealSource || null,
   };
 
   const { error } = await supabase
@@ -89,7 +103,6 @@ export async function updateFoodEntry(id: string, formData: FormData) {
   }
 
   revalidatePath("/dashboard");
-  revalidatePath("/calendar");
   return { success: true };
 }
 
@@ -126,7 +139,6 @@ export async function deleteFoodEntry(id: string) {
   }
 
   revalidatePath("/dashboard");
-  revalidatePath("/calendar");
   return { success: true };
 }
 

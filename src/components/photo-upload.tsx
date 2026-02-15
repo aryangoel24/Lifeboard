@@ -73,6 +73,7 @@ export function PhotoUpload({ userId, currentUrl, onUpload }: PhotoUploadProps) 
             alt="Food photo"
             fill
             className="object-cover"
+            sizes="(max-width: 672px) 100vw, 672px"
           />
           <Button
             type="button"
