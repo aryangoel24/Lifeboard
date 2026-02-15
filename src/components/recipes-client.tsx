@@ -21,15 +21,15 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
-import { Plus, Trash2, Clock, ChefHat, Utensils, BookOpen } from "lucide-react";
-import { createRecipe, deleteRecipe } from "@/lib/actions/recipes";
+import { Plus, Trash2, Clock, ChefHat, Utensils, BookOpen, UtensilsCrossed } from "lucide-react";
+import { createRecipe, deleteRecipe, logFromRecipe } from "@/lib/actions/recipes";
 import {
     createMealTemplate,
     logFromTemplate,
     deleteMealTemplate,
 } from "@/lib/actions/meal-templates";
 import { formatDate } from "@/lib/utils";
-import type { Recipe, MealTemplate, MealCategory } from "@/types/database";
+import type { Recipe, MealTemplate, MealCategory, PantryItem } from "@/types/database";
 import {
     Select,
     SelectContent,
@@ -37,10 +37,12 @@ import {
     SelectTrigger,
     SelectValue,
 } from "@/components/ui/select";
+import { PantryIngredientPicker } from "@/components/pantry-ingredient-picker";
 
 interface RecipesClientProps {
     recipes: Recipe[];
     templates: MealTemplate[];
+    pantryItems?: PantryItem[];
 }
 
 type IngredientInput = {
@@ -51,6 +53,7 @@ type IngredientInput = {
     protein: string;
     carbs: string;
     fat: string;
+    pantryItemId: string | null;
 };
 
 const EMPTY_INGREDIENT: IngredientInput = {
@@ -61,14 +64,18 @@ const EMPTY_INGREDIENT: IngredientInput = {
     protein: "",
     carbs: "",
     fat: "",
+    pantryItemId: null,
 };
 
 export function RecipesClient({
     recipes,
     templates,
+    pantryItems = [],
 }: RecipesClientProps) {
     const [recipeDialogOpen, setRecipeDialogOpen] = useState(false);
     const [templateDialogOpen, setTemplateDialogOpen] = useState(false);
+    const [logDialogRecipe, setLogDialogRecipe] = useState<Recipe | null>(null);
+    const [logServings, setLogServings] = useState(1);
     const [ingredients, setIngredients] = useState<IngredientInput[]>([
         { ...EMPTY_INGREDIENT },
     ]);
@@ -93,6 +100,15 @@ export function RecipesClient({
         setIngredients(updated);
     }
 
+    function updateIngredientMultiple(
+        index: number,
+        updates: Record<string, string>
+    ) {
+        const updated = [...ingredients];
+        updated[index] = { ...updated[index], ...updates };
+        setIngredients(updated);
+    }
+
     async function handleCreateRecipe(formData: FormData) {
         setLoading(true);
         const validIngredients = ingredients
@@ -105,6 +121,7 @@ export function RecipesClient({
                 protein: parseFloat(i.protein) || 0,
                 carbs: parseFloat(i.carbs) || 0,
                 fat: parseFloat(i.fat) || 0,
+                pantryItemId: i.pantryItemId || null,
             }));
 
         formData.set("ingredients", JSON.stringify(validIngredients));
@@ -128,6 +145,21 @@ export function RecipesClient({
         } else {
             toast.success("Recipe deleted");
         }
+    }
+
+    async function handleLogRecipe() {
+        if (!logDialogRecipe) return;
+        setLoading(true);
+        const today = formatDate(new Date());
+        const result = await logFromRecipe(logDialogRecipe.id, logServings, today);
+        if (result?.error) {
+            toast.error(result.error);
+        } else {
+            toast.success("Logged from recipe!");
+            setLogDialogRecipe(null);
+            setLogServings(1);
+        }
+        setLoading(false);
     }
 
     async function handleCreateTemplate(formData: FormData) {
@@ -270,13 +302,26 @@ export function RecipesClient({
                                                     <Trash2 className="h-3 w-3" />
                                                 </Button>
                                             )}
-                                            <Input
-                                                placeholder="Ingredient name"
-                                                value={ing.name}
-                                                onChange={(e) =>
-                                                    updateIngredient(idx, "name", e.target.value)
-                                                }
-                                            />
+                                            {pantryItems.length > 0 ? (
+                                                <PantryIngredientPicker
+                                                    pantryItems={pantryItems}
+                                                    ingredient={ing}
+                                                    onUpdate={(field, value) =>
+                                                        updateIngredient(idx, field as keyof IngredientInput, value)
+                                                    }
+                                                    onUpdateMultiple={(updates) =>
+                                                        updateIngredientMultiple(idx, updates)
+                                                    }
+                                                />
+                                            ) : (
+                                                <Input
+                                                    placeholder="Ingredient name"
+                                                    value={ing.name}
+                                                    onChange={(e) =>
+                                                        updateIngredient(idx, "name", e.target.value)
+                                                    }
+                                                />
+                                            )}
                                             <div className="grid grid-cols-4 gap-2">
                                                 <Input
                                                     placeholder="Cal"
@@ -344,14 +389,28 @@ export function RecipesClient({
                                     <CardHeader className="pb-2">
                                         <div className="flex items-start justify-between">
                                             <CardTitle className="text-base">{recipe.name}</CardTitle>
-                                            <Button
-                                                variant="ghost"
-                                                size="icon"
-                                                className="h-7 w-7 text-destructive"
-                                                onClick={() => handleDeleteRecipe(recipe.id)}
-                                            >
-                                                <Trash2 className="h-3.5 w-3.5" />
-                                            </Button>
+                                            <div className="flex gap-1">
+                                                <Button
+                                                    variant="default"
+                                                    size="sm"
+                                                    className="h-7 text-xs"
+                                                    onClick={() => {
+                                                        setLogDialogRecipe(recipe);
+                                                        setLogServings(1);
+                                                    }}
+                                                >
+                                                    <UtensilsCrossed className="h-3 w-3 mr-1" />
+                                                    Log
+                                                </Button>
+                                                <Button
+                                                    variant="ghost"
+                                                    size="icon"
+                                                    className="h-7 w-7 text-destructive"
+                                                    onClick={() => handleDeleteRecipe(recipe.id)}
+                                                >
+                                                    <Trash2 className="h-3.5 w-3.5" />
+                                                </Button>
+                                            </div>
                                         </div>
                                         <CardDescription className="flex items-center gap-3">
                                             {recipe.prep_time_minutes && (
@@ -390,6 +449,17 @@ export function RecipesClient({
                                                 </p>
                                             </div>
                                         </div>
+                                        {recipe.servings > 1 && (
+                                            <p className="text-xs text-muted-foreground mt-1">
+                                                Per serving: {Math.round(recipe.total_calories / recipe.servings)} cal
+                                                {" • "}
+                                                {Math.round(recipe.total_protein / recipe.servings)}g P
+                                                {" • "}
+                                                {Math.round(recipe.total_carbs / recipe.servings)}g C
+                                                {" • "}
+                                                {Math.round(recipe.total_fat / recipe.servings)}g F
+                                            </p>
+                                        )}
                                         {recipe.tags && recipe.tags.length > 0 && (
                                             <div className="flex flex-wrap gap-1 mt-3">
                                                 {recipe.tags.map((tag) => (
@@ -570,6 +640,65 @@ export function RecipesClient({
                     )}
                 </TabsContent>
             </Tabs>
+
+            {/* Log from Recipe Dialog */}
+            <Dialog open={!!logDialogRecipe} onOpenChange={(open) => { if (!open) setLogDialogRecipe(null); }}>
+                <DialogContent>
+                    <DialogHeader>
+                        <DialogTitle>Log from Recipe</DialogTitle>
+                    </DialogHeader>
+                    {logDialogRecipe && (() => {
+                        const perServing = {
+                            calories: Math.round(logDialogRecipe.total_calories / logDialogRecipe.servings),
+                            protein: Math.round(logDialogRecipe.total_protein / logDialogRecipe.servings),
+                            carbs: Math.round(logDialogRecipe.total_carbs / logDialogRecipe.servings),
+                            fat: Math.round(logDialogRecipe.total_fat / logDialogRecipe.servings),
+                        };
+                        return (
+                            <div className="space-y-4">
+                                <div>
+                                    <p className="font-medium">{logDialogRecipe.name}</p>
+                                    <p className="text-sm text-muted-foreground">
+                                        Per serving: {perServing.calories} cal • {perServing.protein}g P • {perServing.carbs}g C • {perServing.fat}g F
+                                    </p>
+                                </div>
+                                <div className="space-y-2">
+                                    <Label htmlFor="log-servings">Servings</Label>
+                                    <Input
+                                        id="log-servings"
+                                        type="number"
+                                        min={0.5}
+                                        step={0.5}
+                                        value={logServings}
+                                        onChange={(e) => setLogServings(parseFloat(e.target.value) || 1)}
+                                    />
+                                </div>
+                                <div className="grid grid-cols-4 gap-2 text-sm rounded-lg bg-muted p-3">
+                                    <div>
+                                        <p className="text-muted-foreground text-xs">Calories</p>
+                                        <p className="font-medium">{Math.round(perServing.calories * logServings)}</p>
+                                    </div>
+                                    <div>
+                                        <p className="text-muted-foreground text-xs">Protein</p>
+                                        <p className="font-medium">{Math.round(perServing.protein * logServings)}g</p>
+                                    </div>
+                                    <div>
+                                        <p className="text-muted-foreground text-xs">Carbs</p>
+                                        <p className="font-medium">{Math.round(perServing.carbs * logServings)}g</p>
+                                    </div>
+                                    <div>
+                                        <p className="text-muted-foreground text-xs">Fat</p>
+                                        <p className="font-medium">{Math.round(perServing.fat * logServings)}g</p>
+                                    </div>
+                                </div>
+                                <Button className="w-full" onClick={handleLogRecipe} disabled={loading}>
+                                    {loading ? "Logging..." : "Log Entry"}
+                                </Button>
+                            </div>
+                        );
+                    })()}
+                </DialogContent>
+            </Dialog>
         </div>
     );
 }

@@ -90,3 +90,101 @@ export async function estimateNutrition(
         };
     }
 }
+
+const LABEL_SYSTEM_PROMPT = `You are a nutrition label reader. Given an image of a nutrition label, extract the nutritional information.
+
+Rules:
+- Return a JSON object with these exact fields: name, serving_amount, serving_unit, calories, protein, carbs, fat
+- "name" should be the product name if visible, otherwise a reasonable description
+- "serving_amount" is the numeric serving size (e.g. 100, 28, 240)
+- "serving_unit" is the unit (e.g. "g", "ml", "oz")
+- "calories" is a number (kcal per serving)
+- "protein", "carbs", "fat" are numbers in grams per serving, rounded to 1 decimal
+- If you cannot read certain values, use 0
+- Only return the JSON object, no other text`;
+
+export interface NutritionLabelData {
+    name: string;
+    serving_amount: number;
+    serving_unit: string;
+    calories: number;
+    protein: number;
+    carbs: number;
+    fat: number;
+}
+
+export async function extractNutritionFromLabel(
+    imageUrl: string
+): Promise<{ data: NutritionLabelData | null; error: string | null }> {
+    if (!imageUrl) {
+        return { data: null, error: "No image provided" };
+    }
+
+    const apiKey = process.env.OPENAI_API_KEY;
+    if (!apiKey) {
+        return {
+            data: null,
+            error: "OpenAI API key not configured. Add OPENAI_API_KEY to .env.local",
+        };
+    }
+
+    try {
+        const openai = new OpenAI({ apiKey });
+
+        const response = await openai.chat.completions.create({
+            model: "gpt-4o",
+            messages: [
+                { role: "system", content: LABEL_SYSTEM_PROMPT },
+                {
+                    role: "user",
+                    content: [
+                        {
+                            type: "image_url",
+                            image_url: { url: imageUrl },
+                        },
+                        {
+                            type: "text",
+                            text: "Extract the nutrition information from this label.",
+                        },
+                    ],
+                },
+            ],
+            response_format: { type: "json_object" },
+            temperature: 0.2,
+            max_tokens: 300,
+        });
+
+        const content = response.choices[0]?.message?.content;
+        if (!content) {
+            return { data: null, error: "No response from AI" };
+        }
+
+        const parsed = JSON.parse(content) as NutritionLabelData;
+
+        // Validate required fields
+        if (
+            typeof parsed.calories !== "number" ||
+            typeof parsed.protein !== "number" ||
+            typeof parsed.carbs !== "number" ||
+            typeof parsed.fat !== "number"
+        ) {
+            return { data: null, error: "AI returned invalid data" };
+        }
+
+        // Clamp values
+        parsed.calories = Math.max(0, Math.round(parsed.calories));
+        parsed.protein = Math.max(0, Math.round(parsed.protein * 10) / 10);
+        parsed.carbs = Math.max(0, Math.round(parsed.carbs * 10) / 10);
+        parsed.fat = Math.max(0, Math.round(parsed.fat * 10) / 10);
+        parsed.serving_amount = Math.max(0, parsed.serving_amount || 100);
+        parsed.serving_unit = parsed.serving_unit || "g";
+
+        return { data: parsed, error: null };
+    } catch (err) {
+        console.error("Label extraction error:", err);
+        return {
+            data: null,
+            error: "Failed to extract nutrition from label. Please enter values manually.",
+        };
+    }
+}
