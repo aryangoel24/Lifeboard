@@ -2,6 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
+import { getDefaultMealCategory } from "@/lib/utils";
 import type { Recipe, RecipeIngredient } from "@/types/database";
 
 export async function getRecipes(): Promise<Recipe[]> {
@@ -62,6 +63,7 @@ export async function createRecipe(formData: FormData) {
         protein: number;
         carbs: number;
         fat: number;
+        pantryItemId?: string | null;
     }> = ingredientsJson ? JSON.parse(ingredientsJson) : [];
 
     // Calculate totals from ingredients
@@ -105,6 +107,7 @@ export async function createRecipe(formData: FormData) {
             protein: ing.protein || 0,
             carbs: ing.carbs || 0,
             fat: ing.fat || 0,
+            pantry_item_id: ing.pantryItemId || null,
         }));
 
         const { error: ingError } = await supabase.from("recipe_ingredients").insert(ingredientRows);
@@ -134,6 +137,7 @@ export async function updateRecipe(id: string, formData: FormData) {
         protein: number;
         carbs: number;
         fat: number;
+        pantryItemId?: string | null;
     }> = ingredientsJson ? JSON.parse(ingredientsJson) : [];
 
     const totals = ingredients.reduce(
@@ -178,11 +182,53 @@ export async function updateRecipe(id: string, formData: FormData) {
             protein: ing.protein || 0,
             carbs: ing.carbs || 0,
             fat: ing.fat || 0,
+            pantry_item_id: ing.pantryItemId || null,
         }));
 
         await supabase.from("recipe_ingredients").insert(ingredientRows);
     }
 
+    revalidatePath("/recipes");
+    return { success: true };
+}
+
+export async function logFromRecipe(recipeId: string, servings: number, date: string) {
+    const supabase = createClient();
+    const {
+        data: { user },
+    } = await supabase.auth.getUser();
+
+    if (!user) return { error: "Unauthorized" };
+
+    const { data: recipe, error: fetchError } = await supabase
+        .from("recipes")
+        .select("*")
+        .eq("id", recipeId)
+        .eq("user_id", user.id)
+        .single();
+
+    if (fetchError || !recipe) return { error: "Recipe not found" };
+
+    const perServingMultiplier = servings / recipe.servings;
+    const name = servings === 1 ? recipe.name : `${recipe.name} × ${servings}`;
+
+    const entry = {
+        user_id: user.id,
+        name,
+        calories: Math.round(recipe.total_calories * perServingMultiplier),
+        protein: Math.round(recipe.total_protein * perServingMultiplier),
+        carbs: Math.round(recipe.total_carbs * perServingMultiplier),
+        fat: Math.round(recipe.total_fat * perServingMultiplier),
+        meal_category: getDefaultMealCategory(),
+        meal_source: "homemade",
+        logged_at: new Date(date + "T12:00:00").toISOString(),
+    };
+
+    const { error: insertError } = await supabase.from("food_entries").insert(entry);
+
+    if (insertError) return { error: insertError.message };
+
+    revalidatePath("/dashboard");
     revalidatePath("/recipes");
     return { success: true };
 }

@@ -4,6 +4,7 @@ export type Profile = {
   daily_protein_goal: number;
   daily_carbs_goal: number;
   daily_fat_goal: number;
+  goal_weight: number | null;
   created_at: string;
   updated_at: string;
 };
@@ -54,6 +55,37 @@ export type RecipeIngredient = {
   protein: number;
   carbs: number;
   fat: number;
+  pantry_item_id: string | null;
+};
+
+export type PantryCategory =
+  | "protein"
+  | "dairy"
+  | "grain"
+  | "vegetable"
+  | "fruit"
+  | "fat_oil"
+  | "spice"
+  | "beverage"
+  | "other";
+
+export type PantryItem = {
+  id: string;
+  user_id: string;
+  name: string;
+  category: PantryCategory;
+  base_amount: number;
+  base_unit: string;
+  calories_per_base: number;
+  protein_per_base: number;
+  carbs_per_base: number;
+  fat_per_base: number;
+  cost_per_base: number | null;
+  stock_quantity: number | null;
+  stock_unit: string | null;
+  photo_url: string | null;
+  created_at: string;
+  updated_at: string;
 };
 
 export type MealTemplate = {
@@ -112,4 +144,13 @@ export type UserStreak = {
   longest_count: number;
   last_logged_date: string | null;
   updated_at: string;
+};
+
+export type WeightEntry = {
+  id: string;
+  user_id: string;
+  weight: number;
+  logged_at: string;
+  notes: string | null;
+  created_at: string;
 };

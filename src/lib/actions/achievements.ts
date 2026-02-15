@@ -129,22 +129,31 @@ export async function checkAndUnlockAchievements() {
 
     if (!user) return [];
 
-    const newlyUnlocked: string[] = [];
-
-    // Get existing achievements
-    const { data: existing } = await supabase
-        .from("user_achievements")
-        .select("achievement_key")
-        .eq("user_id", user.id);
+    // Get existing achievements, entry count, streaks, and recipe count in parallel
+    const [{ data: existing }, { count: entryCount }, { data: streaks }, { count: recipeCount }] =
+        await Promise.all([
+            supabase
+                .from("user_achievements")
+                .select("achievement_key")
+                .eq("user_id", user.id),
+            supabase
+                .from("food_entries")
+                .select("*", { count: "exact", head: true })
+                .eq("user_id", user.id),
+            supabase
+                .from("user_streaks")
+                .select("*")
+                .eq("user_id", user.id),
+            supabase
+                .from("recipes")
+                .select("*", { count: "exact", head: true })
+                .eq("user_id", user.id),
+        ]);
 
     const unlockedKeys = new Set((existing || []).map((a) => a.achievement_key));
+    const toInsert: { user_id: string; achievement_key: string }[] = [];
 
     // Check entry count achievements
-    const { count: entryCount } = await supabase
-        .from("food_entries")
-        .select("*", { count: "exact", head: true })
-        .eq("user_id", user.id);
-
     const entryMilestones = [
         { count: 10, key: "entries_10" },
         { count: 50, key: "entries_50" },
@@ -154,58 +163,43 @@ export async function checkAndUnlockAchievements() {
 
     for (const milestone of entryMilestones) {
         if ((entryCount || 0) >= milestone.count && !unlockedKeys.has(milestone.key)) {
-            await supabase.from("user_achievements").insert({
-                user_id: user.id,
-                achievement_key: milestone.key,
-            });
-            newlyUnlocked.push(milestone.key);
-            unlockedKeys.add(milestone.key);
+            toInsert.push({ user_id: user.id, achievement_key: milestone.key });
         }
     }
 
     // Check streak achievements
-    const { data: streaks } = await supabase
-        .from("user_streaks")
-        .select("*")
-        .eq("user_id", user.id);
-
     const loggingStreak = (streaks || []).find((s) => s.streak_type === "logging");
     const cookingStreak = (streaks || []).find((s) => s.streak_type === "cooking");
 
     if (loggingStreak) {
         if (loggingStreak.current_count >= 7 && !unlockedKeys.has("streak_7")) {
-            await supabase.from("user_achievements").insert({ user_id: user.id, achievement_key: "streak_7" });
-            newlyUnlocked.push("streak_7");
+            toInsert.push({ user_id: user.id, achievement_key: "streak_7" });
         }
         if (loggingStreak.current_count >= 30 && !unlockedKeys.has("streak_30")) {
-            await supabase.from("user_achievements").insert({ user_id: user.id, achievement_key: "streak_30" });
-            newlyUnlocked.push("streak_30");
+            toInsert.push({ user_id: user.id, achievement_key: "streak_30" });
         }
     }
 
     if (cookingStreak) {
         if (cookingStreak.current_count >= 3 && !unlockedKeys.has("cooking_streak_3")) {
-            await supabase.from("user_achievements").insert({ user_id: user.id, achievement_key: "cooking_streak_3" });
-            newlyUnlocked.push("cooking_streak_3");
+            toInsert.push({ user_id: user.id, achievement_key: "cooking_streak_3" });
         }
         if (cookingStreak.current_count >= 7 && !unlockedKeys.has("cooking_streak_7")) {
-            await supabase.from("user_achievements").insert({ user_id: user.id, achievement_key: "cooking_streak_7" });
-            newlyUnlocked.push("cooking_streak_7");
+            toInsert.push({ user_id: user.id, achievement_key: "cooking_streak_7" });
         }
     }
 
     // Check recipe count
-    const { count: recipeCount } = await supabase
-        .from("recipes")
-        .select("*", { count: "exact", head: true })
-        .eq("user_id", user.id);
-
     if ((recipeCount || 0) >= 5 && !unlockedKeys.has("recipes_5")) {
-        await supabase.from("user_achievements").insert({ user_id: user.id, achievement_key: "recipes_5" });
-        newlyUnlocked.push("recipes_5");
+        toInsert.push({ user_id: user.id, achievement_key: "recipes_5" });
     }
 
-    return newlyUnlocked;
+    // Batch insert all new achievements at once
+    if (toInsert.length > 0) {
+        await supabase.from("user_achievements").insert(toInsert);
+    }
+
+    return toInsert.map((a) => a.achievement_key);
 }
 
 export async function getEntryStats() {
