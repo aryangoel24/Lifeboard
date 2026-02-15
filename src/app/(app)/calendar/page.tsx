@@ -36,8 +36,8 @@ export default async function CalendarPage({
 
   return (
     <div className="max-w-4xl mx-auto">
-      <h1 className="text-2xl font-bold mb-6">Calendar</h1>
-      <div className="grid gap-6 md:grid-cols-[auto_1fr]">
+      <h1 className="text-2xl font-semibold tracking-tight text-foreground mb-8">Calendar</h1>
+      <div className="grid gap-8 md:grid-cols-[auto_1fr]">
         <div>
           <CalendarClient
             selectedDate={date}

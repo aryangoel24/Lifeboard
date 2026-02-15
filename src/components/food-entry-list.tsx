@@ -20,10 +20,12 @@ interface FoodEntryListProps {
 export function FoodEntryList({ entries, userId, date }: FoodEntryListProps) {
   if (entries.length === 0) {
     return (
-      <div className="flex flex-col items-center justify-center py-12 text-center">
-        <UtensilsCrossed className="h-12 w-12 text-muted-foreground/50 mb-4" />
-        <h3 className="font-medium text-lg">No entries yet</h3>
-        <p className="text-sm text-muted-foreground mt-1">
+      <div className="flex flex-col items-center justify-center py-16 text-center">
+        <div className="rounded-2xl bg-muted p-4 mb-4">
+          <UtensilsCrossed className="h-8 w-8 text-muted-foreground/50" />
+        </div>
+        <h3 className="font-medium text-base text-foreground">No entries yet</h3>
+        <p className="text-sm text-muted-foreground mt-1 max-w-[240px]">
           Add your first meal to start tracking today.
         </p>
       </div>

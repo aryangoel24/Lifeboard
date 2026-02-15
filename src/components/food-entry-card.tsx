@@ -26,10 +26,10 @@ import type { FoodEntry, MealCategory } from "@/types/database";
 import { format } from "date-fns";
 
 const MEAL_BADGE_COLORS: Record<MealCategory, string> = {
-  breakfast: "bg-amber-500/10 text-amber-700 dark:text-amber-400 border-amber-500/20",
-  lunch: "bg-blue-500/10 text-blue-700 dark:text-blue-400 border-blue-500/20",
-  dinner: "bg-purple-500/10 text-purple-700 dark:text-purple-400 border-purple-500/20",
-  snack: "bg-green-500/10 text-green-700 dark:text-green-400 border-green-500/20",
+  breakfast: "bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/20",
+  lunch: "bg-sky-500/10 text-sky-600 dark:text-sky-400 border-sky-500/20",
+  dinner: "bg-rose-500/10 text-rose-600 dark:text-rose-400 border-rose-500/20",
+  snack: "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/20",
 };
 
 const SOURCE_LABELS: Record<string, string> = {
@@ -82,7 +82,7 @@ export function FoodEntryCard({ entry, userId, date }: FoodEntryCardProps) {
   const logTime = format(new Date(entry.logged_at), "h:mm a");
 
   return (
-    <Card className="shadow-sm hover:shadow-md transition-shadow">
+    <Card className="border-border/60 shadow-sm hover:shadow-md hover:border-border transition-all">
       <CardHeader className="pb-2">
         <div className="flex items-start justify-between">
           <div

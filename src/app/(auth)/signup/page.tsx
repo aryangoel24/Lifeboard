@@ -41,12 +41,18 @@ export default function SignupPage() {
 
   return (
     <>
-      <h1 className="text-2xl font-bold text-center mb-6">Food Tracker</h1>
-      <Card className="shadow-lg">
-        <CardHeader>
-          <CardTitle className="text-2xl">Sign up</CardTitle>
+      <div className="flex flex-col items-center gap-2 mb-8">
+        <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-primary text-primary-foreground mb-2">
+          <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M11 20A7 7 0 0 1 9.8 6.9C15.5 4.9 17 3.5 17 3.5s1 1.5-1 6.5a7 7 0 0 1-5 10"/><path d="M15.7 13.5a6.5 6.5 0 0 0-7.4 5.7"/></svg>
+        </div>
+        <h1 className="text-2xl font-semibold tracking-tight text-foreground">NourishTrack</h1>
+        <p className="text-sm text-muted-foreground">Smart nutrition tracking</p>
+      </div>
+      <Card className="border-border/60 shadow-sm">
+        <CardHeader className="pb-4">
+          <CardTitle className="text-xl">Create your account</CardTitle>
           <CardDescription>
-            Create an account to start tracking your nutrition.
+            Get started tracking your nutrition journey.
           </CardDescription>
         </CardHeader>
         <form action={handleSubmit}>

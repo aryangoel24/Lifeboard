@@ -20,31 +20,31 @@ export function DateNavigator({ date }: DateNavigatorProps) {
   }
 
   return (
-    <div className="flex items-center gap-3">
+    <div className="flex items-center gap-2">
       <Button
-        variant="outline"
+        variant="ghost"
         size="icon"
-        className="h-8 w-8"
+        className="h-8 w-8 rounded-full hover:bg-accent"
         onClick={() => navigate(subDays(currentDate, 1))}
       >
         <ChevronLeft className="h-4 w-4" />
       </Button>
-      <div className="text-center">
-        <p className="font-medium">{formatDisplayDate(date)}</p>
+      <div className="text-center min-w-[140px]">
+        <p className="text-sm font-medium text-foreground">{formatDisplayDate(date)}</p>
       </div>
       <Button
-        variant="outline"
+        variant="ghost"
         size="icon"
-        className="h-8 w-8"
+        className="h-8 w-8 rounded-full hover:bg-accent"
         onClick={() => navigate(addDays(currentDate, 1))}
       >
         <ChevronRight className="h-4 w-4" />
       </Button>
       {!today && (
         <Button
-          variant="secondary"
+          variant="outline"
           size="sm"
-          className="text-xs h-7 rounded-full px-3"
+          className="text-xs h-7 rounded-full px-3 border-primary/30 text-primary hover:bg-primary/5"
           onClick={() => navigate(new Date())}
         >
           Today

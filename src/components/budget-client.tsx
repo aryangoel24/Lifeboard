@@ -96,17 +96,17 @@ export function BudgetClient({
 
     return (
         <div>
-            <div className="flex items-center justify-between mb-6">
-                <div>
-                    <h1 className="text-2xl font-bold">Budget & Cooking</h1>
-                    <p className="text-muted-foreground text-sm mt-1">
+            <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between mb-8">
+                <div className="space-y-1">
+                    <h1 className="text-2xl font-semibold tracking-tight text-foreground">Budget & Cooking</h1>
+                    <p className="text-muted-foreground text-sm">
                         Track food spending and cooking habits
                     </p>
                 </div>
                 <Dialog open={goalDialogOpen} onOpenChange={setGoalDialogOpen}>
                     <DialogTrigger asChild>
-                        <Button variant="outline" size="sm">
-                            <Target className="h-4 w-4 mr-2" />
+                        <Button variant="outline" size="sm" className="rounded-full gap-2 border-border/60">
+                            <Target className="h-4 w-4" />
                             Set Budget
                         </Button>
                     </DialogTrigger>
@@ -150,7 +150,7 @@ export function BudgetClient({
 
             {/* Budget Progress */}
             {budgetGoal && (
-                <Card className="mb-6">
+                <Card className="mb-8 border-border/60">
                     <CardContent className="pt-6">
                         <div className="flex items-center justify-between mb-2">
                             <span className="text-sm font-medium">
@@ -179,62 +179,62 @@ export function BudgetClient({
             )}
 
             {/* Stats Grid */}
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
-                <Card>
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-8">
+                <Card className="border-border/60">
                     <CardContent className="pt-6">
-                        <div className="flex items-center gap-3 mb-2">
-                            <div className="rounded-md p-2 bg-green-500/10">
-                                <DollarSign className="h-4 w-4 text-green-500" />
+                        <div className="flex items-center justify-between mb-2">
+                            <span className="text-xs font-medium uppercase tracking-wider text-muted-foreground">This Week</span>
+                            <div className="rounded-lg p-1.5 bg-emerald-500/10">
+                                <DollarSign className="h-3.5 w-3.5 text-emerald-500" />
                             </div>
-                            <span className="text-sm text-muted-foreground">This Week</span>
                         </div>
-                        <p className="text-2xl font-bold">
+                        <p className="text-2xl font-bold tracking-tight text-card-foreground">
                             ${(weeklySummary?.totalSpend || 0).toFixed(2)}
                         </p>
                     </CardContent>
                 </Card>
-                <Card>
+                <Card className="border-border/60">
                     <CardContent className="pt-6">
-                        <div className="flex items-center gap-3 mb-2">
-                            <div className="rounded-md p-2 bg-blue-500/10">
-                                <TrendingDown className="h-4 w-4 text-blue-500" />
+                        <div className="flex items-center justify-between mb-2">
+                            <span className="text-xs font-medium uppercase tracking-wider text-muted-foreground">Avg/Meal</span>
+                            <div className="rounded-lg p-1.5 bg-sky-500/10">
+                                <TrendingDown className="h-3.5 w-3.5 text-sky-500" />
                             </div>
-                            <span className="text-sm text-muted-foreground">Avg/Meal</span>
                         </div>
-                        <p className="text-2xl font-bold">
+                        <p className="text-2xl font-bold tracking-tight text-card-foreground">
                             ${(summary?.avgCostPerMeal || 0).toFixed(2)}
                         </p>
                     </CardContent>
                 </Card>
-                <Card>
+                <Card className="border-border/60">
                     <CardContent className="pt-6">
-                        <div className="flex items-center gap-3 mb-2">
-                            <div className="rounded-md p-2 bg-purple-500/10">
-                                <Utensils className="h-4 w-4 text-purple-500" />
+                        <div className="flex items-center justify-between mb-2">
+                            <span className="text-xs font-medium uppercase tracking-wider text-muted-foreground">$/g Protein</span>
+                            <div className="rounded-lg p-1.5 bg-amber-500/10">
+                                <Utensils className="h-3.5 w-3.5 text-amber-500" />
                             </div>
-                            <span className="text-sm text-muted-foreground">$/g Protein</span>
                         </div>
-                        <p className="text-2xl font-bold">
+                        <p className="text-2xl font-bold tracking-tight text-card-foreground">
                             ${(summary?.costPerProtein || 0).toFixed(2)}
                         </p>
                     </CardContent>
                 </Card>
-                <Card>
+                <Card className="border-border/60">
                     <CardContent className="pt-6">
-                        <div className="flex items-center gap-3 mb-2">
-                            <div className="rounded-md p-2 bg-amber-500/10">
-                                <ChefHat className="h-4 w-4 text-amber-500" />
+                        <div className="flex items-center justify-between mb-2">
+                            <span className="text-xs font-medium uppercase tracking-wider text-muted-foreground">Home Cooked</span>
+                            <div className="rounded-lg p-1.5 bg-orange-500/10">
+                                <ChefHat className="h-3.5 w-3.5 text-orange-500" />
                             </div>
-                            <span className="text-sm text-muted-foreground">Home Cooked</span>
                         </div>
-                        <p className="text-2xl font-bold">{cookingStats?.percentage || 0}%</p>
+                        <p className="text-2xl font-bold tracking-tight text-card-foreground">{cookingStats?.percentage || 0}%</p>
                     </CardContent>
                 </Card>
             </div>
 
             {/* Spending by Source */}
             <div className="grid gap-6 md:grid-cols-2">
-                <Card>
+                <Card className="border-border/60">
                     <CardHeader>
                         <CardTitle className="text-base">Weekly Breakdown</CardTitle>
                         <CardDescription>Spending by meal source</CardDescription>

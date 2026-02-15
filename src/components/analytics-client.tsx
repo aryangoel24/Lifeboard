@@ -100,65 +100,66 @@ export function AnalyticsClient({
 
     return (
         <div>
-            <div className="flex items-center justify-between mb-6">
-                <div>
-                    <h1 className="text-2xl font-bold">Analytics & Reports</h1>
-                    <p className="text-muted-foreground text-sm mt-1">
+            <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between mb-8">
+                <div className="space-y-1">
+                    <h1 className="text-2xl font-semibold tracking-tight text-foreground">Analytics & Reports</h1>
+                    <p className="text-muted-foreground text-sm">
                         Insights from your nutrition data
                     </p>
                 </div>
                 <Button
                     variant="outline"
                     size="sm"
+                    className="rounded-full gap-2 border-border/60"
                     onClick={handleExport}
                     disabled={exporting}
                 >
-                    <Download className="h-4 w-4 mr-2" />
+                    <Download className="h-4 w-4" />
                     {exporting ? "Exporting..." : "Export CSV"}
                 </Button>
             </div>
 
             {/* Weekly Summary Cards */}
             {weeklySummary && (
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
-                    <Card>
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-8">
+                    <Card className="border-border/60">
                         <CardContent className="pt-6">
-                            <p className="text-sm text-muted-foreground">Avg Calories</p>
-                            <p className="text-2xl font-bold">{weeklySummary.avgCalories}</p>
-                            <p className="text-xs text-muted-foreground">per day (7d)</p>
+                            <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">Avg Calories</p>
+                            <p className="text-2xl font-bold tracking-tight text-card-foreground mt-1">{weeklySummary.avgCalories}</p>
+                            <p className="text-xs text-muted-foreground mt-0.5">per day (7d)</p>
                         </CardContent>
                     </Card>
-                    <Card>
+                    <Card className="border-border/60">
                         <CardContent className="pt-6">
-                            <p className="text-sm text-muted-foreground">Avg Protein</p>
-                            <p className="text-2xl font-bold">{weeklySummary.avgProtein}g</p>
-                            <p className="text-xs text-muted-foreground">per day (7d)</p>
+                            <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">Avg Protein</p>
+                            <p className="text-2xl font-bold tracking-tight text-card-foreground mt-1">{weeklySummary.avgProtein}g</p>
+                            <p className="text-xs text-muted-foreground mt-0.5">per day (7d)</p>
                         </CardContent>
                     </Card>
-                    <Card>
+                    <Card className="border-border/60">
                         <CardContent className="pt-6">
-                            <p className="text-sm text-muted-foreground">Days Logged</p>
-                            <p className="text-2xl font-bold">
+                            <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">Days Logged</p>
+                            <p className="text-2xl font-bold tracking-tight text-card-foreground mt-1">
                                 {weeklySummary.daysLogged}/7
                             </p>
-                            <p className="text-xs text-muted-foreground">this week</p>
+                            <p className="text-xs text-muted-foreground mt-0.5">this week</p>
                         </CardContent>
                     </Card>
-                    <Card>
+                    <Card className="border-border/60">
                         <CardContent className="pt-6">
-                            <p className="text-sm text-muted-foreground">Total Entries</p>
-                            <p className="text-2xl font-bold">
+                            <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">Total Entries</p>
+                            <p className="text-2xl font-bold tracking-tight text-card-foreground mt-1">
                                 {weeklySummary.totalEntries}
                             </p>
-                            <p className="text-xs text-muted-foreground">this week</p>
+                            <p className="text-xs text-muted-foreground mt-0.5">this week</p>
                         </CardContent>
                     </Card>
                 </div>
             )}
 
             {/* Charts */}
-            <Tabs defaultValue="calories" className="space-y-4">
-                <TabsList className="grid w-full grid-cols-3">
+            <Tabs defaultValue="calories" className="space-y-6">
+                <TabsList className="grid w-full grid-cols-3 bg-muted/60">
                     <TabsTrigger value="calories" className="gap-2">
                         <TrendingUp className="h-4 w-4" />
                         Calories

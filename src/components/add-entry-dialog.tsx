@@ -23,8 +23,8 @@ export function AddEntryDialog({ userId, date }: AddEntryDialogProps) {
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>
-        <Button>
-          <Plus className="h-4 w-4 mr-2" />
+        <Button className="rounded-full gap-2 shadow-sm">
+          <Plus className="h-4 w-4" />
           Add entry
         </Button>
       </DialogTrigger>

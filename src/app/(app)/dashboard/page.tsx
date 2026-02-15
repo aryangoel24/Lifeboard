@@ -37,11 +37,11 @@ export default async function DashboardPage({
   const profile = profileResult.data;
 
   return (
-    <div className="max-w-2xl mx-auto space-y-6">
-      <div className="flex items-center justify-between">
-        <div>
+    <div className="max-w-3xl mx-auto space-y-8">
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+        <div className="space-y-1">
           <div className="flex items-center gap-3">
-            <h1 className="text-2xl font-bold">Dashboard</h1>
+            <h1 className="text-2xl font-semibold tracking-tight text-foreground">Dashboard</h1>
             <StreakWidget streaks={streaks} />
           </div>
           <DateNavigator date={date} />
@@ -51,7 +51,6 @@ export default async function DashboardPage({
 
       {profile && <DailySummary entries={entries} profile={profile} />}
 
-      {/* Quick Templates Bar */}
       {templates.length > 0 && (
         <QuickTemplates templates={templates.slice(0, 5)} date={date} />
       )}

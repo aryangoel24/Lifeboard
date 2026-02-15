@@ -165,17 +165,17 @@ export function RecipesClient({
 
     return (
         <div>
-            <div className="flex items-center justify-between mb-6">
-                <div>
-                    <h1 className="text-2xl font-bold">Recipes & Templates</h1>
-                    <p className="text-muted-foreground text-sm mt-1">
+            <div className="flex items-center justify-between mb-8">
+                <div className="space-y-1">
+                    <h1 className="text-2xl font-semibold tracking-tight text-foreground">Recipes & Templates</h1>
+                    <p className="text-muted-foreground text-sm">
                         Save your favorite meals for quick logging
                     </p>
                 </div>
             </div>
 
-            <Tabs defaultValue="recipes" className="space-y-4">
-                <TabsList className="grid w-full grid-cols-2">
+            <Tabs defaultValue="recipes" className="space-y-6">
+                <TabsList className="grid w-full grid-cols-2 bg-muted/60">
                     <TabsTrigger value="recipes" className="gap-2">
                         <BookOpen className="h-4 w-4" />
                         Recipes ({recipes.length})
@@ -190,7 +190,7 @@ export function RecipesClient({
                 <TabsContent value="recipes" className="space-y-4">
                     <Dialog open={recipeDialogOpen} onOpenChange={setRecipeDialogOpen}>
                         <DialogTrigger asChild>
-                            <Button className="w-full" variant="outline">
+                            <Button className="w-full border-dashed border-border/60 hover:border-primary/30 hover:bg-primary/5 hover:text-primary" variant="outline">
                                 <Plus className="h-4 w-4 mr-2" />
                                 New Recipe
                             </Button>
@@ -339,7 +339,7 @@ export function RecipesClient({
                             {recipes.map((recipe) => (
                                 <Card
                                     key={recipe.id}
-                                    className="shadow-sm hover:shadow-md transition-shadow"
+                                    className="border-border/60 hover:shadow-md hover:border-border transition-all"
                                 >
                                     <CardHeader className="pb-2">
                                         <div className="flex items-start justify-between">

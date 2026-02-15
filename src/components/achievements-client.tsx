@@ -44,65 +44,59 @@ export function AchievementsClient({
 
     return (
         <div>
-            <div className="flex items-center justify-between mb-6">
-                <div>
-                    <h1 className="text-2xl font-bold">Achievements</h1>
-                    <p className="text-muted-foreground text-sm mt-1">
+            <div className="flex items-center justify-between mb-8">
+                <div className="space-y-1">
+                    <h1 className="text-2xl font-semibold tracking-tight text-foreground">Achievements</h1>
+                    <p className="text-muted-foreground text-sm">
                         {achievements.length} / {ACHIEVEMENTS.length} unlocked
                     </p>
                 </div>
             </div>
 
             {/* Streaks */}
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-8">
-                <Card>
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-10">
+                <Card className="border-border/60">
                     <CardContent className="pt-6">
-                        <div className="flex items-center gap-3 mb-2">
-                            <div className="rounded-md p-2 bg-orange-500/10">
-                                <Flame className="h-5 w-5 text-orange-500" />
-                            </div>
-                            <div>
-                                <p className="text-sm text-muted-foreground">Logging Streak</p>
-                                <p className="text-3xl font-bold">
-                                    {loggingStreak?.current_count || 0}
-                                </p>
+                        <div className="flex items-center justify-between mb-3">
+                            <span className="text-xs font-medium uppercase tracking-wider text-muted-foreground">Logging Streak</span>
+                            <div className="rounded-lg p-1.5 bg-orange-500/10">
+                                <Flame className="h-4 w-4 text-orange-500" />
                             </div>
                         </div>
-                        <p className="text-xs text-muted-foreground">
+                        <p className="text-3xl font-bold tracking-tight text-card-foreground">
+                            {loggingStreak?.current_count || 0}
+                        </p>
+                        <p className="text-xs text-muted-foreground mt-1">
                             Best: {loggingStreak?.longest_count || 0} days
                         </p>
                     </CardContent>
                 </Card>
-                <Card>
+                <Card className="border-border/60">
                     <CardContent className="pt-6">
-                        <div className="flex items-center gap-3 mb-2">
-                            <div className="rounded-md p-2 bg-green-500/10">
-                                <span className="text-lg">👨‍🍳</span>
-                            </div>
-                            <div>
-                                <p className="text-sm text-muted-foreground">Cooking Streak</p>
-                                <p className="text-3xl font-bold">
-                                    {cookingStreak?.current_count || 0}
-                                </p>
+                        <div className="flex items-center justify-between mb-3">
+                            <span className="text-xs font-medium uppercase tracking-wider text-muted-foreground">Cooking Streak</span>
+                            <div className="rounded-lg p-1.5 bg-emerald-500/10">
+                                <span className="text-sm">{'🧑‍🍳'}</span>
                             </div>
                         </div>
-                        <p className="text-xs text-muted-foreground">
+                        <p className="text-3xl font-bold tracking-tight text-card-foreground">
+                            {cookingStreak?.current_count || 0}
+                        </p>
+                        <p className="text-xs text-muted-foreground mt-1">
                             Best: {cookingStreak?.longest_count || 0} days
                         </p>
                     </CardContent>
                 </Card>
-                <Card>
+                <Card className="border-border/60">
                     <CardContent className="pt-6">
-                        <div className="flex items-center gap-3 mb-2">
-                            <div className="rounded-md p-2 bg-blue-500/10">
-                                <Trophy className="h-5 w-5 text-blue-500" />
-                            </div>
-                            <div>
-                                <p className="text-sm text-muted-foreground">Total Entries</p>
-                                <p className="text-3xl font-bold">{entryStats.totalEntries}</p>
+                        <div className="flex items-center justify-between mb-3">
+                            <span className="text-xs font-medium uppercase tracking-wider text-muted-foreground">Total Entries</span>
+                            <div className="rounded-lg p-1.5 bg-sky-500/10">
+                                <Trophy className="h-4 w-4 text-sky-500" />
                             </div>
                         </div>
-                        <p className="text-xs text-muted-foreground">
+                        <p className="text-3xl font-bold tracking-tight text-card-foreground">{entryStats.totalEntries}</p>
+                        <p className="text-xs text-muted-foreground mt-1">
                             Food entries logged
                         </p>
                     </CardContent>
@@ -111,8 +105,8 @@ export function AchievementsClient({
 
             {/* Achievement Badges */}
             {Object.entries(grouped).map(([category, categoryAchievements]) => (
-                <div key={category} className="mb-8">
-                    <h2 className="text-lg font-semibold mb-3">
+                <div key={category} className="mb-10">
+                    <h2 className="text-sm font-medium uppercase tracking-wider text-muted-foreground mb-4">
                         {CATEGORY_LABELS[category] || category}
                     </h2>
                     <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
@@ -125,9 +119,9 @@ export function AchievementsClient({
                             return (
                                 <Card
                                     key={achievement.key}
-                                    className={`transition-all ${isUnlocked
-                                        ? "shadow-sm hover:shadow-md border-primary/20"
-                                        : "opacity-60"
+                                    className={`transition-all border-border/60 ${isUnlocked
+                                        ? "hover:shadow-md hover:border-primary/30"
+                                        : "opacity-50"
                                         }`}
                                 >
                                     <CardContent className="py-4 px-4">
