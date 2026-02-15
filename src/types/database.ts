@@ -5,6 +5,8 @@ export type Profile = {
   daily_carbs_goal: number;
   daily_fat_goal: number;
   goal_weight: number | null;
+  creatine_goal: number;
+  gym_weekly_goal: number;
   created_at: string;
   updated_at: string;
 };
@@ -134,7 +136,18 @@ export type UserAchievement = {
   unlocked_at: string;
 };
 
-export type StreakType = "logging" | "goal" | "cooking";
+export type HabitType = "creatine" | "magnesium" | "gym";
+
+export type HabitEntry = {
+  id: string;
+  user_id: string;
+  habit_type: HabitType;
+  logged_at: string;
+  value: number;
+  created_at: string;
+};
+
+export type StreakType = "logging" | "goal" | "cooking" | "creatine" | "magnesium" | "gym";
 
 export type UserStreak = {
   id: string;
