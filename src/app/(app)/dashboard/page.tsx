@@ -3,7 +3,7 @@ import { createClient } from "@/lib/supabase/server";
 import { getFoodEntries } from "@/lib/actions/food-entries";
 import { getStreaks } from "@/lib/actions/achievements";
 import { getMealTemplates } from "@/lib/actions/meal-templates";
-import { getTodayWeight, getWeightEntries } from "@/lib/actions/weight";
+import { getWeightEntries } from "@/lib/actions/weight";
 import { formatDate } from "@/lib/utils";
 import { FoodEntryList } from "@/components/food-entry-list";
 import { DailySummary } from "@/components/daily-summary";
@@ -29,15 +29,16 @@ export default async function DashboardPage({
 
   const date = searchParams.date || formatDate(new Date());
 
-  const [entries, profileResult, streaks, templates, todayWeight, recentWeights] =
+  const [entries, profileResult, streaks, templates, recentWeights] =
     await Promise.all([
       getFoodEntries(date),
       supabase.from("profiles").select("*").eq("id", user.id).single(),
       getStreaks(),
       getMealTemplates(),
-      getTodayWeight(date),
       getWeightEntries(7),
     ]);
+
+  const todayWeight = recentWeights.find((w) => w.logged_at === date) ?? null;
 
   const profile = profileResult.data;
 

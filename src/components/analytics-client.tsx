@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import {
     Card,
     CardContent,
@@ -77,17 +77,39 @@ export function AnalyticsClient({
 }: AnalyticsClientProps) {
     const [exporting, setExporting] = useState(false);
 
-    // Format trend data for chart
-    const chartData = trends.map((d) => ({
-        ...d,
-        date: format(new Date(d.date + "T00:00:00"), "MM/dd"),
-    }));
+    const chartData = useMemo(() =>
+        trends.map((d) => ({
+            ...d,
+            date: format(new Date(d.date + "T00:00:00"), "MM/dd"),
+        })),
+        [trends]
+    );
 
-    const pieData = mealBreakdown.map((d) => ({
-        name: MEAL_LABELS[d.category] || d.category,
-        value: d.calories,
-        percentage: d.percentage,
-    }));
+    const pieData = useMemo(() =>
+        mealBreakdown.map((d) => ({
+            name: MEAL_LABELS[d.category] || d.category,
+            value: d.calories,
+            percentage: d.percentage,
+        })),
+        [mealBreakdown]
+    );
+
+    const weightChartData = useMemo(() =>
+        weightEntries.map((e) => ({
+            date: format(new Date(e.logged_at + "T00:00:00"), "MMM d"),
+            weight: e.weight,
+        })),
+        [weightEntries]
+    );
+
+    const weightCalorieChartData = useMemo(() =>
+        weightCalories.map((d) => ({
+            date: format(new Date(d.date + "T00:00:00"), "MMM d"),
+            weight: d.weight,
+            calories: d.calories,
+        })),
+        [weightCalories]
+    );
 
     async function handleExport() {
         setExporting(true);
@@ -429,10 +451,10 @@ export function AnalyticsClient({
                             <CardDescription>Daily weight over the last 90 days</CardDescription>
                         </CardHeader>
                         <CardContent>
-                            {weightEntries.length > 0 ? (
+                            {weightChartData.length > 0 ? (
                                 <div style={{ minWidth: 0, width: '100%' }}>
                                     <ResponsiveContainer width="100%" height={300}>
-                                        <LineChart data={weightEntries.map(e => ({ date: format(new Date(e.logged_at + 'T00:00:00'), 'MMM d'), weight: e.weight }))}>
+                                        <LineChart data={weightChartData}>
                                             <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
                                             <XAxis dataKey="date" tick={{ fontSize: 12 }} className="fill-muted-foreground" interval="preserveStartEnd" />
                                             <YAxis domain={['dataMin - 1', 'dataMax + 1']} tick={{ fontSize: 12 }} className="fill-muted-foreground" />
@@ -456,10 +478,10 @@ export function AnalyticsClient({
                             <CardDescription>Correlation between daily calorie intake and weight over 30 days</CardDescription>
                         </CardHeader>
                         <CardContent>
-                            {weightCalories.length > 0 ? (
+                            {weightCalorieChartData.length > 0 ? (
                                 <div style={{ minWidth: 0, width: '100%' }}>
                                     <ResponsiveContainer width="100%" height={300}>
-                                        <ComposedChart data={weightCalories.map(d => ({ date: format(new Date(d.date + 'T00:00:00'), 'MMM d'), weight: d.weight, calories: d.calories }))}>
+                                        <ComposedChart data={weightCalorieChartData}>
                                             <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
                                             <XAxis dataKey="date" tick={{ fontSize: 12 }} className="fill-muted-foreground" interval="preserveStartEnd" />
                                             <YAxis yAxisId="weight" orientation="left" domain={['dataMin - 1', 'dataMax + 1']} tick={{ fontSize: 12 }} className="fill-muted-foreground" label={{ value: 'kg', angle: -90, position: 'insideLeft', style: { fontSize: 11 } }} />
