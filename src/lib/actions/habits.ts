@@ -92,7 +92,7 @@ export async function getHabitEntries(days: number = 30): Promise<HabitEntry[]> 
 
 export async function updateHabitStreak(
   userId: string,
-  habitType: HabitType,
+  habitType: string,
   loggedAt: string,
   value: number,
   client?: SupabaseClient

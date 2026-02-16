@@ -8,64 +8,42 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { toast } from "sonner";
-import { logHabit } from "@/lib/actions/habits";
-import { Pill, Dumbbell, Check, Minus, Plus, Tablet } from "lucide-react";
-type BuiltinHabitType = "creatine" | "magnesium" | "gym";
+import { logCustomHabit } from "@/lib/actions/custom-habits";
+import { Check, Minus, Plus } from "lucide-react";
+import type { CustomHabit, HabitEntry } from "@/types/database";
 
-interface HabitCardProps {
-  habitType: BuiltinHabitType;
-  currentValue: number;
-  goal: number;
+interface CustomHabitCardProps {
+  habit: CustomHabit;
+  entry: HabitEntry | undefined;
   date: string;
 }
 
-const HABIT_CONFIG = {
-  creatine: {
-    label: "Creatine",
-    icon: Pill,
-    iconColor: "text-blue-500",
-    unit: "servings",
-  },
-  magnesium: {
-    label: "Magnesium",
-    icon: Tablet,
-    iconColor: "text-purple-500",
-    unit: "",
-  },
-  gym: {
-    label: "Gym",
-    icon: Dumbbell,
-    iconColor: "text-orange-500",
-    unit: "",
-  },
-} as const;
-
-export function HabitCard({ habitType, currentValue, goal, date }: HabitCardProps) {
-  const [value, setValue] = useState(currentValue);
+export function CustomHabitCard({ habit, entry, date }: CustomHabitCardProps) {
+  const [value, setValue] = useState(entry?.value ?? 0);
   const [saving, setSaving] = useState(false);
-  const config = HABIT_CONFIG[habitType];
-  const Icon = config.icon;
 
   async function handleUpdate(newValue: number) {
     setSaving(true);
+    const prev = value;
     setValue(newValue);
-    const result = await logHabit(habitType, newValue, date);
+    const result = await logCustomHabit(habit.id, newValue, date);
     if (result.error) {
       toast.error(result.error);
-      setValue(value); // revert
+      setValue(prev);
     }
     setSaving(false);
   }
 
-  // Counter mode for creatine
-  if (habitType === "creatine") {
+  if (habit.tracking_type === "counter") {
+    const goal = habit.target_value;
     return (
       <Card>
         <CardHeader className="pb-2">
           <CardTitle className="text-sm font-medium flex items-center gap-2">
-            <Icon className={`h-4 w-4 ${config.iconColor}`} />
-            {config.label}
+            <span>{habit.icon}</span>
+            {habit.name}
           </CardTitle>
         </CardHeader>
         <CardContent>
@@ -98,22 +76,58 @@ export function HabitCard({ habitType, currentValue, goal, date }: HabitCardProp
             )}
           </div>
           <p className="text-xs text-muted-foreground mt-1">
-            {value >= goal ? "Goal reached" : `${goal - value} ${config.unit} remaining`}
+            {value >= goal ? "Goal reached" : `${goal - value} remaining`}
           </p>
         </CardContent>
       </Card>
     );
   }
 
-  // Checkbox mode for magnesium and gym
-  const isDone = value >= 1;
+  if (habit.tracking_type === "duration") {
+    const target = habit.target_value;
+    return (
+      <Card>
+        <CardHeader className="pb-2">
+          <CardTitle className="text-sm font-medium flex items-center gap-2">
+            <span>{habit.icon}</span>
+            {habit.name}
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="flex items-center gap-3">
+            <Input
+              type="number"
+              min={0}
+              value={value || ""}
+              placeholder="0"
+              className="w-20 h-8"
+              disabled={saving}
+              onChange={(e) => {
+                const v = Number(e.target.value) || 0;
+                setValue(v);
+              }}
+              onBlur={() => handleUpdate(value)}
+            />
+            <span className="text-sm text-muted-foreground">
+              / {target} min
+            </span>
+            {value >= target && (
+              <Check className="h-5 w-5 text-green-500" />
+            )}
+          </div>
+        </CardContent>
+      </Card>
+    );
+  }
 
+  // checkbox (default)
+  const isDone = value >= 1;
   return (
     <Card>
       <CardHeader className="pb-2">
         <CardTitle className="text-sm font-medium flex items-center gap-2">
-          <Icon className={`h-4 w-4 ${config.iconColor}`} />
-          {config.label}
+          <span>{habit.icon}</span>
+          {habit.name}
         </CardTitle>
       </CardHeader>
       <CardContent>

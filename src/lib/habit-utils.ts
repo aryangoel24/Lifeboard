@@ -1,4 +1,4 @@
-import type { HabitEntry } from "@/types/database";
+import type { CustomHabit, HabitEntry } from "@/types/database";
 
 export type HabitWeeklyStats = {
   creatineCompletionPct: number;
@@ -53,4 +53,26 @@ export function computeDailyHabitData(entries: HabitEntry[], days: number = 30):
   }
 
   return result;
+}
+
+/**
+ * Checks if a custom habit is scheduled for a given date based on its frequency.
+ * - daily: always scheduled
+ * - weekdays: Mon-Fri (getDay() 1-5)
+ * - custom: only on days in frequency_days (0=Sun, 1=Mon, ..., 6=Sat)
+ */
+export function isHabitScheduledForDate(habit: CustomHabit, dateStr: string): boolean {
+  if (habit.frequency === "daily") return true;
+
+  const dayOfWeek = new Date(dateStr + "T12:00:00").getDay();
+
+  if (habit.frequency === "weekdays") {
+    return dayOfWeek >= 1 && dayOfWeek <= 5;
+  }
+
+  if (habit.frequency === "custom" && habit.frequency_days) {
+    return habit.frequency_days.includes(dayOfWeek);
+  }
+
+  return true;
 }
