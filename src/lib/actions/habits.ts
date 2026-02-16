@@ -2,6 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
+import type { SupabaseClient } from "@supabase/supabase-js";
 import type { HabitEntry, HabitType } from "@/types/database";
 
 export async function logHabit(
@@ -32,8 +33,7 @@ export async function logHabit(
 
   if (error) return { error: error.message };
 
-  // Update streak
-  await updateHabitStreak(user.id, habitType, loggedAt, value);
+  await updateHabitStreak(user.id, habitType, loggedAt, value, supabase);
 
   revalidatePath("/dashboard");
   revalidatePath("/analytics");
@@ -90,16 +90,16 @@ export async function getHabitEntries(days: number = 30): Promise<HabitEntry[]> 
   return (data as HabitEntry[]) || [];
 }
 
-async function updateHabitStreak(
+export async function updateHabitStreak(
   userId: string,
   habitType: HabitType,
   loggedAt: string,
-  value: number
+  value: number,
+  client?: SupabaseClient
 ) {
-  // Only count as "done" if value > 0
   if (value <= 0) return;
 
-  const supabase = createClient();
+  const supabase = client || createClient();
 
   const { data: existing } = await supabase
     .from("user_streaks")
@@ -117,7 +117,6 @@ async function updateHabitStreak(
     let newCount = existing.current_count;
 
     if (existing.last_logged_date === today) {
-      // Already logged today, no change
       return;
     } else if (existing.last_logged_date === yesterday) {
       newCount = existing.current_count + 1;

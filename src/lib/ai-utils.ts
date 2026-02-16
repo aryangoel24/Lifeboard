@@ -1,0 +1,270 @@
+import OpenAI from "openai";
+
+const NUTRITION_SYSTEM_PROMPT = `You are a nutrition estimation assistant. Given a food description, estimate the nutritional content.
+
+Rules:
+- Return a JSON object with these exact fields: name, calories, protein, carbs, fat, meal_category
+- "name" should be a clean, capitalized food name (e.g. "Grilled Chicken with Rice and Broccoli")
+- "calories" is a number (kcal)
+- "protein", "carbs", "fat" are numbers in grams, rounded to 1 decimal
+- "meal_category" must be one of: "breakfast", "lunch", "dinner", "snack" — infer from the food or time context
+- If multiple items are described, combine them into one entry with summed macros
+- Be reasonably accurate but err on the side of slightly overestimating calories
+- Only return the JSON object, no other text`;
+
+const PHOTO_SYSTEM_PROMPT = `You are a nutrition estimation assistant. Given a photo of food, identify what it is and estimate the nutritional content.
+
+Rules:
+- Return a JSON object with these exact fields: name, calories, protein, carbs, fat, meal_category
+- "name" should be a clean, capitalized food name (e.g. "Grilled Chicken with Rice and Broccoli")
+- "calories" is a number (kcal)
+- "protein", "carbs", "fat" are numbers in grams, rounded to 1 decimal
+- "meal_category" must be one of: "breakfast", "lunch", "dinner", "snack" — infer from the food type
+- Estimate portion sizes from the photo and calculate macros accordingly
+- Be reasonably accurate but err on the side of slightly overestimating calories
+- Only return the JSON object, no other text`;
+
+const LABEL_SYSTEM_PROMPT = `You are a nutrition label reader. Given an image of a nutrition label, extract the nutritional information.
+
+Rules:
+- Return a JSON object with these exact fields: name, serving_amount, serving_unit, calories, protein, carbs, fat
+- "name" should be the product name if visible, otherwise a reasonable description
+- "serving_amount" is the numeric serving size (e.g. 100, 28, 240)
+- "serving_unit" is the unit (e.g. "g", "ml", "oz")
+- "calories" is a number (kcal per serving)
+- "protein", "carbs", "fat" are numbers in grams per serving, rounded to 1 decimal
+- If you cannot read certain values, use 0
+- Only return the JSON object, no other text`;
+
+export interface NutritionEstimate {
+  name: string;
+  calories: number;
+  protein: number;
+  carbs: number;
+  fat: number;
+  meal_category: "breakfast" | "lunch" | "dinner" | "snack";
+}
+
+export interface NutritionLabelData {
+  name: string;
+  serving_amount: number;
+  serving_unit: string;
+  calories: number;
+  protein: number;
+  carbs: number;
+  fat: number;
+}
+
+function getOpenAIClient(): OpenAI | null {
+  const apiKey = process.env.OPENAI_API_KEY;
+  if (!apiKey) return null;
+  return new OpenAI({ apiKey });
+}
+
+function clampNutrition<T extends { calories: number; protein: number; carbs: number; fat: number }>(
+  parsed: T
+): T {
+  parsed.calories = Math.max(0, Math.round(parsed.calories));
+  parsed.protein = Math.max(0, Math.round(parsed.protein * 10) / 10);
+  parsed.carbs = Math.max(0, Math.round(parsed.carbs * 10) / 10);
+  parsed.fat = Math.max(0, Math.round(parsed.fat * 10) / 10);
+  return parsed;
+}
+
+function validateMealCategory(category: string): NutritionEstimate["meal_category"] {
+  const valid = ["breakfast", "lunch", "dinner", "snack"];
+  return valid.includes(category) ? (category as NutritionEstimate["meal_category"]) : "snack";
+}
+
+export async function estimateNutritionFromDescription(
+  description: string
+): Promise<{ data: NutritionEstimate | null; error: string | null }> {
+  if (!description.trim()) {
+    return { data: null, error: "Please describe what you ate" };
+  }
+
+  const openai = getOpenAIClient();
+  if (!openai) {
+    return {
+      data: null,
+      error: "OpenAI API key not configured. Add OPENAI_API_KEY to .env.local",
+    };
+  }
+
+  try {
+    const response = await openai.chat.completions.create({
+      model: "gpt-4o-mini",
+      messages: [
+        { role: "system", content: NUTRITION_SYSTEM_PROMPT },
+        { role: "user", content: description },
+      ],
+      response_format: { type: "json_object" },
+      temperature: 0.3,
+      max_tokens: 200,
+    });
+
+    const content = response.choices[0]?.message?.content;
+    if (!content) {
+      return { data: null, error: "No response from AI" };
+    }
+
+    const parsed = JSON.parse(content) as NutritionEstimate;
+
+    if (
+      typeof parsed.calories !== "number" ||
+      typeof parsed.protein !== "number" ||
+      typeof parsed.carbs !== "number" ||
+      typeof parsed.fat !== "number"
+    ) {
+      return { data: null, error: "AI returned invalid data" };
+    }
+
+    clampNutrition(parsed);
+    parsed.meal_category = validateMealCategory(parsed.meal_category);
+
+    return { data: parsed, error: null };
+  } catch (err) {
+    console.error("AI estimation error:", err);
+    return {
+      data: null,
+      error: "Failed to estimate nutrition. You can still enter values manually.",
+    };
+  }
+}
+
+export async function estimateNutritionFromPhoto(
+  imageUrl: string
+): Promise<{ data: NutritionEstimate | null; error: string | null }> {
+  if (!imageUrl) {
+    return { data: null, error: "No image provided" };
+  }
+
+  const openai = getOpenAIClient();
+  if (!openai) {
+    return {
+      data: null,
+      error: "OpenAI API key not configured. Add OPENAI_API_KEY to .env.local",
+    };
+  }
+
+  try {
+    const response = await openai.chat.completions.create({
+      model: "gpt-4o",
+      messages: [
+        { role: "system", content: PHOTO_SYSTEM_PROMPT },
+        {
+          role: "user",
+          content: [
+            {
+              type: "image_url",
+              image_url: { url: imageUrl },
+            },
+            {
+              type: "text",
+              text: "Identify this food and estimate its nutritional content.",
+            },
+          ],
+        },
+      ],
+      response_format: { type: "json_object" },
+      temperature: 0.3,
+      max_tokens: 300,
+    });
+
+    const content = response.choices[0]?.message?.content;
+    if (!content) {
+      return { data: null, error: "No response from AI" };
+    }
+
+    const parsed = JSON.parse(content) as NutritionEstimate;
+
+    if (
+      typeof parsed.calories !== "number" ||
+      typeof parsed.protein !== "number" ||
+      typeof parsed.carbs !== "number" ||
+      typeof parsed.fat !== "number"
+    ) {
+      return { data: null, error: "AI returned invalid data" };
+    }
+
+    clampNutrition(parsed);
+    parsed.meal_category = validateMealCategory(parsed.meal_category);
+
+    return { data: parsed, error: null };
+  } catch (err) {
+    console.error("AI photo estimation error:", err);
+    return {
+      data: null,
+      error: "Failed to estimate nutrition from photo.",
+    };
+  }
+}
+
+export async function extractNutritionFromLabelImage(
+  imageUrl: string
+): Promise<{ data: NutritionLabelData | null; error: string | null }> {
+  if (!imageUrl) {
+    return { data: null, error: "No image provided" };
+  }
+
+  const openai = getOpenAIClient();
+  if (!openai) {
+    return {
+      data: null,
+      error: "OpenAI API key not configured. Add OPENAI_API_KEY to .env.local",
+    };
+  }
+
+  try {
+    const response = await openai.chat.completions.create({
+      model: "gpt-4o",
+      messages: [
+        { role: "system", content: LABEL_SYSTEM_PROMPT },
+        {
+          role: "user",
+          content: [
+            {
+              type: "image_url",
+              image_url: { url: imageUrl },
+            },
+            {
+              type: "text",
+              text: "Extract the nutrition information from this label.",
+            },
+          ],
+        },
+      ],
+      response_format: { type: "json_object" },
+      temperature: 0.2,
+      max_tokens: 300,
+    });
+
+    const content = response.choices[0]?.message?.content;
+    if (!content) {
+      return { data: null, error: "No response from AI" };
+    }
+
+    const parsed = JSON.parse(content) as NutritionLabelData;
+
+    if (
+      typeof parsed.calories !== "number" ||
+      typeof parsed.protein !== "number" ||
+      typeof parsed.carbs !== "number" ||
+      typeof parsed.fat !== "number"
+    ) {
+      return { data: null, error: "AI returned invalid data" };
+    }
+
+    clampNutrition(parsed);
+    parsed.serving_amount = Math.max(0, parsed.serving_amount || 100);
+    parsed.serving_unit = parsed.serving_unit || "g";
+
+    return { data: parsed, error: null };
+  } catch (err) {
+    console.error("Label extraction error:", err);
+    return {
+      data: null,
+      error: "Failed to extract nutrition from label. Please enter values manually.",
+    };
+  }
+}

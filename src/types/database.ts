@@ -7,6 +7,8 @@ export type Profile = {
   goal_weight: number | null;
   creatine_goal: number;
   gym_weekly_goal: number;
+  api_token_hash: string | null;
+  api_enabled: boolean;
   created_at: string;
   updated_at: string;
 };
