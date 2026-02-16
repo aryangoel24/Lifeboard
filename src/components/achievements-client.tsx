@@ -22,6 +22,36 @@ interface AchievementsClientProps {
     entryStats: { totalEntries: number };
 }
 
+function getAchievementProgress(
+    key: string,
+    streaks: UserStreak[],
+    totalEntries: number
+): { current: number; target: number } | null {
+    const loggingStreak = streaks.find((s) => s.streak_type === "logging");
+    const cookingStreak = streaks.find((s) => s.streak_type === "cooking");
+
+    switch (key) {
+        case "streak_7":
+            return { current: loggingStreak?.current_count || 0, target: 7 };
+        case "streak_30":
+            return { current: loggingStreak?.current_count || 0, target: 30 };
+        case "entries_10":
+            return { current: Math.min(totalEntries, 10), target: 10 };
+        case "entries_50":
+            return { current: Math.min(totalEntries, 50), target: 50 };
+        case "entries_100":
+            return { current: Math.min(totalEntries, 100), target: 100 };
+        case "entries_500":
+            return { current: Math.min(totalEntries, 500), target: 500 };
+        case "cooking_streak_3":
+            return { current: cookingStreak?.current_count || 0, target: 3 };
+        case "cooking_streak_7":
+            return { current: cookingStreak?.current_count || 0, target: 7 };
+        default:
+            return null;
+    }
+}
+
 export function AchievementsClient({
     achievements,
     streaks,
@@ -77,7 +107,7 @@ export function AchievementsClient({
                     <CardContent className="pt-6">
                         <div className="flex items-center gap-3 mb-2">
                             <div className="rounded-md p-2 bg-green-500/10">
-                                <span className="text-lg">👨‍🍳</span>
+                                <span className="text-lg">{"\ud83d\udc68\u200d\ud83c\udf73"}</span>
                             </div>
                             <div>
                                 <p className="text-sm text-muted-foreground">Cooking Streak</p>
@@ -121,6 +151,12 @@ export function AchievementsClient({
                             const unlockedData = achievements.find(
                                 (a) => a.achievement_key === achievement.key
                             );
+                            const progress = !isUnlocked
+                                ? getAchievementProgress(achievement.key, streaks, entryStats.totalEntries)
+                                : null;
+                            const progressPct = progress
+                                ? Math.min(Math.round((progress.current / progress.target) * 100), 100)
+                                : 0;
 
                             return (
                                 <Card
@@ -133,16 +169,14 @@ export function AchievementsClient({
                                     <CardContent className="py-4 px-4">
                                         <div className="flex items-start gap-3">
                                             <div
-                                                className={`text-2xl ${!isUnlocked ? "grayscale" : ""
-                                                    }`}
+                                                className={`text-2xl ${!isUnlocked ? "grayscale" : ""}`}
                                             >
-                                                {isUnlocked ? achievement.icon : "🔒"}
+                                                {isUnlocked ? achievement.icon : "\ud83d\udd12"}
                                             </div>
                                             <div className="flex-1 min-w-0">
                                                 <div className="flex items-center gap-2">
                                                     <p
-                                                        className={`font-medium text-sm ${!isUnlocked ? "text-muted-foreground" : ""
-                                                            }`}
+                                                        className={`font-medium text-sm ${!isUnlocked ? "text-muted-foreground" : ""}`}
                                                     >
                                                         {achievement.label}
                                                     </p>
@@ -151,7 +185,7 @@ export function AchievementsClient({
                                                             variant="secondary"
                                                             className="text-xs bg-green-500/10 text-green-600"
                                                         >
-                                                            ✓
+                                                            {"\u2713"}
                                                         </Badge>
                                                     )}
                                                 </div>
@@ -165,6 +199,20 @@ export function AchievementsClient({
                                                             unlockedData.unlocked_at
                                                         ).toLocaleDateString()}
                                                     </p>
+                                                )}
+                                                {/* Progress bar for locked achievements */}
+                                                {!isUnlocked && progress && (
+                                                    <div className="mt-2 space-y-1">
+                                                        <div className="h-1.5 bg-secondary rounded-full overflow-hidden">
+                                                            <div
+                                                                className="h-full bg-primary/60 rounded-full transition-all"
+                                                                style={{ width: `${progressPct}%` }}
+                                                            />
+                                                        </div>
+                                                        <p className="text-xs text-muted-foreground">
+                                                            {progress.current} / {progress.target}
+                                                        </p>
+                                                    </div>
                                                 )}
                                             </div>
                                         </div>

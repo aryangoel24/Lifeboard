@@ -138,18 +138,40 @@ export type UserAchievement = {
   unlocked_at: string;
 };
 
-export type HabitType = "creatine" | "magnesium" | "gym";
+export type HabitType = "creatine" | "magnesium" | "gym" | "custom";
+
+export type TrackingType = "checkbox" | "counter" | "duration";
+
+export type HabitFrequency = "daily" | "weekdays" | "custom";
+
+export type CustomHabit = {
+  id: string;
+  user_id: string;
+  name: string;
+  icon: string;
+  tracking_type: TrackingType;
+  target_value: number;
+  frequency: HabitFrequency;
+  frequency_days: number[] | null;
+  category: string | null;
+  sort_order: number;
+  archived: boolean;
+  created_at: string;
+  updated_at: string;
+};
 
 export type HabitEntry = {
   id: string;
   user_id: string;
   habit_type: HabitType;
+  custom_habit_id: string | null;
   logged_at: string;
   value: number;
   created_at: string;
 };
 
-export type StreakType = "logging" | "goal" | "cooking" | "creatine" | "magnesium" | "gym";
+// String type to support custom:{habit_id} streak keys
+export type StreakType = "logging" | "goal" | "cooking" | "creatine" | "magnesium" | "gym" | (string & {});
 
 export type UserStreak = {
   id: string;

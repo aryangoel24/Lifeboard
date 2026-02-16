@@ -5,6 +5,7 @@ import { getStreaks } from "@/lib/actions/achievements";
 import { getMealTemplates } from "@/lib/actions/meal-templates";
 import { getWeightEntries } from "@/lib/actions/weight";
 import { getTodayHabits } from "@/lib/actions/habits";
+import { getCustomHabits, getTodayCustomHabitEntries } from "@/lib/actions/custom-habits";
 import { formatDate } from "@/lib/utils";
 import { FoodEntryList } from "@/components/food-entry-list";
 import { DailySummary } from "@/components/daily-summary";
@@ -13,7 +14,7 @@ import { DateNavigator } from "@/components/date-navigator";
 import { StreakWidget } from "@/components/streak-widget";
 import { QuickTemplates } from "@/components/quick-templates";
 import { WeightLogCard } from "@/components/weight-log-card";
-import { HabitCard } from "@/components/habit-card";
+import { HabitsSection } from "@/components/habits-section";
 
 interface DashboardPageProps {
   searchParams: { date?: string };
@@ -31,7 +32,7 @@ export default async function DashboardPage({
 
   const date = searchParams.date || formatDate(new Date());
 
-  const [entries, profileResult, streaks, templates, recentWeights, todayHabits] =
+  const [entries, profileResult, streaks, templates, recentWeights, todayHabits, customHabits, customHabitEntries] =
     await Promise.all([
       getFoodEntries(date),
       supabase.from("profiles").select("*").eq("id", user.id).single(),
@@ -39,15 +40,13 @@ export default async function DashboardPage({
       getMealTemplates(),
       getWeightEntries(7),
       getTodayHabits(date),
+      getCustomHabits(),
+      getTodayCustomHabitEntries(date),
     ]);
 
   const todayWeight = recentWeights.find((w) => w.logged_at === date) ?? null;
 
   const profile = profileResult.data;
-
-  const creatineEntry = todayHabits.find((h) => h.habit_type === "creatine");
-  const magnesiumEntry = todayHabits.find((h) => h.habit_type === "magnesium");
-  const gymEntry = todayHabits.find((h) => h.habit_type === "gym");
 
   return (
     <div className="max-w-2xl mx-auto space-y-6">
@@ -62,7 +61,13 @@ export default async function DashboardPage({
         <AddEntryDialog userId={user.id} date={date} />
       </div>
 
-      {profile && <DailySummary entries={entries} profile={profile} />}
+      {profile && (
+        <DailySummary
+          entries={entries}
+          profile={profile}
+          showMealGaps={date === formatDate(new Date())}
+        />
+      )}
 
       <WeightLogCard
         key={date}
@@ -73,29 +78,15 @@ export default async function DashboardPage({
       />
 
       {/* Daily Habits */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        <HabitCard
-          key={`creatine-${date}`}
-          habitType="creatine"
-          currentValue={creatineEntry?.value ?? 0}
-          goal={profile?.creatine_goal ?? 2}
+      {profile && (
+        <HabitsSection
           date={date}
+          profile={profile}
+          todayHabits={todayHabits}
+          customHabits={customHabits}
+          customHabitEntries={customHabitEntries}
         />
-        <HabitCard
-          key={`magnesium-${date}`}
-          habitType="magnesium"
-          currentValue={magnesiumEntry?.value ?? 0}
-          goal={1}
-          date={date}
-        />
-        <HabitCard
-          key={`gym-${date}`}
-          habitType="gym"
-          currentValue={gymEntry?.value ?? 0}
-          goal={1}
-          date={date}
-        />
-      </div>
+      )}
 
       {/* Quick Templates Bar */}
       {templates.length > 0 && (

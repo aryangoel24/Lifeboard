@@ -33,10 +33,17 @@ const MEAL_BADGE_COLORS: Record<MealCategory, string> = {
 };
 
 const SOURCE_LABELS: Record<string, string> = {
-  homemade: "🏠 Homemade",
-  restaurant: "🍽️ Restaurant",
-  takeout: "🥡 Takeout",
-  grocery_prepared: "🛒 Grocery",
+  homemade: "\ud83c\udfe0 Homemade",
+  restaurant: "\ud83c\udf7d\ufe0f Restaurant",
+  takeout: "\ud83e\udd61 Takeout",
+  grocery_prepared: "\ud83d\uded2 Grocery",
+};
+
+const SOURCE_ICONS: Record<string, string> = {
+  homemade: "\ud83c\udfe0",
+  restaurant: "\ud83c\udf7d\ufe0f",
+  takeout: "\ud83e\udd61",
+  grocery_prepared: "\ud83d\uded2",
 };
 
 interface FoodEntryCardProps {
@@ -100,11 +107,12 @@ export function FoodEntryCard({ entry, userId, date }: FoodEntryCardProps) {
             </div>
             {/* Collapsed macro summary */}
             <div className="flex items-center gap-3 text-xs text-muted-foreground mt-1">
+              {entry.meal_source && <span>{SOURCE_ICONS[entry.meal_source]}</span>}
               <span>{entry.calories} cal</span>
               <span>{Math.round(entry.protein)}g P</span>
               <span>{Math.round(entry.carbs)}g C</span>
               <span>{Math.round(entry.fat)}g F</span>
-              {entry.cost && <span>• ${Number(entry.cost).toFixed(2)}</span>}
+              {entry.cost && <span>{"\u2022"} ${Number(entry.cost).toFixed(2)}</span>}
             </div>
           </div>
           <div className="flex gap-1">

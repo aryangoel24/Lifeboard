@@ -172,7 +172,34 @@ export function BudgetClient({
                             />
                         </div>
                         <p className="text-xs text-muted-foreground mt-1">
-                            ${(budgetGoal.amount - budgetUsed).toFixed(2)} remaining
+                            ${Math.max(budgetGoal.amount - budgetUsed, 0).toFixed(2)} remaining
+                            {budgetPercent >= 90 && budgetUsed < budgetGoal.amount && (
+                                <span className="text-amber-600 dark:text-amber-400 ml-2">
+                                    Approaching budget limit
+                                </span>
+                            )}
+                            {budgetUsed >= budgetGoal.amount && (
+                                <span className="text-destructive ml-2">
+                                    Budget exceeded
+                                </span>
+                            )}
+                        </p>
+                    </CardContent>
+                </Card>
+            )}
+
+            {/* Monthly Projection */}
+            {weeklySummary && weeklySummary.totalSpend > 0 && (
+                <Card className="mb-6">
+                    <CardContent className="pt-6">
+                        <div className="flex items-center justify-between">
+                            <span className="text-sm font-medium">Projected Monthly Spend</span>
+                            <span className="text-lg font-bold">
+                                ${(weeklySummary.totalSpend * 4.33).toFixed(2)}
+                            </span>
+                        </div>
+                        <p className="text-xs text-muted-foreground mt-1">
+                            Based on this week&apos;s spending rate
                         </p>
                     </CardContent>
                 </Card>

@@ -37,7 +37,7 @@ export function WeightLogCard({
         todayWeight?.weight?.toString() ?? ""
     );
     const [saving, setSaving] = useState(false);
-    const [editing, setEditing] = useState(!todayWeight); // unlocked if no weight yet
+    const [editing, setEditing] = useState(!todayWeight);
 
     async function handleLog() {
         const value = parseFloat(weight);
@@ -166,7 +166,7 @@ export function WeightLogCard({
                         {" · "}
                         {(todayWeight.weight - goalWeight) > 0
                             ? `${(todayWeight.weight - goalWeight).toFixed(1)} kg to go`
-                            : "Goal reached! 🎉"}
+                            : "Goal reached!"}
                     </p>
                 )}
 

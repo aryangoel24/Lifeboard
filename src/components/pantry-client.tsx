@@ -159,6 +159,7 @@ export function PantryClient({ items }: PantryClientProps) {
                                 </div>
                                 <p className="text-xs text-muted-foreground mb-1">
                                     Per {item.base_amount}{item.base_unit}
+                                    {item.cost_per_base ? ` \u2022 $${Number(item.cost_per_base).toFixed(2)}` : ""}
                                 </p>
                                 <div className="grid grid-cols-4 gap-2 text-sm">
                                     <div>
@@ -178,6 +179,16 @@ export function PantryClient({ items }: PantryClientProps) {
                                         <p className="font-medium">{item.fat_per_base}g</p>
                                     </div>
                                 </div>
+                                {item.stock_quantity !== null && item.stock_quantity !== undefined && (
+                                    <div className="mt-2 flex items-center gap-1.5">
+                                        <div className={`h-1.5 w-1.5 rounded-full ${item.stock_quantity <= 0 ? "bg-destructive" : item.stock_quantity < 2 ? "bg-amber-500" : "bg-green-500"}`} />
+                                        <span className="text-xs text-muted-foreground">
+                                            {item.stock_quantity <= 0
+                                                ? "Out of stock"
+                                                : `${item.stock_quantity}${item.stock_unit ? ` ${item.stock_unit}` : ""} in stock`}
+                                        </span>
+                                    </div>
+                                )}
                             </CardContent>
                         </Card>
                     ))}

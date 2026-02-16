@@ -167,3 +167,31 @@ export async function getEntriesForMonth(year: number, month: number) {
 
   return Array.from(dates);
 }
+
+export async function getMonthCaloriesByDay(
+  year: number,
+  month: number
+): Promise<Record<string, number>> {
+  const supabase = createClient();
+  const startDate = new Date(year, month - 1, 1).toISOString();
+  const endDate = new Date(year, month, 0, 23, 59, 59).toISOString();
+
+  const { data, error } = await supabase
+    .from("food_entries")
+    .select("logged_at, calories")
+    .gte("logged_at", startDate)
+    .lte("logged_at", endDate);
+
+  if (error) {
+    console.error("Error fetching monthly calories:", error);
+    return {};
+  }
+
+  const byDay: Record<string, number> = {};
+  for (const entry of data || []) {
+    const day = new Date(entry.logged_at).toISOString().split("T")[0];
+    byDay[day] = (byDay[day] || 0) + (entry.calories || 0);
+  }
+
+  return byDay;
+}
