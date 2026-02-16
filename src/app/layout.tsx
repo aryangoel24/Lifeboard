@@ -1,7 +1,8 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import localFont from "next/font/local";
 import { ThemeProvider } from "next-themes";
 import { Toaster } from "@/components/ui/sonner";
+import { ServiceWorkerRegister } from "@/components/sw-register";
 import "./globals.css";
 
 const geistSans = localFont({
@@ -18,6 +19,23 @@ const geistMono = localFont({
 export const metadata: Metadata = {
   title: "Food Tracker",
   description: "Track your meals and nutrition goals",
+  manifest: "/manifest.json",
+  appleWebApp: {
+    capable: true,
+    statusBarStyle: "default",
+    title: "Food Tracker",
+  },
+  icons: {
+    apple: "/icons/apple-touch-icon.png",
+  },
+};
+
+export const viewport: Viewport = {
+  themeColor: [
+    { media: "(prefers-color-scheme: light)", color: "#ffffff" },
+    { media: "(prefers-color-scheme: dark)", color: "#0a0a0a" },
+  ],
+  viewportFit: "cover",
 };
 
 export default function RootLayout({
@@ -34,6 +52,7 @@ export default function RootLayout({
           {children}
           <Toaster />
         </ThemeProvider>
+        <ServiceWorkerRegister />
       </body>
     </html>
   );
