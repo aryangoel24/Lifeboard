@@ -36,7 +36,6 @@ export function WeightLogCard({
     const [weight, setWeight] = useState(
         todayWeight?.weight?.toString() ?? ""
     );
-    const [notes, setNotes] = useState(todayWeight?.notes ?? "");
     const [saving, setSaving] = useState(false);
     const [editing, setEditing] = useState(!todayWeight);
 
@@ -48,7 +47,7 @@ export function WeightLogCard({
         }
 
         setSaving(true);
-        const result = await logWeight(value, date, notes || undefined);
+        const result = await logWeight(value, date);
         if (result.error) {
             toast.error(result.error);
         } else {
@@ -67,13 +66,6 @@ export function WeightLogCard({
     const trend = recentEntries.length >= 2
         ? recentEntries[recentEntries.length - 1].weight -
         recentEntries[recentEntries.length - 2].weight
-        : null;
-
-    // Goal progress
-    const currentWeight = todayWeight?.weight ?? (recentEntries.length > 0 ? recentEntries[recentEntries.length - 1].weight : null);
-    const startWeight = recentEntries.length > 0 ? recentEntries[0].weight : null;
-    const goalProgress = goalWeight && currentWeight && startWeight && startWeight !== goalWeight
-        ? Math.min(Math.max(((startWeight - currentWeight) / (startWeight - goalWeight)) * 100, 0), 100)
         : null;
 
     return (
@@ -144,7 +136,6 @@ export function WeightLogCard({
                                     variant="ghost"
                                     onClick={() => {
                                         setWeight(todayWeight.weight.toString());
-                                        setNotes(todayWeight.notes ?? "");
                                         setEditing(false);
                                     }}
                                 >
@@ -169,48 +160,10 @@ export function WeightLogCard({
                     )}
                 </div>
 
-                {/* Notes input (editing mode) */}
-                {editing && (
-                    <Input
-                        placeholder="Notes (optional)"
-                        value={notes}
-                        onChange={(e) => setNotes(e.target.value)}
-                        className="text-sm"
-                    />
-                )}
-
-                {/* Notes display (view mode) */}
-                {!editing && todayWeight?.notes && (
-                    <p className="text-xs text-muted-foreground italic">
-                        {todayWeight.notes}
-                    </p>
-                )}
-
-                {/* Goal progress bar */}
-                {goalWeight && currentWeight && goalProgress !== null && (
-                    <div className="space-y-1">
-                        <div className="flex items-center justify-between text-xs text-muted-foreground">
-                            <span>Goal: {goalWeight} kg</span>
-                            <span>
-                                {(currentWeight - goalWeight) > 0
-                                    ? `${(currentWeight - goalWeight).toFixed(1)} kg to go`
-                                    : "Goal reached!"}
-                            </span>
-                        </div>
-                        <div className="h-1.5 bg-secondary rounded-full overflow-hidden">
-                            <div
-                                className="h-full bg-blue-500 rounded-full transition-all"
-                                style={{ width: `${goalProgress}%` }}
-                            />
-                        </div>
-                    </div>
-                )}
-
-                {/* Show goal text when no progress bar data */}
-                {goalWeight && todayWeight && !editing && goalProgress === null && (
+                {goalWeight && todayWeight && !editing && (
                     <p className="text-xs text-muted-foreground">
                         Goal: {goalWeight} kg
-                        {" \u00b7 "}
+                        {" · "}
                         {(todayWeight.weight - goalWeight) > 0
                             ? `${(todayWeight.weight - goalWeight).toFixed(1)} kg to go`
                             : "Goal reached!"}

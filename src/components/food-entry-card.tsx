@@ -21,9 +21,8 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { FoodEntryForm } from "@/components/food-entry-form";
 import { toast } from "sonner";
-import { Pencil, Trash2, ChevronDown, ChevronUp, Bookmark, Clock, Copy } from "lucide-react";
+import { Pencil, Trash2, ChevronDown, ChevronUp, Bookmark, Clock } from "lucide-react";
 import type { FoodEntry, MealCategory } from "@/types/database";
-import { createFoodEntry } from "@/lib/actions/food-entries";
 import { format } from "date-fns";
 
 const MEAL_BADGE_COLORS: Record<MealCategory, string> = {
@@ -68,26 +67,6 @@ export function FoodEntryCard({ entry, userId, date }: FoodEntryCardProps) {
       toast.success("Entry deleted");
     }
     setDeleting(false);
-  }
-
-  async function handleDuplicate() {
-    const formData = new FormData();
-    formData.set("name", entry.name);
-    formData.set("calories", String(entry.calories));
-    formData.set("protein", String(entry.protein));
-    formData.set("carbs", String(entry.carbs));
-    formData.set("fat", String(entry.fat));
-    formData.set("meal_category", entry.meal_category);
-    formData.set("logged_at", new Date().toISOString());
-    if (entry.cost) formData.set("cost", String(entry.cost));
-    if (entry.meal_source) formData.set("meal_source", entry.meal_source);
-
-    const result = await createFoodEntry(formData);
-    if (result?.error) {
-      toast.error(result.error);
-    } else {
-      toast.success("Entry duplicated!");
-    }
   }
 
   async function handleSaveAsTemplate() {
@@ -148,15 +127,6 @@ export function FoodEntryCard({ entry, userId, date }: FoodEntryCardProps) {
               ) : (
                 <ChevronDown className="h-3.5 w-3.5" />
               )}
-            </Button>
-            <Button
-              variant="ghost"
-              size="icon"
-              className="h-7 w-7"
-              onClick={handleDuplicate}
-              title="Duplicate entry"
-            >
-              <Copy className="h-3.5 w-3.5" />
             </Button>
             <Button
               variant="ghost"
