@@ -2,6 +2,7 @@ import { createClient } from "@/lib/supabase/server";
 import { getAuthUserId } from "@/lib/auth";
 import { redirect } from "next/navigation";
 import { GoalsForm } from "@/components/goals-form";
+import { ApiTokenCard } from "@/components/api-token-card";
 
 export default async function GoalsPage() {
   const userId = await getAuthUserId();
@@ -26,9 +27,13 @@ export default async function GoalsPage() {
   }
 
   return (
-    <div className="max-w-lg mx-auto">
-      <h1 className="text-2xl font-bold mb-6">Daily Goals</h1>
+    <div className="max-w-lg mx-auto space-y-6">
+      <h1 className="text-2xl font-bold">Daily Goals</h1>
       <GoalsForm profile={profile} />
+      <ApiTokenCard
+        hasToken={!!profile.api_token_hash}
+        apiEnabled={profile.api_enabled}
+      />
     </div>
   );
 }

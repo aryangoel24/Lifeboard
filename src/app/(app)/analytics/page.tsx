@@ -2,8 +2,10 @@ import { getAnalyticsData } from "@/lib/actions/analytics";
 import { AnalyticsClient } from "@/components/analytics-client";
 
 export default async function AnalyticsPage() {
-    const { trends, weeklySummary, mealBreakdown, weightEntries, weightStats, weightCalories, tdee } =
-        await getAnalyticsData();
+    const {
+        trends, weeklySummary, mealBreakdown, weightEntries, weightStats,
+        weightCalories, tdee, habitWeeklyStats, habitDailyData,
+    } = await getAnalyticsData();
 
     return (
         <div className="max-w-4xl mx-auto">
@@ -15,6 +17,8 @@ export default async function AnalyticsPage() {
                 weightStats={weightStats}
                 weightCalories={weightCalories}
                 tdee={tdee}
+                habitWeeklyStats={habitWeeklyStats}
+                habitDailyData={habitDailyData}
             />
         </div>
     );

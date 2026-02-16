@@ -2,9 +2,12 @@
 
 import { createClient } from "@/lib/supabase/server";
 import { subDays, format, startOfDay, endOfDay } from "date-fns";
-import type { WeightEntry } from "@/types/database";
+import type { WeightEntry, HabitEntry } from "@/types/database";
 import type { WeightStats, WeightCalorieData, TDEEResponse } from "@/lib/weight-utils";
 import { computeWeightStats, computeWeightCalorieCorrelation, computeTDEE } from "@/lib/weight-utils";
+import type { HabitWeeklyStats } from "@/lib/habit-utils";
+import { computeHabitWeeklyStats, computeDailyHabitData } from "@/lib/habit-utils";
+import type { DailyHabitData } from "@/lib/habit-utils";
 
 export type DailyMacroData = {
     date: string;
@@ -201,6 +204,9 @@ export interface AnalyticsData {
     weightStats: WeightStats;
     weightCalories: WeightCalorieData[];
     tdee: TDEEResponse;
+    habitEntries: HabitEntry[];
+    habitWeeklyStats: HabitWeeklyStats;
+    habitDailyData: DailyHabitData[];
 }
 
 export async function getAnalyticsData(): Promise<AnalyticsData> {
@@ -217,6 +223,9 @@ export async function getAnalyticsData(): Promise<AnalyticsData> {
         weightStats: computeWeightStats([]),
         weightCalories: [],
         tdee: { status: "insufficient", progress: { weightDays: 0, calorieDays: 0, bothDays: 0, requiredDays: 14 } },
+        habitEntries: [],
+        habitWeeklyStats: { creatineCompletionPct: 0, magnesiumCompletionPct: 0, gymDays: 0, gymGoal: 5, totalDays: 7 },
+        habitDailyData: [],
     };
 
     if (!user) return emptyResult;
@@ -226,8 +235,8 @@ export async function getAnalyticsData(): Promise<AnalyticsData> {
     const ninetyDaysAgo = new Date();
     ninetyDaysAgo.setDate(ninetyDaysAgo.getDate() - 90);
 
-    // 3 parallel DB queries instead of 10+
-    const [foodResult, weightResult, profileResult] = await Promise.all([
+    // 4 parallel DB queries
+    const [foodResult, weightResult, profileResult, habitResult] = await Promise.all([
         supabase
             .from("food_entries")
             .select("calories, protein, carbs, fat, meal_category, logged_at")
@@ -243,9 +252,15 @@ export async function getAnalyticsData(): Promise<AnalyticsData> {
             .order("logged_at", { ascending: true }),
         supabase
             .from("profiles")
-            .select("goal_weight")
+            .select("goal_weight, creatine_goal, gym_weekly_goal")
             .eq("id", user.id)
             .single(),
+        supabase
+            .from("habit_entries")
+            .select("*")
+            .eq("user_id", user.id)
+            .gte("logged_at", thirtyDaysAgo.toISOString().split("T")[0])
+            .order("logged_at", { ascending: true }),
     ]);
 
     const foodEntries = foodResult.data || [];
@@ -351,6 +366,18 @@ export async function getAnalyticsData(): Promise<AnalyticsData> {
         profileResult.data?.goal_weight as number | null
     );
 
+    // === Derive habit stats ===
+    const habitEntries = (habitResult.data as HabitEntry[]) || [];
+    const creatineGoal = (profileResult.data?.creatine_goal as number) ?? 2;
+    const gymWeeklyGoal = (profileResult.data?.gym_weekly_goal as number) ?? 5;
+
+    // Weekly stats from last 7 days of habit data
+    const weekHabitEntries = habitEntries.filter(
+        (e) => e.logged_at >= format(subDays(now, 6), "yyyy-MM-dd")
+    );
+    const habitWeeklyStats = computeHabitWeeklyStats(weekHabitEntries, creatineGoal, gymWeeklyGoal);
+    const habitDailyData = computeDailyHabitData(habitEntries, 30);
+
     return {
         trends,
         weeklySummary,
@@ -359,6 +386,9 @@ export async function getAnalyticsData(): Promise<AnalyticsData> {
         weightStats,
         weightCalories,
         tdee,
+        habitEntries,
+        habitWeeklyStats,
+        habitDailyData,
     };
 }
 

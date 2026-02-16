@@ -39,6 +39,8 @@ export async function updateGoals(formData: FormData) {
     daily_carbs_goal: parseInt(formData.get("daily_carbs_goal") as string) || 250,
     daily_fat_goal: parseInt(formData.get("daily_fat_goal") as string) || 65,
     goal_weight: goalWeightStr ? parseFloat(goalWeightStr) : null,
+    creatine_goal: parseInt(formData.get("creatine_goal") as string) || 2,
+    gym_weekly_goal: parseInt(formData.get("gym_weekly_goal") as string) || 5,
     updated_at: new Date().toISOString(),
   };
 

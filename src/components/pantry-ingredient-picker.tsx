@@ -71,10 +71,18 @@ export function PantryIngredientPicker({
     }
 
     function handleAmountChange(value: string) {
-        onUpdate("amount", value);
         const amt = parseFloat(value);
         if (selectedPantryItem && amt > 0) {
-            computeAndFill(selectedPantryItem, amt);
+            const scaled = scaleNutrition(selectedPantryItem, amt);
+            onUpdateMultiple({
+                amount: value,
+                calories: scaled.calories.toString(),
+                protein: scaled.protein.toString(),
+                carbs: scaled.carbs.toString(),
+                fat: scaled.fat.toString(),
+            });
+        } else {
+            onUpdate("amount", value);
         }
     }
 
@@ -162,23 +170,30 @@ export function PantryIngredientPicker({
                 />
             )}
 
-            {/* Amount + unit row */}
-            {selectedPantryItem && (
-                <div className="flex gap-2 items-center">
-                    <Input
-                        placeholder="Amount"
-                        type="number"
-                        min={0}
-                        step="any"
-                        value={ingredient.amount}
-                        onChange={(e) => handleAmountChange(e.target.value)}
-                        className="flex-1"
-                    />
+            {/* Amount + unit row — always visible */}
+            <div className="flex gap-2 items-center">
+                <Input
+                    placeholder="Amount"
+                    type="number"
+                    min={0}
+                    step="any"
+                    value={ingredient.amount}
+                    onChange={(e) => handleAmountChange(e.target.value)}
+                    className="flex-1"
+                />
+                {selectedPantryItem ? (
                     <span className="text-sm text-muted-foreground whitespace-nowrap">
                         {selectedPantryItem.base_unit}
                     </span>
-                </div>
-            )}
+                ) : (
+                    <Input
+                        placeholder="unit"
+                        value={ingredient.unit}
+                        onChange={(e) => onUpdate("unit", e.target.value)}
+                        className="w-20"
+                    />
+                )}
+            </div>
 
             {/* Live macro preview when pantry item + amount */}
             {selectedPantryItem && parseFloat(ingredient.amount) > 0 && (

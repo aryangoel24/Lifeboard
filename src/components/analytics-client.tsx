@@ -17,6 +17,7 @@ import {
     BarChart3,
     PieChart,
     Scale,
+    Pill,
 } from "lucide-react";
 import type { WeightEntry } from "@/types/database";
 import type { WeightStats, WeightCalorieData, TDEEResponse } from "@/lib/actions/weight";
@@ -38,6 +39,7 @@ import {
 import { exportEntriesCsv } from "@/lib/actions/analytics";
 import { subDays, format } from "date-fns";
 import type { DailyMacroData, MealBreakdown } from "@/lib/actions/analytics";
+import type { HabitWeeklyStats, DailyHabitData } from "@/lib/habit-utils";
 
 const PIE_COLORS = ["#f59e0b", "#3b82f6", "#8b5cf6", "#10b981"];
 const MEAL_LABELS: Record<string, string> = {
@@ -64,6 +66,8 @@ interface AnalyticsClientProps {
     weightStats?: WeightStats;
     weightCalories?: WeightCalorieData[];
     tdee?: TDEEResponse;
+    habitWeeklyStats?: HabitWeeklyStats;
+    habitDailyData?: DailyHabitData[];
 }
 
 export function AnalyticsClient({
@@ -74,6 +78,8 @@ export function AnalyticsClient({
     weightStats,
     weightCalories = [],
     tdee,
+    habitWeeklyStats,
+    habitDailyData = [],
 }: AnalyticsClientProps) {
     const [exporting, setExporting] = useState(false);
 
@@ -109,6 +115,16 @@ export function AnalyticsClient({
             calories: d.calories,
         })),
         [weightCalories]
+    );
+
+    const habitChartData = useMemo(() =>
+        habitDailyData.map((d) => ({
+            date: format(new Date(d.date + "T00:00:00"), "MM/dd"),
+            creatine: d.creatine,
+            magnesium: d.magnesium,
+            gym: d.gym,
+        })),
+        [habitDailyData]
     );
 
     async function handleExport() {
@@ -197,22 +213,26 @@ export function AnalyticsClient({
 
             {/* Charts */}
             <Tabs defaultValue="calories" className="space-y-4">
-                <TabsList className="grid w-full grid-cols-4">
+                <TabsList className="grid w-full grid-cols-5">
                     <TabsTrigger value="calories" className="gap-2">
                         <TrendingUp className="h-4 w-4" />
-                        Calories
+                        <span className="hidden sm:inline">Calories</span>
                     </TabsTrigger>
                     <TabsTrigger value="macros" className="gap-2">
                         <BarChart3 className="h-4 w-4" />
-                        Macros
+                        <span className="hidden sm:inline">Macros</span>
                     </TabsTrigger>
                     <TabsTrigger value="breakdown" className="gap-2">
                         <PieChart className="h-4 w-4" />
-                        Breakdown
+                        <span className="hidden sm:inline">Meals</span>
                     </TabsTrigger>
                     <TabsTrigger value="weight" className="gap-2">
                         <Scale className="h-4 w-4" />
-                        Weight
+                        <span className="hidden sm:inline">Weight</span>
+                    </TabsTrigger>
+                    <TabsTrigger value="habits" className="gap-2">
+                        <Pill className="h-4 w-4" />
+                        <span className="hidden sm:inline">Habits</span>
                     </TabsTrigger>
                 </TabsList>
 
@@ -495,6 +515,76 @@ export function AnalyticsClient({
                             ) : (
                                 <div className="flex items-center justify-center h-[250px] text-muted-foreground">
                                     Need both weight and food entries to show correlation
+                                </div>
+                            )}
+                        </CardContent>
+                    </Card>
+                </TabsContent>
+
+                {/* Habits Tab */}
+                <TabsContent value="habits">
+                    {/* Weekly Summary Cards */}
+                    {habitWeeklyStats && (
+                        <div className="grid grid-cols-3 gap-3 mb-4">
+                            <Card>
+                                <CardContent className="pt-6">
+                                    <p className="text-sm text-muted-foreground">Creatine</p>
+                                    <p className="text-2xl font-bold">{habitWeeklyStats.creatineCompletionPct}%</p>
+                                    <p className="text-xs text-muted-foreground">completed (7d)</p>
+                                </CardContent>
+                            </Card>
+                            <Card>
+                                <CardContent className="pt-6">
+                                    <p className="text-sm text-muted-foreground">Magnesium</p>
+                                    <p className="text-2xl font-bold">{habitWeeklyStats.magnesiumCompletionPct}%</p>
+                                    <p className="text-xs text-muted-foreground">completed (7d)</p>
+                                </CardContent>
+                            </Card>
+                            <Card>
+                                <CardContent className="pt-6">
+                                    <p className="text-sm text-muted-foreground">Gym</p>
+                                    <p className="text-2xl font-bold">{habitWeeklyStats.gymDays}/{habitWeeklyStats.gymGoal}</p>
+                                    <p className="text-xs text-muted-foreground">days (7d)</p>
+                                </CardContent>
+                            </Card>
+                        </div>
+                    )}
+
+                    {/* 30-day Habit Chart */}
+                    <Card>
+                        <CardHeader>
+                            <CardTitle className="text-base">Daily Habits (30 Days)</CardTitle>
+                            <CardDescription>
+                                Habit completion over the last month
+                            </CardDescription>
+                        </CardHeader>
+                        <CardContent>
+                            {habitChartData.length > 0 ? (
+                                <ResponsiveContainer width="100%" height={300}>
+                                    <ComposedChart data={habitChartData}>
+                                        <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
+                                        <XAxis
+                                            dataKey="date"
+                                            tick={{ fontSize: 12 }}
+                                            className="fill-muted-foreground"
+                                            interval="preserveStartEnd"
+                                        />
+                                        <YAxis tick={{ fontSize: 12 }} className="fill-muted-foreground" />
+                                        <Tooltip
+                                            contentStyle={{
+                                                backgroundColor: "hsl(var(--card))",
+                                                border: "1px solid hsl(var(--border))",
+                                                borderRadius: "8px",
+                                            }}
+                                        />
+                                        <Bar dataKey="creatine" fill="#3b82f6" name="Creatine" stackId="habits" />
+                                        <Bar dataKey="magnesium" fill="#8b5cf6" name="Magnesium" stackId="habits" />
+                                        <Bar dataKey="gym" fill="#f97316" name="Gym" stackId="habits" />
+                                    </ComposedChart>
+                                </ResponsiveContainer>
+                            ) : (
+                                <div className="flex items-center justify-center h-[300px] text-muted-foreground">
+                                    No habit data yet. Start tracking from the dashboard.
                                 </div>
                             )}
                         </CardContent>
