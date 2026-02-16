@@ -62,7 +62,13 @@ export default async function DashboardPage({
         <AddEntryDialog userId={user.id} date={date} />
       </div>
 
-      {profile && <DailySummary entries={entries} profile={profile} />}
+      {profile && (
+        <DailySummary
+          entries={entries}
+          profile={profile}
+          showMealGaps={date === formatDate(new Date())}
+        />
+      )}
 
       <WeightLogCard
         key={date}

@@ -21,6 +21,56 @@ export async function getProfile(): Promise<Profile | null> {
   return data as Profile | null;
 }
 
+export async function getGoalAchievementRate(
+  days: number = 30
+): Promise<{ daysHitCalories: number; daysHitProtein: number; totalDays: number }> {
+  const supabase = createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  if (!user) return { daysHitCalories: 0, daysHitProtein: 0, totalDays: 0 };
+
+  const startDate = new Date();
+  startDate.setDate(startDate.getDate() - days);
+
+  const [entriesResult, profileResult] = await Promise.all([
+    supabase
+      .from("food_entries")
+      .select("calories, protein, logged_at")
+      .eq("user_id", user.id)
+      .gte("logged_at", startDate.toISOString()),
+    supabase.from("profiles").select("daily_calories_goal, daily_protein_goal").eq("id", user.id).single(),
+  ]);
+
+  const profile = profileResult.data;
+  if (!profile || !entriesResult.data) return { daysHitCalories: 0, daysHitProtein: 0, totalDays: 0 };
+
+  // Aggregate by day
+  const byDay: Record<string, { calories: number; protein: number }> = {};
+  for (const entry of entriesResult.data) {
+    const day = new Date(entry.logged_at).toISOString().split("T")[0];
+    if (!byDay[day]) byDay[day] = { calories: 0, protein: 0 };
+    byDay[day].calories += entry.calories || 0;
+    byDay[day].protein += Number(entry.protein) || 0;
+  }
+
+  const totalDays = Object.keys(byDay).length;
+  let daysHitCalories = 0;
+  let daysHitProtein = 0;
+
+  for (const day of Object.values(byDay)) {
+    if (day.calories >= profile.daily_calories_goal * 0.8 && day.calories <= profile.daily_calories_goal * 1.1) {
+      daysHitCalories++;
+    }
+    if (day.protein >= profile.daily_protein_goal * 0.9) {
+      daysHitProtein++;
+    }
+  }
+
+  return { daysHitCalories, daysHitProtein, totalDays };
+}
+
 export async function updateGoals(formData: FormData) {
   const supabase = createClient();
   const {

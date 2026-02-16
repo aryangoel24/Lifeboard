@@ -27,6 +27,50 @@ export async function getRecipes(): Promise<Recipe[]> {
     return data as Recipe[];
 }
 
+export async function getRecipesWithIngredients(): Promise<
+    (Recipe & { ingredients: RecipeIngredient[] })[]
+> {
+    const supabase = createClient();
+    const {
+        data: { user },
+    } = await supabase.auth.getUser();
+
+    if (!user) return [];
+
+    const { data: recipes, error } = await supabase
+        .from("recipes")
+        .select("*")
+        .eq("user_id", user.id)
+        .order("created_at", { ascending: false });
+
+    if (error || !recipes) {
+        console.error("Error fetching recipes:", error);
+        return [];
+    }
+
+    if (recipes.length === 0) return [];
+
+    const recipeIds = recipes.map((r: Recipe) => r.id);
+    const { data: allIngredients } = await supabase
+        .from("recipe_ingredients")
+        .select("*")
+        .in("recipe_id", recipeIds);
+
+    const ingredientsByRecipe = (allIngredients || []).reduce(
+        (acc: Record<string, RecipeIngredient[]>, ing: RecipeIngredient) => {
+            if (!acc[ing.recipe_id]) acc[ing.recipe_id] = [];
+            acc[ing.recipe_id].push(ing);
+            return acc;
+        },
+        {}
+    );
+
+    return recipes.map((r: Recipe) => ({
+        ...r,
+        ingredients: ingredientsByRecipe[r.id] || [],
+    }));
+}
+
 export async function getRecipe(id: string): Promise<{ recipe: Recipe | null; ingredients: RecipeIngredient[] }> {
     const supabase = createClient();
     const {

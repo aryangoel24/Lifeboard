@@ -21,8 +21,9 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { FoodEntryForm } from "@/components/food-entry-form";
 import { toast } from "sonner";
-import { Pencil, Trash2, ChevronDown, ChevronUp, Bookmark, Clock } from "lucide-react";
+import { Pencil, Trash2, ChevronDown, ChevronUp, Bookmark, Clock, Copy } from "lucide-react";
 import type { FoodEntry, MealCategory } from "@/types/database";
+import { createFoodEntry } from "@/lib/actions/food-entries";
 import { format } from "date-fns";
 
 const MEAL_BADGE_COLORS: Record<MealCategory, string> = {
@@ -33,10 +34,17 @@ const MEAL_BADGE_COLORS: Record<MealCategory, string> = {
 };
 
 const SOURCE_LABELS: Record<string, string> = {
-  homemade: "🏠 Homemade",
-  restaurant: "🍽️ Restaurant",
-  takeout: "🥡 Takeout",
-  grocery_prepared: "🛒 Grocery",
+  homemade: "\ud83c\udfe0 Homemade",
+  restaurant: "\ud83c\udf7d\ufe0f Restaurant",
+  takeout: "\ud83e\udd61 Takeout",
+  grocery_prepared: "\ud83d\uded2 Grocery",
+};
+
+const SOURCE_ICONS: Record<string, string> = {
+  homemade: "\ud83c\udfe0",
+  restaurant: "\ud83c\udf7d\ufe0f",
+  takeout: "\ud83e\udd61",
+  grocery_prepared: "\ud83d\uded2",
 };
 
 interface FoodEntryCardProps {
@@ -60,6 +68,26 @@ export function FoodEntryCard({ entry, userId, date }: FoodEntryCardProps) {
       toast.success("Entry deleted");
     }
     setDeleting(false);
+  }
+
+  async function handleDuplicate() {
+    const formData = new FormData();
+    formData.set("name", entry.name);
+    formData.set("calories", String(entry.calories));
+    formData.set("protein", String(entry.protein));
+    formData.set("carbs", String(entry.carbs));
+    formData.set("fat", String(entry.fat));
+    formData.set("meal_category", entry.meal_category);
+    formData.set("logged_at", new Date().toISOString());
+    if (entry.cost) formData.set("cost", String(entry.cost));
+    if (entry.meal_source) formData.set("meal_source", entry.meal_source);
+
+    const result = await createFoodEntry(formData);
+    if (result?.error) {
+      toast.error(result.error);
+    } else {
+      toast.success("Entry duplicated!");
+    }
   }
 
   async function handleSaveAsTemplate() {
@@ -100,11 +128,12 @@ export function FoodEntryCard({ entry, userId, date }: FoodEntryCardProps) {
             </div>
             {/* Collapsed macro summary */}
             <div className="flex items-center gap-3 text-xs text-muted-foreground mt-1">
+              {entry.meal_source && <span>{SOURCE_ICONS[entry.meal_source]}</span>}
               <span>{entry.calories} cal</span>
               <span>{Math.round(entry.protein)}g P</span>
               <span>{Math.round(entry.carbs)}g C</span>
               <span>{Math.round(entry.fat)}g F</span>
-              {entry.cost && <span>• ${Number(entry.cost).toFixed(2)}</span>}
+              {entry.cost && <span>{"\u2022"} ${Number(entry.cost).toFixed(2)}</span>}
             </div>
           </div>
           <div className="flex gap-1">
@@ -119,6 +148,15 @@ export function FoodEntryCard({ entry, userId, date }: FoodEntryCardProps) {
               ) : (
                 <ChevronDown className="h-3.5 w-3.5" />
               )}
+            </Button>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-7 w-7"
+              onClick={handleDuplicate}
+              title="Duplicate entry"
+            >
+              <Copy className="h-3.5 w-3.5" />
             </Button>
             <Button
               variant="ghost"

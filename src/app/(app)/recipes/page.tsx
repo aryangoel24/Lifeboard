@@ -1,11 +1,11 @@
-import { getRecipes } from "@/lib/actions/recipes";
+import { getRecipesWithIngredients } from "@/lib/actions/recipes";
 import { getMealTemplates } from "@/lib/actions/meal-templates";
 import { getPantryItems } from "@/lib/actions/pantry";
 import { RecipesClient } from "@/components/recipes-client";
 
 export default async function RecipesPage() {
     const [recipes, templates, pantryItems] = await Promise.all([
-        getRecipes(),
+        getRecipesWithIngredients(),
         getMealTemplates(),
         getPantryItems(),
     ]);

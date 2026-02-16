@@ -90,3 +90,16 @@
   left: 50%;
   transform: translateX(-50%);
 }
+
+/* Calendar color-coded dots by goal adherence */
+.calendar-goal-hit .rdp-day_button::after {
+  background-color: #22c55e; /* green-500 */
+}
+
+.calendar-goal-close .rdp-day_button::after {
+  background-color: #f59e0b; /* amber-500 */
+}
+
+.calendar-goal-missed .rdp-day_button::after {
+  background-color: #ef4444; /* red-500 */
+}

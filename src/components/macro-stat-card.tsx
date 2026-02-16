@@ -31,7 +31,15 @@ export function MacroStatCard({
 }: MacroStatCardProps) {
   const percentage = goal > 0 ? Math.min((current / goal) * 100, 100) : 0;
   const isOver = current > goal;
+  const remaining = Math.max(goal - current, 0);
   const barColor = MACRO_CONFIG[label.toLowerCase() as keyof typeof MACRO_CONFIG]?.barColor ?? "bg-primary";
+
+  // Color-coded progress: green (on track), yellow (close, >80%), red (over)
+  const progressBarColor = isOver
+    ? "bg-destructive"
+    : percentage >= 80
+      ? "bg-amber-500"
+      : barColor;
 
   return (
     <div className="rounded-lg border bg-card p-4 space-y-3">
@@ -51,10 +59,18 @@ export function MacroStatCard({
       </div>
       <div className="h-1.5 bg-secondary rounded-full overflow-hidden">
         <div
-          className={cn("h-full rounded-full transition-all", barColor)}
+          className={cn("h-full rounded-full transition-all", progressBarColor)}
           style={{ width: `${percentage}%` }}
         />
       </div>
+      <p className={cn(
+        "text-xs",
+        isOver ? "text-destructive" : "text-muted-foreground"
+      )}>
+        {isOver
+          ? `${Math.round(current - goal)} ${unit} over`
+          : `${Math.round(remaining)} ${unit} remaining`}
+      </p>
     </div>
   );
 }

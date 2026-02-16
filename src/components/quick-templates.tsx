@@ -21,6 +21,7 @@ export function QuickTemplates({ templates, date }: QuickTemplatesProps) {
         }
     }
 
+    // Already sorted by use_count from server
     return (
         <div className="space-y-2">
             <div className="flex items-center gap-2 text-sm text-muted-foreground">
@@ -35,6 +36,7 @@ export function QuickTemplates({ templates, date }: QuickTemplatesProps) {
                         size="sm"
                         className="whitespace-nowrap shrink-0 text-xs"
                         onClick={() => handleLog(template.id)}
+                        title={template.use_count > 0 ? `Logged ${template.use_count}x` : undefined}
                     >
                         {template.name}
                         <span className="text-muted-foreground ml-1">

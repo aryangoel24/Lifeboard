@@ -3,6 +3,7 @@ import { createClient } from "@/lib/supabase/server";
 import {
   getFoodEntries,
   getEntriesForMonth,
+  getMonthCaloriesByDay,
 } from "@/lib/actions/food-entries";
 import { formatDate } from "@/lib/utils";
 import { FoodEntryList } from "@/components/food-entry-list";
@@ -26,9 +27,10 @@ export default async function CalendarPage({
   const date = searchParams.date || formatDate(new Date());
   const selectedDate = new Date(date + "T00:00:00");
 
-  const [entries, datesWithEntries, profileResult] = await Promise.all([
+  const [entries, datesWithEntries, caloriesByDay, profileResult] = await Promise.all([
     getFoodEntries(date),
     getEntriesForMonth(selectedDate.getFullYear(), selectedDate.getMonth() + 1),
+    getMonthCaloriesByDay(selectedDate.getFullYear(), selectedDate.getMonth() + 1),
     supabase.from("profiles").select("*").eq("id", user.id).single(),
   ]);
 
@@ -42,6 +44,8 @@ export default async function CalendarPage({
           <CalendarClient
             selectedDate={date}
             datesWithEntries={datesWithEntries}
+            caloriesByDay={caloriesByDay}
+            calorieGoal={profile?.daily_calories_goal}
           />
         </div>
         <div className="space-y-6">
