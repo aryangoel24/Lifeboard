@@ -9,6 +9,7 @@ interface MacroStatCardProps {
   icon: LucideIcon;
   color: string;
   bgColor: string;
+  higherIsBetter?: boolean;
 }
 
 const MACRO_CONFIG = {
@@ -28,18 +29,23 @@ export function MacroStatCard({
   icon: Icon,
   color,
   bgColor,
+  higherIsBetter = false,
 }: MacroStatCardProps) {
   const percentage = goal > 0 ? Math.min((current / goal) * 100, 100) : 0;
   const isOver = current > goal;
   const remaining = Math.max(goal - current, 0);
   const barColor = MACRO_CONFIG[label.toLowerCase() as keyof typeof MACRO_CONFIG]?.barColor ?? "bg-primary";
 
-  // Color-coded progress: green (on track), yellow (close, >80%), red (over)
+  const overIsGood = isOver && higherIsBetter;
+
+  // Color-coded progress: green (on track), yellow (close, >80%), red (over, unless higherIsBetter)
   const progressBarColor = isOver
-    ? "bg-destructive"
+    ? (overIsGood ? "bg-green-500" : "bg-destructive")
     : percentage >= 80
       ? "bg-amber-500"
       : barColor;
+
+  const overTextColor = overIsGood ? "text-green-500" : "text-destructive";
 
   return (
     <div className="rounded-lg border bg-card p-4 space-y-3">
@@ -50,7 +56,7 @@ export function MacroStatCard({
         <span className="text-sm font-medium text-muted-foreground">{label}</span>
       </div>
       <div>
-        <span className={cn("text-2xl font-bold", isOver && "text-destructive")}>
+        <span className={cn("text-2xl font-bold", isOver && overTextColor)}>
           {Math.round(current)}
         </span>
         <span className="text-sm text-muted-foreground ml-1">
@@ -65,7 +71,7 @@ export function MacroStatCard({
       </div>
       <p className={cn(
         "text-xs",
-        isOver ? "text-destructive" : "text-muted-foreground"
+        isOver ? overTextColor : "text-muted-foreground"
       )}>
         {isOver
           ? `${Math.round(current - goal)} ${unit} over`
