@@ -16,6 +16,17 @@ import {
     DialogTrigger,
 } from "@/components/ui/dialog";
 import {
+    DropdownMenu,
+    DropdownMenuContent,
+    DropdownMenuItem,
+    DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import {
+    Collapsible,
+    CollapsibleContent,
+    CollapsibleTrigger,
+} from "@/components/ui/collapsible";
+import {
     Select,
     SelectContent,
     SelectItem,
@@ -24,9 +35,9 @@ import {
 } from "@/components/ui/select";
 import { Label } from "@/components/ui/label";
 import { toast } from "sonner";
-import { Plus, Search, Trash2, Pencil, Package, UtensilsCrossed } from "lucide-react";
+import { Plus, Search, Trash2, Pencil, Package, UtensilsCrossed, MoreHorizontal, ChevronDown, ChevronRight } from "lucide-react";
 import { deletePantryItem, logFromPantry } from "@/lib/actions/pantry";
-import { PANTRY_CATEGORIES, scaleNutrition } from "@/lib/pantry-utils";
+import { PANTRY_CATEGORIES, CATEGORY_COLORS, scaleNutrition } from "@/lib/pantry-utils";
 import { getDefaultMealCategory } from "@/lib/utils";
 import { PantryItemForm } from "@/components/pantry-item-form";
 import type { PantryItem, PantryCategory, MealCategory } from "@/types/database";
@@ -44,6 +55,7 @@ export function PantryClient({ items }: PantryClientProps) {
     const [logAmount, setLogAmount] = useState("");
     const [logMealCategory, setLogMealCategory] = useState<MealCategory>(getDefaultMealCategory());
     const [logLoading, setLogLoading] = useState(false);
+    const [collapsedCategories, setCollapsedCategories] = useState<Set<PantryCategory>>(new Set());
 
     const logPreview = useMemo(() => {
         if (!logItem) return null;
@@ -59,6 +71,30 @@ export function PantryClient({ items }: PantryClientProps) {
             return matchesSearch && matchesCategory;
         });
     }, [items, search, categoryFilter]);
+
+    const groupedItems = useMemo(() => {
+        if (categoryFilter !== "all") return null;
+        const groups: { category: PantryCategory; label: string; items: PantryItem[] }[] = [];
+        for (const cat of PANTRY_CATEGORIES) {
+            const catItems = filtered.filter(item => item.category === cat.value);
+            if (catItems.length > 0) {
+                groups.push({ category: cat.value, label: cat.label, items: catItems });
+            }
+        }
+        return groups;
+    }, [filtered, categoryFilter]);
+
+    function toggleCategory(cat: PantryCategory) {
+        setCollapsedCategories(prev => {
+            const next = new Set(prev);
+            if (next.has(cat)) {
+                next.delete(cat);
+            } else {
+                next.add(cat);
+            }
+            return next;
+        });
+    }
 
     async function handleDelete(id: string) {
         if (!confirm("Delete this pantry item?")) return;
@@ -94,8 +130,62 @@ export function PantryClient({ items }: PantryClientProps) {
         }
     }
 
-    function getCategoryLabel(cat: PantryCategory) {
-        return PANTRY_CATEGORIES.find((c) => c.value === cat)?.label || cat;
+    function renderCard(item: PantryItem) {
+        return (
+            <Card key={item.id} className={`glass-card rounded-2xl border-l-[3px] ${CATEGORY_COLORS[item.category]} hover:shadow-xl transition-all duration-200`}>
+                <CardContent className="py-2.5 px-3">
+                    <div className="flex items-center justify-between gap-1 mb-1">
+                        <p className="font-medium truncate text-sm">{item.name}</p>
+                        <DropdownMenu>
+                            <DropdownMenuTrigger asChild>
+                                <Button variant="ghost" size="icon" className="h-7 w-7 shrink-0">
+                                    <MoreHorizontal className="h-3.5 w-3.5" />
+                                </Button>
+                            </DropdownMenuTrigger>
+                            <DropdownMenuContent align="end">
+                                <DropdownMenuItem onClick={() => openLogDialog(item)}>
+                                    <UtensilsCrossed className="h-3.5 w-3.5 mr-2" />
+                                    Log
+                                </DropdownMenuItem>
+                                <DropdownMenuItem onClick={() => setEditItem(item)}>
+                                    <Pencil className="h-3.5 w-3.5 mr-2" />
+                                    Edit
+                                </DropdownMenuItem>
+                                <DropdownMenuItem className="text-destructive" onClick={() => handleDelete(item.id)}>
+                                    <Trash2 className="h-3.5 w-3.5 mr-2" />
+                                    Delete
+                                </DropdownMenuItem>
+                            </DropdownMenuContent>
+                        </DropdownMenu>
+                    </div>
+                    <p className="text-sm">
+                        <span className="font-semibold">{item.calories_per_base} cal</span>
+                        <span className="text-muted-foreground text-xs">
+                            {" · "}{item.protein_per_base}g P
+                            {" · "}{item.carbs_per_base}g C
+                            {" · "}{item.fat_per_base}g F
+                        </span>
+                    </p>
+                    <div className="flex items-center gap-1.5 mt-1">
+                        <span className="text-xs text-muted-foreground">
+                            Per {item.base_amount}{item.base_unit}
+                            {item.cost_per_base ? ` · $${Number(item.cost_per_base).toFixed(2)}` : ""}
+                        </span>
+                        {item.stock_quantity !== null && item.stock_quantity !== undefined && (
+                            <>
+                                <span className="text-xs text-muted-foreground">·</span>
+                                <div className={`h-1.5 w-1.5 rounded-full ${item.stock_quantity <= 0 ? "bg-destructive" : item.stock_quantity < 2 ? "bg-amber-500" : "bg-green-500"}`} />
+                                <span className="text-xs text-muted-foreground">
+                                    {item.stock_quantity <= 0
+                                        ? "Out"
+                                        : `${item.stock_quantity}${item.stock_unit ? ` ${item.stock_unit}` : ""}`}
+                                </span>
+                            </>
+                        )}
+                    </div>
+                </CardContent>
+            </Card>
+        );
     }
 
     return (
@@ -155,7 +245,7 @@ export function PantryClient({ items }: PantryClientProps) {
                 </div>
             </div>
 
-            {/* Items Grid */}
+            {/* Items */}
             {filtered.length === 0 ? (
                 <Card className="glass-card rounded-2xl">
                     <CardContent className="flex flex-col items-center justify-center py-12 text-center">
@@ -170,81 +260,36 @@ export function PantryClient({ items }: PantryClientProps) {
                         </p>
                     </CardContent>
                 </Card>
+            ) : groupedItems ? (
+                <div className="space-y-4">
+                    {groupedItems.map((group) => (
+                        <Collapsible
+                            key={group.category}
+                            open={!collapsedCategories.has(group.category)}
+                            onOpenChange={() => toggleCategory(group.category)}
+                        >
+                            <CollapsibleTrigger className="flex items-center gap-2 w-full text-left py-1.5 group">
+                                {collapsedCategories.has(group.category) ? (
+                                    <ChevronRight className="h-4 w-4 text-muted-foreground" />
+                                ) : (
+                                    <ChevronDown className="h-4 w-4 text-muted-foreground" />
+                                )}
+                                <span className="font-semibold text-sm">
+                                    {group.label}
+                                </span>
+                                <span className="text-xs text-muted-foreground">({group.items.length})</span>
+                            </CollapsibleTrigger>
+                            <CollapsibleContent>
+                                <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 mt-2">
+                                    {group.items.map(renderCard)}
+                                </div>
+                            </CollapsibleContent>
+                        </Collapsible>
+                    ))}
+                </div>
             ) : (
                 <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-                    {filtered.map((item) => (
-                        <Card key={item.id} className="glass-card rounded-2xl hover:shadow-xl transition-all duration-200">
-                            <CardContent className="py-3 px-4">
-                                <div className="flex items-start justify-between mb-2">
-                                    <div className="min-w-0">
-                                        <p className="font-medium truncate">{item.name}</p>
-                                        <Badge variant="secondary" className="text-xs mt-1">
-                                            {getCategoryLabel(item.category)}
-                                        </Badge>
-                                    </div>
-                                    <div className="flex gap-1 ml-2 shrink-0">
-                                        <Button
-                                            variant="ghost"
-                                            size="icon"
-                                            className="h-7 w-7"
-                                            onClick={() => openLogDialog(item)}
-                                            title="Log as food entry"
-                                        >
-                                            <UtensilsCrossed className="h-3.5 w-3.5" />
-                                        </Button>
-                                        <Button
-                                            variant="ghost"
-                                            size="icon"
-                                            className="h-7 w-7"
-                                            onClick={() => setEditItem(item)}
-                                        >
-                                            <Pencil className="h-3.5 w-3.5" />
-                                        </Button>
-                                        <Button
-                                            variant="ghost"
-                                            size="icon"
-                                            className="h-7 w-7 text-destructive"
-                                            onClick={() => handleDelete(item.id)}
-                                        >
-                                            <Trash2 className="h-3.5 w-3.5" />
-                                        </Button>
-                                    </div>
-                                </div>
-                                <p className="text-xs text-muted-foreground mb-1">
-                                    Per {item.base_amount}{item.base_unit}
-                                    {item.cost_per_base ? ` \u2022 $${Number(item.cost_per_base).toFixed(2)}` : ""}
-                                </p>
-                                <div className="grid grid-cols-4 gap-2 text-sm">
-                                    <div>
-                                        <p className="text-muted-foreground text-xs">Cal</p>
-                                        <p className="font-medium">{item.calories_per_base}</p>
-                                    </div>
-                                    <div>
-                                        <p className="text-muted-foreground text-xs">P</p>
-                                        <p className="font-medium">{item.protein_per_base}g</p>
-                                    </div>
-                                    <div>
-                                        <p className="text-muted-foreground text-xs">C</p>
-                                        <p className="font-medium">{item.carbs_per_base}g</p>
-                                    </div>
-                                    <div>
-                                        <p className="text-muted-foreground text-xs">F</p>
-                                        <p className="font-medium">{item.fat_per_base}g</p>
-                                    </div>
-                                </div>
-                                {item.stock_quantity !== null && item.stock_quantity !== undefined && (
-                                    <div className="mt-2 flex items-center gap-1.5">
-                                        <div className={`h-1.5 w-1.5 rounded-full ${item.stock_quantity <= 0 ? "bg-destructive" : item.stock_quantity < 2 ? "bg-amber-500" : "bg-green-500"}`} />
-                                        <span className="text-xs text-muted-foreground">
-                                            {item.stock_quantity <= 0
-                                                ? "Out of stock"
-                                                : `${item.stock_quantity}${item.stock_unit ? ` ${item.stock_unit}` : ""} in stock`}
-                                        </span>
-                                    </div>
-                                )}
-                            </CardContent>
-                        </Card>
-                    ))}
+                    {filtered.map(renderCard)}
                 </div>
             )}
 

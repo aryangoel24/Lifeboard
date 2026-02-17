@@ -13,19 +13,28 @@ export default function PantryLoading() {
                     <Skeleton key={i} className="h-6 w-16 rounded-full" />
                 ))}
             </div>
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-                {Array.from({ length: 6 }).map((_, i) => (
-                    <div key={i} className="glass-card rounded-2xl p-4 space-y-3">
-                        <div className="flex items-center justify-between">
-                            <Skeleton className="h-5 w-28" />
-                            <Skeleton className="h-5 w-14 rounded-full" />
+            <div className="space-y-4">
+                {Array.from({ length: 3 }).map((_, gi) => (
+                    <div key={gi} className="space-y-2">
+                        <div className="flex items-center gap-2">
+                            <Skeleton className="h-4 w-4" />
+                            <Skeleton className="h-4 w-20" />
+                            <Skeleton className="h-4 w-6" />
                         </div>
-                        <Skeleton className="h-3 w-20" />
-                        <div className="grid grid-cols-4 gap-2">
-                            <Skeleton className="h-8 w-full" />
-                            <Skeleton className="h-8 w-full" />
-                            <Skeleton className="h-8 w-full" />
-                            <Skeleton className="h-8 w-full" />
+                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                            {Array.from({ length: gi === 0 ? 3 : 2 }).map((_, i) => (
+                                <div key={i} className="glass-card rounded-2xl border-l-[3px] border-l-muted p-3 space-y-1.5">
+                                    <div className="flex items-center justify-between">
+                                        <Skeleton className="h-4 w-28" />
+                                        <div className="flex gap-1">
+                                            <Skeleton className="h-7 w-7 rounded" />
+                                            <Skeleton className="h-7 w-7 rounded" />
+                                        </div>
+                                    </div>
+                                    <Skeleton className="h-4 w-48" />
+                                    <Skeleton className="h-3 w-20" />
+                                </div>
+                            ))}
                         </div>
                     </div>
                 ))}
