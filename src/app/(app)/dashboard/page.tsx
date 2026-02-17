@@ -49,7 +49,7 @@ export default async function DashboardPage({
   const profile = profileResult.data;
 
   return (
-    <div className="max-w-2xl mx-auto space-y-6">
+    <div className="max-w-3xl mx-auto space-y-5">
       <div className="flex items-center justify-between">
         <div>
           <div className="flex items-center gap-3">

@@ -125,19 +125,19 @@ export function PantryClient({ items }: PantryClientProps) {
 
             {/* Search & Filter */}
             <div className="space-y-3 mb-6">
-                <div className="relative">
+                <div className="relative glass-subtle rounded-xl">
                     <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                     <Input
                         placeholder="Search pantry..."
                         value={search}
                         onChange={(e) => setSearch(e.target.value)}
-                        className="pl-9"
+                        className="pl-9 border-0 bg-transparent"
                     />
                 </div>
                 <div className="flex flex-wrap gap-1.5">
                     <Badge
                         variant={categoryFilter === "all" ? "default" : "outline"}
-                        className="cursor-pointer"
+                        className={`cursor-pointer ${categoryFilter === "all" ? "bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border-emerald-500/20 hover:bg-emerald-500/20" : ""}`}
                         onClick={() => setCategoryFilter("all")}
                     >
                         All
@@ -146,7 +146,7 @@ export function PantryClient({ items }: PantryClientProps) {
                         <Badge
                             key={cat.value}
                             variant={categoryFilter === cat.value ? "default" : "outline"}
-                            className="cursor-pointer"
+                            className={`cursor-pointer ${categoryFilter === cat.value ? "bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border-emerald-500/20 hover:bg-emerald-500/20" : ""}`}
                             onClick={() => setCategoryFilter(cat.value)}
                         >
                             {cat.label}
@@ -157,7 +157,7 @@ export function PantryClient({ items }: PantryClientProps) {
 
             {/* Items Grid */}
             {filtered.length === 0 ? (
-                <Card>
+                <Card className="glass-card rounded-2xl">
                     <CardContent className="flex flex-col items-center justify-center py-12 text-center">
                         <Package className="h-12 w-12 text-muted-foreground/50 mb-4" />
                         <p className="text-muted-foreground font-medium">
@@ -173,7 +173,7 @@ export function PantryClient({ items }: PantryClientProps) {
             ) : (
                 <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
                     {filtered.map((item) => (
-                        <Card key={item.id} className="shadow-sm hover:shadow-md transition-shadow">
+                        <Card key={item.id} className="glass-card rounded-2xl hover:shadow-xl transition-all duration-200">
                             <CardContent className="py-3 px-4">
                                 <div className="flex items-start justify-between mb-2">
                                     <div className="min-w-0">
@@ -297,7 +297,7 @@ export function PantryClient({ items }: PantryClientProps) {
                                 </Select>
                             </div>
                             {logPreview && (
-                                <div className="grid grid-cols-4 gap-2 text-sm rounded-md bg-muted p-3">
+                                <div className="grid grid-cols-4 gap-2 text-sm glass-subtle rounded-xl p-3">
                                     <div className="text-center">
                                         <p className="text-muted-foreground text-xs">Cal</p>
                                         <p className="font-medium">{logPreview.calories}</p>

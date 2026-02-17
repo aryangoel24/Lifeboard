@@ -28,21 +28,24 @@ export function MobileNav() {
           <span className="sr-only">Open menu</span>
         </Button>
       </SheetTrigger>
-      <SheetContent side="right" className="w-64">
+      <SheetContent side="right" className="w-64 glass border-l-0">
         <SheetHeader>
-          <SheetTitle className="text-left">Food Tracker</SheetTitle>
+          <SheetTitle className="text-left">
+            <span className="text-emerald-600 dark:text-emerald-400">Food</span>{" "}
+            <span>Tracker</span>
+          </SheetTitle>
         </SheetHeader>
-        <nav className="flex flex-col gap-2 mt-6">
+        <nav className="flex flex-col gap-1 mt-6">
           {navItems.map((item) => (
             <Link
               key={item.href}
               href={item.href}
               onClick={() => setOpen(false)}
               className={cn(
-                "px-3 py-2 rounded-md text-sm transition-colors hover:bg-accent",
+                "px-3 py-2 rounded-lg text-sm transition-all duration-200",
                 pathname === item.href
-                  ? "bg-accent text-foreground font-medium"
-                  : "text-muted-foreground"
+                  ? "bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 font-medium"
+                  : "text-muted-foreground hover:text-foreground hover:bg-accent"
               )}
             >
               {item.label}

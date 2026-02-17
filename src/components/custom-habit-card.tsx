@@ -39,7 +39,7 @@ export function CustomHabitCard({ habit, entry, date }: CustomHabitCardProps) {
   if (habit.tracking_type === "counter") {
     const goal = habit.target_value;
     return (
-      <Card>
+      <Card className="glass-card rounded-2xl">
         <CardHeader className="pb-2">
           <CardTitle className="text-sm font-medium flex items-center gap-2">
             <span>{habit.icon}</span>
@@ -86,7 +86,7 @@ export function CustomHabitCard({ habit, entry, date }: CustomHabitCardProps) {
   if (habit.tracking_type === "duration") {
     const target = habit.target_value;
     return (
-      <Card>
+      <Card className="glass-card rounded-2xl">
         <CardHeader className="pb-2">
           <CardTitle className="text-sm font-medium flex items-center gap-2">
             <span>{habit.icon}</span>

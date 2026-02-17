@@ -48,22 +48,28 @@ export function MacroStatCard({
   const overTextColor = overIsGood ? "text-green-500" : "text-destructive";
 
   return (
-    <div className="rounded-lg border bg-card p-4 space-y-3">
+    <div className={cn(
+      "glass-card rounded-2xl p-4 space-y-3",
+      label.toLowerCase() === "calories" && "border-l-2 border-l-orange-500",
+      label.toLowerCase() === "protein" && "border-l-2 border-l-blue-500",
+      label.toLowerCase() === "carbs" && "border-l-2 border-l-green-500",
+      label.toLowerCase() === "fat" && "border-l-2 border-l-purple-500",
+    )}>
       <div className="flex items-center gap-3">
-        <div className={cn("rounded-md p-2", bgColor)}>
+        <div className={cn("rounded-xl p-2.5", bgColor)}>
           <Icon className={cn("h-4 w-4", color)} />
         </div>
         <span className="text-sm font-medium text-muted-foreground">{label}</span>
       </div>
       <div>
-        <span className={cn("text-2xl font-bold", isOver && overTextColor)}>
+        <span className={cn("text-2xl font-bold tabular-nums", isOver && overTextColor)}>
           {Math.round(current)}
         </span>
         <span className="text-sm text-muted-foreground ml-1">
           / {goal} {unit}
         </span>
       </div>
-      <div className="h-1.5 bg-secondary rounded-full overflow-hidden">
+      <div className="h-2 bg-secondary rounded-full overflow-hidden">
         <div
           className={cn("h-full rounded-full transition-all", progressBarColor)}
           style={{ width: `${percentage}%` }}

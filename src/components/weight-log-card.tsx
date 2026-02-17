@@ -69,7 +69,7 @@ export function WeightLogCard({
         : null;
 
     return (
-        <Card>
+        <Card className="glass-card rounded-2xl">
             <CardHeader className="pb-2">
                 <CardTitle className="text-sm font-medium flex items-center gap-2">
                     <Scale className="h-4 w-4 text-blue-500" />

@@ -24,25 +24,24 @@ export function DateNavigator({ date }: DateNavigatorProps) {
       <Button
         variant="outline"
         size="icon"
-        className="h-8 w-8"
+        className="h-8 w-8 glass-subtle"
         onClick={() => navigate(subDays(currentDate, 1))}
       >
         <ChevronLeft className="h-4 w-4" />
       </Button>
       <div className="text-center">
-        <p className="font-medium">{formatDisplayDate(date)}</p>
+        <p className="font-semibold text-lg">{formatDisplayDate(date)}</p>
       </div>
       <Button
         variant="outline"
         size="icon"
-        className="h-8 w-8"
+        className="h-8 w-8 glass-subtle"
         onClick={() => navigate(addDays(currentDate, 1))}
       >
         <ChevronRight className="h-4 w-4" />
       </Button>
       {!today && (
         <Button
-          variant="secondary"
           size="sm"
           className="text-xs h-7 rounded-full px-3"
           onClick={() => navigate(new Date())}

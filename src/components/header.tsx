@@ -45,22 +45,23 @@ export function Header() {
   const pathname = usePathname();
 
   return (
-    <header className="sticky top-0 z-50 border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
+    <header className="sticky top-0 z-50 glass shadow-sm">
       <div className="container mx-auto flex h-16 items-center justify-between px-4">
         <nav className="flex items-center gap-6">
           <Link href="/dashboard" className="font-bold text-xl">
-            Food Tracker
+            <span className="text-emerald-600 dark:text-emerald-400">Food</span>{" "}
+            <span>Tracker</span>
           </Link>
-          <div className="hidden md:flex items-center gap-6">
+          <div className="hidden md:flex items-center gap-1">
             {navItems.map((item) => (
               <Link
                 key={item.href}
                 href={item.href}
                 className={cn(
-                  "text-sm transition-colors hover:text-foreground",
+                  "text-sm transition-all duration-200 px-3 py-1.5 rounded-full",
                   pathname === item.href
-                    ? "text-foreground"
-                    : "text-muted-foreground"
+                    ? "bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 font-medium"
+                    : "text-muted-foreground hover:text-foreground"
                 )}
               >
                 {item.label}

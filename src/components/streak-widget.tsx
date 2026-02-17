@@ -12,7 +12,7 @@ export function StreakWidget({ streaks }: StreakWidgetProps) {
     if (count === 0) return null;
 
     return (
-        <div className="flex items-center gap-1.5 text-sm">
+        <div className="flex items-center gap-1.5 text-sm glass-subtle rounded-full px-3 py-1">
             <Flame className="h-4 w-4 text-orange-500" />
             <span className="font-medium">{count}</span>
             <span className="text-muted-foreground">day streak</span>

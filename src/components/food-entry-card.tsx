@@ -89,7 +89,7 @@ export function FoodEntryCard({ entry, userId, date }: FoodEntryCardProps) {
   const logTime = format(new Date(entry.logged_at), "h:mm a");
 
   return (
-    <Card className="shadow-sm hover:shadow-md transition-shadow">
+    <Card className="glass-card rounded-2xl hover:shadow-xl transition-all duration-200">
       <CardHeader className="pb-2">
         <div className="flex items-start justify-between">
           <div

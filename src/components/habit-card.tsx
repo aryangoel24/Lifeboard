@@ -61,7 +61,7 @@ export function HabitCard({ habitType, currentValue, goal, date }: HabitCardProp
   // Counter mode for creatine
   if (habitType === "creatine") {
     return (
-      <Card>
+      <Card className="glass-card rounded-2xl">
         <CardHeader className="pb-2">
           <CardTitle className="text-sm font-medium flex items-center gap-2">
             <Icon className={`h-4 w-4 ${config.iconColor}`} />

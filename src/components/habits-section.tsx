@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { ChevronDown, ChevronUp } from "lucide-react";
+import { cn } from "@/lib/utils";
 import { HabitCard } from "@/components/habit-card";
 import { CustomHabitCard } from "@/components/custom-habit-card";
 import { isHabitScheduledForDate } from "@/lib/habit-utils";
@@ -62,7 +63,12 @@ export function HabitsSection({
           <h2 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide">
             Habits
           </h2>
-          <span className="text-xs text-muted-foreground">
+          <span className={cn(
+            "text-xs px-2 py-0.5 rounded-full",
+            totalDone === totalHabits
+              ? "bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 font-medium"
+              : "text-muted-foreground"
+          )}>
             {totalDone}/{totalHabits} done
           </span>
         </div>
