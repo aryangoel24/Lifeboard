@@ -49,6 +49,7 @@ export function DailySummary({ entries, profile, showMealGaps = false }: DailySu
           icon={MACRO_CONFIG.protein.icon}
           color={MACRO_CONFIG.protein.color}
           bgColor={MACRO_CONFIG.protein.bgColor}
+          higherIsBetter
         />
         <MacroStatCard
           label="Carbs"
