@@ -15,12 +15,21 @@ import {
     DialogTitle,
     DialogTrigger,
 } from "@/components/ui/dialog";
+import {
+    Select,
+    SelectContent,
+    SelectItem,
+    SelectTrigger,
+    SelectValue,
+} from "@/components/ui/select";
+import { Label } from "@/components/ui/label";
 import { toast } from "sonner";
-import { Plus, Search, Trash2, Pencil, Package } from "lucide-react";
-import { deletePantryItem } from "@/lib/actions/pantry";
-import { PANTRY_CATEGORIES } from "@/lib/pantry-utils";
+import { Plus, Search, Trash2, Pencil, Package, UtensilsCrossed } from "lucide-react";
+import { deletePantryItem, logFromPantry } from "@/lib/actions/pantry";
+import { PANTRY_CATEGORIES, scaleNutrition } from "@/lib/pantry-utils";
+import { getDefaultMealCategory } from "@/lib/utils";
 import { PantryItemForm } from "@/components/pantry-item-form";
-import type { PantryItem, PantryCategory } from "@/types/database";
+import type { PantryItem, PantryCategory, MealCategory } from "@/types/database";
 
 interface PantryClientProps {
     items: PantryItem[];
@@ -31,6 +40,17 @@ export function PantryClient({ items }: PantryClientProps) {
     const [categoryFilter, setCategoryFilter] = useState<PantryCategory | "all">("all");
     const [createDialogOpen, setCreateDialogOpen] = useState(false);
     const [editItem, setEditItem] = useState<PantryItem | null>(null);
+    const [logItem, setLogItem] = useState<PantryItem | null>(null);
+    const [logAmount, setLogAmount] = useState("");
+    const [logMealCategory, setLogMealCategory] = useState<MealCategory>(getDefaultMealCategory());
+    const [logLoading, setLogLoading] = useState(false);
+
+    const logPreview = useMemo(() => {
+        if (!logItem) return null;
+        const amt = parseFloat(logAmount);
+        if (!amt || amt <= 0) return null;
+        return scaleNutrition(logItem, amt);
+    }, [logItem, logAmount]);
 
     const filtered = useMemo(() => {
         return items.filter((item) => {
@@ -47,6 +67,30 @@ export function PantryClient({ items }: PantryClientProps) {
             toast.error(result.error);
         } else {
             toast.success("Item deleted");
+        }
+    }
+
+    function openLogDialog(item: PantryItem) {
+        setLogItem(item);
+        setLogAmount(String(item.base_amount));
+        setLogMealCategory(getDefaultMealCategory());
+    }
+
+    async function handleLog() {
+        if (!logItem) return;
+        const amt = parseFloat(logAmount);
+        if (!amt || amt <= 0) {
+            toast.error("Enter a valid amount");
+            return;
+        }
+        setLogLoading(true);
+        const result = await logFromPantry(logItem.id, amt, logMealCategory);
+        setLogLoading(false);
+        if (result?.error) {
+            toast.error(result.error);
+        } else {
+            toast.success(`Logged ${logItem.name}`);
+            setLogItem(null);
         }
     }
 
@@ -143,6 +187,15 @@ export function PantryClient({ items }: PantryClientProps) {
                                             variant="ghost"
                                             size="icon"
                                             className="h-7 w-7"
+                                            onClick={() => openLogDialog(item)}
+                                            title="Log as food entry"
+                                        >
+                                            <UtensilsCrossed className="h-3.5 w-3.5" />
+                                        </Button>
+                                        <Button
+                                            variant="ghost"
+                                            size="icon"
+                                            className="h-7 w-7"
                                             onClick={() => setEditItem(item)}
                                         >
                                             <Pencil className="h-3.5 w-3.5" />
@@ -206,6 +259,67 @@ export function PantryClient({ items }: PantryClientProps) {
                             item={editItem}
                             onSuccess={() => setEditItem(null)}
                         />
+                    )}
+                </DialogContent>
+            </Dialog>
+
+            {/* Log Dialog */}
+            <Dialog open={!!logItem} onOpenChange={(open) => { if (!open) setLogItem(null); }}>
+                <DialogContent className="max-w-sm">
+                    <DialogHeader>
+                        <DialogTitle>Log {logItem?.name}</DialogTitle>
+                    </DialogHeader>
+                    {logItem && (
+                        <div className="space-y-4">
+                            <div className="space-y-2">
+                                <Label htmlFor="log-amount">Amount ({logItem.base_unit})</Label>
+                                <Input
+                                    id="log-amount"
+                                    type="number"
+                                    min="0"
+                                    step="any"
+                                    value={logAmount}
+                                    onChange={(e) => setLogAmount(e.target.value)}
+                                />
+                            </div>
+                            <div className="space-y-2">
+                                <Label>Meal Category</Label>
+                                <Select value={logMealCategory} onValueChange={(v) => setLogMealCategory(v as MealCategory)}>
+                                    <SelectTrigger>
+                                        <SelectValue />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                        <SelectItem value="breakfast">Breakfast</SelectItem>
+                                        <SelectItem value="lunch">Lunch</SelectItem>
+                                        <SelectItem value="dinner">Dinner</SelectItem>
+                                        <SelectItem value="snack">Snack</SelectItem>
+                                    </SelectContent>
+                                </Select>
+                            </div>
+                            {logPreview && (
+                                <div className="grid grid-cols-4 gap-2 text-sm rounded-md bg-muted p-3">
+                                    <div className="text-center">
+                                        <p className="text-muted-foreground text-xs">Cal</p>
+                                        <p className="font-medium">{logPreview.calories}</p>
+                                    </div>
+                                    <div className="text-center">
+                                        <p className="text-muted-foreground text-xs">P</p>
+                                        <p className="font-medium">{logPreview.protein}g</p>
+                                    </div>
+                                    <div className="text-center">
+                                        <p className="text-muted-foreground text-xs">C</p>
+                                        <p className="font-medium">{logPreview.carbs}g</p>
+                                    </div>
+                                    <div className="text-center">
+                                        <p className="text-muted-foreground text-xs">F</p>
+                                        <p className="font-medium">{logPreview.fat}g</p>
+                                    </div>
+                                </div>
+                            )}
+                            <Button onClick={handleLog} disabled={logLoading} className="w-full">
+                                {logLoading ? "Logging..." : "Log Entry"}
+                            </Button>
+                        </div>
                     )}
                 </DialogContent>
             </Dialog>

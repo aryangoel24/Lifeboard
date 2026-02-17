@@ -2,7 +2,10 @@
 
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
-import type { PantryItem } from "@/types/database";
+import { scaleNutrition } from "@/lib/pantry-utils";
+import { getNow } from "@/lib/timezone";
+import { updateStreaks, checkAndUnlockAchievements } from "@/lib/actions/achievements";
+import type { PantryItem, MealCategory } from "@/types/database";
 
 export async function getPantryItems(): Promise<PantryItem[]> {
     const supabase = createClient();
@@ -94,6 +97,51 @@ export async function updatePantryItem(id: string, formData: FormData) {
 
     revalidatePath("/pantry");
     revalidatePath("/recipes");
+    return { success: true };
+}
+
+export async function logFromPantry(
+    pantryItemId: string,
+    amount: number,
+    mealCategory: MealCategory,
+) {
+    const supabase = createClient();
+    const {
+        data: { user },
+    } = await supabase.auth.getUser();
+
+    if (!user) return { error: "Unauthorized" };
+
+    const { data: item, error: fetchError } = await supabase
+        .from("pantry_items")
+        .select("*")
+        .eq("id", pantryItemId)
+        .eq("user_id", user.id)
+        .single();
+
+    if (fetchError || !item) return { error: "Pantry item not found" };
+
+    const macros = scaleNutrition(item as PantryItem, amount);
+
+    const entry = {
+        user_id: user.id,
+        name: item.name,
+        calories: macros.calories,
+        protein: macros.protein,
+        carbs: macros.carbs,
+        fat: macros.fat,
+        meal_category: mealCategory,
+        meal_source: "grocery_prepared",
+        logged_at: getNow().toISOString(),
+    };
+
+    const { error: insertError } = await supabase.from("food_entries").insert(entry);
+
+    if (insertError) return { error: insertError.message };
+
+    await Promise.all([updateStreaks(), checkAndUnlockAchievements()]);
+
+    revalidatePath("/dashboard");
     return { success: true };
 }
 
