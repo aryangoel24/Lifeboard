@@ -1,7 +1,7 @@
 "use server";
 
 import { createClient } from "@/lib/supabase/server";
-import { subDays, format, startOfDay, endOfDay } from "date-fns";
+import { subDays, format, startOfDay, endOfDay, parseISO } from "date-fns";
 import type { WeightEntry, HabitEntry } from "@/types/database";
 import type { WeightStats, WeightCalorieData, TDEEResponse } from "@/lib/weight-utils";
 import { computeWeightStats, computeWeightCalorieCorrelation, computeTDEE } from "@/lib/weight-utils";
@@ -24,7 +24,7 @@ export type MealBreakdown = {
     percentage: number;
 };
 
-export async function getMacroTrends(days: number = 30): Promise<DailyMacroData[]> {
+export async function getMacroTrends(days: number = 30, today?: string): Promise<DailyMacroData[]> {
     const supabase = createClient();
     const {
         data: { user },
@@ -32,7 +32,7 @@ export async function getMacroTrends(days: number = 30): Promise<DailyMacroData[
 
     if (!user) return [];
 
-    const endDate = new Date();
+    const endDate = today ? parseISO(today) : new Date();
     const startDate = subDays(endDate, days - 1);
 
     const { data: entries } = await supabase
@@ -113,7 +113,7 @@ export async function getMealBreakdown(date: string): Promise<MealBreakdown[]> {
     }));
 }
 
-export async function getWeeklySummary() {
+export async function getWeeklySummary(today?: string) {
     const supabase = createClient();
     const {
         data: { user },
@@ -121,7 +121,7 @@ export async function getWeeklySummary() {
 
     if (!user) return null;
 
-    const endDate = new Date();
+    const endDate = today ? parseISO(today) : new Date();
     const startDate = subDays(endDate, 6);
 
     const { data: entries } = await supabase
@@ -209,7 +209,7 @@ export interface AnalyticsData {
     habitDailyData: DailyHabitData[];
 }
 
-export async function getAnalyticsData(): Promise<AnalyticsData> {
+export async function getAnalyticsData(today?: string): Promise<AnalyticsData> {
     const supabase = createClient();
     const {
         data: { user },
@@ -230,10 +230,9 @@ export async function getAnalyticsData(): Promise<AnalyticsData> {
 
     if (!user) return emptyResult;
 
-    const now = new Date();
+    const now = today ? parseISO(today) : new Date();
     const thirtyDaysAgo = subDays(now, 29);
-    const ninetyDaysAgo = new Date();
-    ninetyDaysAgo.setDate(ninetyDaysAgo.getDate() - 90);
+    const ninetyDaysAgo = subDays(now, 90);
 
     // 4 parallel DB queries
     const [foodResult, weightResult, profileResult, habitResult] = await Promise.all([

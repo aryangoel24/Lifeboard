@@ -1,11 +1,19 @@
 import { getAnalyticsData } from "@/lib/actions/analytics";
 import { AnalyticsClient } from "@/components/analytics-client";
+import { formatDate } from "@/lib/utils";
 
-export default async function AnalyticsPage() {
+interface AnalyticsPageProps {
+    searchParams: { date?: string };
+}
+
+export default async function AnalyticsPage({
+    searchParams,
+}: AnalyticsPageProps) {
+    const today = searchParams.date || formatDate(new Date());
     const {
         trends, weeklySummary, mealBreakdown, weightEntries, weightStats,
         weightCalories, tdee, habitWeeklyStats, habitDailyData,
-    } = await getAnalyticsData();
+    } = await getAnalyticsData(today);
 
     return (
         <div className="max-w-4xl mx-auto">
