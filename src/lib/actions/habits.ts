@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { HabitEntry, HabitType } from "@/types/database";
+import { getToday, getNow } from "@/lib/timezone";
 
 export async function logHabit(
   habitType: HabitType,
@@ -17,7 +18,7 @@ export async function logHabit(
 
   if (!user) return { error: "Unauthorized" };
 
-  const loggedAt = date || new Date().toISOString().split("T")[0];
+  const loggedAt = date || getToday();
 
   const { error } = await supabase
     .from("habit_entries")
@@ -48,7 +49,7 @@ export async function getTodayHabits(date?: string): Promise<HabitEntry[]> {
 
   if (!user) return [];
 
-  const targetDate = date || new Date().toISOString().split("T")[0];
+  const targetDate = date || getToday();
 
   const { data, error } = await supabase
     .from("habit_entries")
@@ -72,7 +73,7 @@ export async function getHabitEntries(days: number = 30): Promise<HabitEntry[]> 
 
   if (!user) return [];
 
-  const startDate = new Date();
+  const startDate = getNow();
   startDate.setDate(startDate.getDate() - days);
 
   const { data, error } = await supabase

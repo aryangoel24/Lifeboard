@@ -3,6 +3,7 @@ import { authenticateApiRequest, isAuthError } from "@/lib/api-auth";
 import { apiSuccess, apiError } from "@/lib/api-response";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { updateHabitStreak } from "@/lib/actions/habits";
+import { getToday } from "@/lib/timezone";
 import type { HabitType } from "@/types/database";
 
 const VALID_HABIT_TYPES: HabitType[] = ["creatine", "magnesium", "gym"];
@@ -22,7 +23,7 @@ export async function POST(request: NextRequest) {
   }
 
   const { habit_type, value = 1, date, custom_habit_id } = body;
-  const loggedAt = date || new Date().toISOString().split("T")[0];
+  const loggedAt = date || getToday();
   const supabase = createAdminClient();
 
   // Custom habit flow

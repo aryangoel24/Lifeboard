@@ -2,6 +2,7 @@
 
 import { createClient } from "@/lib/supabase/server";
 import { subDays, format, startOfDay, endOfDay, parseISO } from "date-fns";
+import { getNow } from "@/lib/timezone";
 import type { WeightEntry, HabitEntry } from "@/types/database";
 import type { WeightStats, WeightCalorieData, TDEEResponse } from "@/lib/weight-utils";
 import { computeWeightStats, computeWeightCalorieCorrelation, computeTDEE } from "@/lib/weight-utils";
@@ -32,7 +33,7 @@ export async function getMacroTrends(days: number = 30, today?: string): Promise
 
     if (!user) return [];
 
-    const endDate = today ? parseISO(today) : new Date();
+    const endDate = today ? parseISO(today) : getNow();
     const startDate = subDays(endDate, days - 1);
 
     const { data: entries } = await supabase
@@ -121,7 +122,7 @@ export async function getWeeklySummary(today?: string) {
 
     if (!user) return null;
 
-    const endDate = today ? parseISO(today) : new Date();
+    const endDate = today ? parseISO(today) : getNow();
     const startDate = subDays(endDate, 6);
 
     const { data: entries } = await supabase
@@ -230,7 +231,7 @@ export async function getAnalyticsData(today?: string): Promise<AnalyticsData> {
 
     if (!user) return emptyResult;
 
-    const now = today ? parseISO(today) : new Date();
+    const now = today ? parseISO(today) : getNow();
     const thirtyDaysAgo = subDays(now, 29);
     const ninetyDaysAgo = subDays(now, 90);
 

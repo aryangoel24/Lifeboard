@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import type { WeightEntry } from "@/types/database";
+import { getToday, getNow } from "@/lib/timezone";
 import { computeWeightStats, computeWeightCalorieCorrelation, computeTDEE, ANALYSIS_WINDOW } from "@/lib/weight-utils";
 import type { WeightStats, WeightCalorieData, TDEEResponse } from "@/lib/weight-utils";
 
@@ -22,7 +23,7 @@ export async function logWeight(
 
     if (!user) return { error: "Unauthorized" };
 
-    const loggedAt = date || new Date().toISOString().split("T")[0];
+    const loggedAt = date || getToday();
 
     const { error } = await supabase
         .from("weight_entries")
@@ -72,7 +73,7 @@ export async function getWeightEntries(days: number = 30): Promise<WeightEntry[]
 
     if (!user) return [];
 
-    const startDate = new Date();
+    const startDate = getNow();
     startDate.setDate(startDate.getDate() - days);
 
     const { data, error } = await supabase
@@ -98,7 +99,7 @@ export async function getTodayWeight(date?: string): Promise<WeightEntry | null>
 
     if (!user) return null;
 
-    const targetDate = date || new Date().toISOString().split("T")[0];
+    const targetDate = date || getToday();
 
     const { data } = await supabase
         .from("weight_entries")
@@ -118,7 +119,7 @@ export async function getWeightStats(): Promise<WeightStats> {
 
     if (!user) return computeWeightStats([]);
 
-    const startDate = new Date();
+    const startDate = getNow();
     startDate.setDate(startDate.getDate() - 90);
 
     const { data: entries } = await supabase
@@ -141,7 +142,7 @@ export async function getWeightCalorieCorrelation(
 
     if (!user) return [];
 
-    const startDate = new Date();
+    const startDate = getNow();
     startDate.setDate(startDate.getDate() - days);
     const startStr = startDate.toISOString().split("T")[0];
 
@@ -175,7 +176,7 @@ export async function calculateTDEE(): Promise<TDEEResponse> {
 
     if (!user) return { status: "insufficient", progress: { weightDays: 0, calorieDays: 0, bothDays: 0, requiredDays: 14 } };
 
-    const startDate = new Date();
+    const startDate = getNow();
     startDate.setDate(startDate.getDate() - ANALYSIS_WINDOW);
     const startStr = startDate.toISOString().split("T")[0];
 

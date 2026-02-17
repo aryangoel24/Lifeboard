@@ -6,7 +6,7 @@ import { getMealTemplates } from "@/lib/actions/meal-templates";
 import { getWeightEntries } from "@/lib/actions/weight";
 import { getTodayHabits } from "@/lib/actions/habits";
 import { getCustomHabits, getTodayCustomHabitEntries } from "@/lib/actions/custom-habits";
-import { formatDate } from "@/lib/utils";
+import { getToday } from "@/lib/timezone";
 import { FoodEntryList } from "@/components/food-entry-list";
 import { DailySummary } from "@/components/daily-summary";
 import { AddEntryDialog } from "@/components/add-entry-dialog";
@@ -30,7 +30,7 @@ export default async function DashboardPage({
 
   if (!user) redirect("/login");
 
-  const date = searchParams.date || formatDate(new Date());
+  const date = searchParams.date || getToday();
 
   const [entries, profileResult, streaks, templates, recentWeights, todayHabits, customHabits, customHabitEntries] =
     await Promise.all([
@@ -65,7 +65,7 @@ export default async function DashboardPage({
         <DailySummary
           entries={entries}
           profile={profile}
-          showMealGaps={date === formatDate(new Date())}
+          showMealGaps={date === getToday()}
         />
       )}
 

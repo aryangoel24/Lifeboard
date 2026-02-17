@@ -1,6 +1,7 @@
 "use server";
 
 import { createClient } from "@/lib/supabase/server";
+import { getToday } from "@/lib/timezone";
 import type { UserStreak, UserAchievement } from "@/types/database";
 
 export async function getStreaks(): Promise<UserStreak[]> {
@@ -43,7 +44,7 @@ export async function updateStreaks() {
 
     if (!user) return;
 
-    const today = new Date().toISOString().split("T")[0];
+    const today = getToday();
 
     // Check if there are entries today
     const todayStart = new Date(today + "T00:00:00").toISOString();

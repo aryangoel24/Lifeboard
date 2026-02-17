@@ -9,6 +9,7 @@ export type Profile = {
   gym_weekly_goal: number;
   api_token_hash: string | null;
   api_enabled: boolean;
+  timezone: string;
   created_at: string;
   updated_at: string;
 };

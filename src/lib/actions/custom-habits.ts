@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { updateHabitStreak } from "@/lib/actions/habits";
+import { getToday } from "@/lib/timezone";
 import type { CustomHabit, HabitEntry } from "@/types/database";
 
 export async function getCustomHabits(): Promise<CustomHabit[]> {
@@ -229,7 +230,7 @@ export async function logCustomHabit(
 
   if (!habit) return { error: "Habit not found" };
 
-  const loggedAt = date || new Date().toISOString().split("T")[0];
+  const loggedAt = date || getToday();
 
   // Check for existing entry to do upsert
   const { data: existingEntry } = await supabase
@@ -273,7 +274,7 @@ export async function getTodayCustomHabitEntries(
 
   if (!user) return [];
 
-  const targetDate = date || new Date().toISOString().split("T")[0];
+  const targetDate = date || getToday();
 
   const { data, error } = await supabase
     .from("habit_entries")

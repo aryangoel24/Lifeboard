@@ -1,9 +1,10 @@
 import { getBudgetGoal, getBudgetSummary, getCookingStats } from "@/lib/actions/budget";
 import { BudgetClient } from "@/components/budget-client";
 import { startOfWeek, endOfWeek, startOfMonth, endOfMonth } from "date-fns";
+import { getNow } from "@/lib/timezone";
 
 export default async function BudgetPage() {
-    const now = new Date();
+    const now = getNow();
     const weekStart = startOfWeek(now, { weekStartsOn: 1 }).toISOString();
     const weekEnd = endOfWeek(now, { weekStartsOn: 1 }).toISOString();
     const monthStart = startOfMonth(now).toISOString();

@@ -1,6 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { cookies } from "next/headers";
 import { createClient } from "@/lib/supabase/server";
 import type { Profile } from "@/types/database";
 
@@ -32,6 +33,7 @@ export async function updateGoals(formData: FormData) {
   }
 
   const goalWeightStr = formData.get("goal_weight") as string;
+  const timezone = (formData.get("timezone") as string) || "America/New_York";
 
   const updates = {
     daily_calories_goal: parseInt(formData.get("daily_calories_goal") as string) || 2000,
@@ -41,6 +43,7 @@ export async function updateGoals(formData: FormData) {
     goal_weight: goalWeightStr ? parseFloat(goalWeightStr) : null,
     creatine_goal: parseInt(formData.get("creatine_goal") as string) || 2,
     gym_weekly_goal: parseInt(formData.get("gym_weekly_goal") as string) || 5,
+    timezone,
     updated_at: new Date().toISOString(),
   };
 
@@ -52,6 +55,13 @@ export async function updateGoals(formData: FormData) {
   if (error) {
     return { error: error.message };
   }
+
+  cookies().set("timezone", timezone, {
+    path: "/",
+    httpOnly: true,
+    sameSite: "lax",
+    maxAge: 60 * 60 * 24 * 365,
+  });
 
   revalidatePath("/goals");
   revalidatePath("/dashboard");

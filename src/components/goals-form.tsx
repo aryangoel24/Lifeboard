@@ -138,6 +138,33 @@ export function GoalsForm({ profile }: GoalsFormProps) {
                             defaultValue={profile.gym_weekly_goal}
                         />
                     </div>
+                    <div className="relative my-2">
+                        <div className="absolute inset-0 flex items-center">
+                            <span className="w-full border-t" />
+                        </div>
+                        <div className="relative flex justify-center text-xs uppercase">
+                            <span className="bg-background px-2 text-muted-foreground">
+                                Timezone
+                            </span>
+                        </div>
+                    </div>
+                    <div className="space-y-2">
+                        <Label htmlFor="timezone">Your Timezone</Label>
+                        <select
+                            id="timezone"
+                            name="timezone"
+                            defaultValue={profile.timezone}
+                            className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                        >
+                            <option value="America/New_York">Eastern (ET)</option>
+                            <option value="America/Chicago">Central (CT)</option>
+                            <option value="America/Denver">Mountain (MT)</option>
+                            <option value="America/Los_Angeles">Pacific (PT)</option>
+                            <option value="America/Anchorage">Alaska (AKT)</option>
+                            <option value="Pacific/Honolulu">Hawaii (HT)</option>
+                            <option value="UTC">UTC</option>
+                        </select>
+                    </div>
                     <Button type="submit" className="w-full" disabled={loading}>
                         {loading ? "Saving..." : "Save goals"}
                     </Button>

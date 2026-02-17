@@ -1,6 +1,6 @@
 import { getAnalyticsData } from "@/lib/actions/analytics";
 import { AnalyticsClient } from "@/components/analytics-client";
-import { formatDate } from "@/lib/utils";
+import { getToday } from "@/lib/timezone";
 
 interface AnalyticsPageProps {
     searchParams: { date?: string };
@@ -9,7 +9,7 @@ interface AnalyticsPageProps {
 export default async function AnalyticsPage({
     searchParams,
 }: AnalyticsPageProps) {
-    const today = searchParams.date || formatDate(new Date());
+    const today = searchParams.date || getToday();
     const {
         trends, weeklySummary, mealBreakdown, weightEntries, weightStats,
         weightCalories, tdee, habitWeeklyStats, habitDailyData,

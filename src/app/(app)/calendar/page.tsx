@@ -5,7 +5,7 @@ import {
   getEntriesForMonth,
   getMonthCaloriesByDay,
 } from "@/lib/actions/food-entries";
-import { formatDate } from "@/lib/utils";
+import { getToday } from "@/lib/timezone";
 import { FoodEntryList } from "@/components/food-entry-list";
 import { DailySummary } from "@/components/daily-summary";
 import { CalendarClient } from "@/components/calendar-client";
@@ -24,7 +24,7 @@ export default async function CalendarPage({
 
   if (!user) redirect("/login");
 
-  const date = searchParams.date || formatDate(new Date());
+  const date = searchParams.date || getToday();
   const selectedDate = new Date(date + "T00:00:00");
 
   const [entries, datesWithEntries, caloriesByDay, profileResult] = await Promise.all([

@@ -2,6 +2,7 @@ import { NextRequest } from "next/server";
 import { authenticateApiRequest, isAuthError } from "@/lib/api-auth";
 import { apiSuccess, apiError } from "@/lib/api-response";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { getNow } from "@/lib/timezone";
 import type { MealCategory, MealSource } from "@/types/database";
 
 const VALID_CATEGORIES: MealCategory[] = ["breakfast", "lunch", "dinner", "snack"];
@@ -64,7 +65,7 @@ export async function POST(request: NextRequest) {
       photo_url: photo_path || null,
       cost: cost || null,
       meal_source: (meal_source as MealSource) || null,
-      logged_at: new Date().toISOString(),
+      logged_at: getNow().toISOString(),
     })
     .select("id")
     .single();

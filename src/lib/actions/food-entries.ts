@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { getDayRange } from "@/lib/utils";
+import { getNow } from "@/lib/timezone";
 import type { FoodEntry } from "@/types/database";
 import { deletePhoto } from "./storage";
 import { updateStreaks, checkAndUnlockAchievements } from "./achievements";
@@ -48,7 +49,7 @@ export async function createFoodEntry(formData: FormData) {
     fat: parseFloat(formData.get("fat") as string) || 0,
     meal_category: formData.get("meal_category") as string,
     photo_url: (formData.get("photo_url") as string) || null,
-    logged_at: (formData.get("logged_at") as string) || new Date().toISOString(),
+    logged_at: (formData.get("logged_at") as string) || getNow().toISOString(),
     cost: costStr ? parseFloat(costStr) : null,
     meal_source: mealSource || null,
   };

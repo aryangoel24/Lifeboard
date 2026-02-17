@@ -58,5 +58,22 @@ export async function updateSession(request: NextRequest) {
     return NextResponse.redirect(url);
   }
 
+  // Ensure timezone cookie is set for authenticated users (one-time DB call per session)
+  if (user && !request.cookies.get("timezone")?.value) {
+    const { data: profile } = await supabase
+      .from("profiles")
+      .select("timezone")
+      .eq("id", user.id)
+      .single();
+
+    const tz = profile?.timezone || "America/New_York";
+    supabaseResponse.cookies.set("timezone", tz, {
+      path: "/",
+      httpOnly: true,
+      sameSite: "lax",
+      maxAge: 60 * 60 * 24 * 365,
+    });
+  }
+
   return supabaseResponse;
 }
