@@ -192,3 +192,14 @@ export type WeightEntry = {
   notes: string | null;
   created_at: string;
 };
+
+export type ExpenseEntry = {
+  id: string;
+  user_id: string;
+  amount: number;
+  description: string | null;
+  expense_date: string;
+  source: "receipt" | "manual";
+  raw_text: string | null;
+  created_at: string;
+};

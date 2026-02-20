@@ -39,22 +39,20 @@ const SOURCE_LABELS: Record<string, { label: string; emoji: string }> = {
     unspecified: { label: "Unspecified", emoji: "❓" },
 };
 
+interface BudgetSummary {
+    totalSpend: number;
+    mealCount: number;
+    avgCostPerMeal: number;
+    costPerProtein: number;
+    bySource: Record<string, { count: number; total: number }>;
+    grocerySpend: number;
+    groceryRuns: number;
+}
+
 interface BudgetClientProps {
     budgetGoal: BudgetGoal | null;
-    weeklySummary: {
-        totalSpend: number;
-        mealCount: number;
-        avgCostPerMeal: number;
-        costPerProtein: number;
-        bySource: Record<string, { count: number; total: number }>;
-    } | null;
-    monthlySummary: {
-        totalSpend: number;
-        mealCount: number;
-        avgCostPerMeal: number;
-        costPerProtein: number;
-        bySource: Record<string, { count: number; total: number }>;
-    } | null;
+    weeklySummary: BudgetSummary | null;
+    monthlySummary: BudgetSummary | null;
     cookingStats: {
         totalMeals: number;
         homeCookedMeals: number;
@@ -267,7 +265,7 @@ export function BudgetClient({
                         <CardDescription>Spending by meal source</CardDescription>
                     </CardHeader>
                     <CardContent>
-                        {weeklySummary && Object.keys(weeklySummary.bySource).length > 0 ? (
+                        {weeklySummary && (Object.keys(weeklySummary.bySource).length > 0 || weeklySummary.grocerySpend > 0) ? (
                             <div className="space-y-3">
                                 {Object.entries(weeklySummary.bySource).map(([source, data]) => {
                                     const info = SOURCE_LABELS[source] || SOURCE_LABELS.unspecified;
@@ -294,6 +292,24 @@ export function BudgetClient({
                                         </div>
                                     );
                                 })}
+                                {weeklySummary.grocerySpend > 0 && (
+                                    <div>
+                                        <div className="flex items-center justify-between text-sm mb-1">
+                                            <span>🛍️ Grocery Runs</span>
+                                            <span className="text-muted-foreground">
+                                                ${weeklySummary.grocerySpend.toFixed(2)} ({weeklySummary.groceryRuns} run{weeklySummary.groceryRuns !== 1 ? "s" : ""})
+                                            </span>
+                                        </div>
+                                        <div className="h-2 bg-secondary rounded-full overflow-hidden">
+                                            <div
+                                                className="h-full bg-primary rounded-full transition-all"
+                                                style={{
+                                                    width: `${weeklySummary.totalSpend > 0 ? Math.round((weeklySummary.grocerySpend / weeklySummary.totalSpend) * 100) : 0}%`,
+                                                }}
+                                            />
+                                        </div>
+                                    </div>
+                                )}
                             </div>
                         ) : (
                             <p className="text-muted-foreground text-sm text-center py-6">

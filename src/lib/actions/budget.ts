@@ -59,25 +59,39 @@ export async function getBudgetSummary(startDate: string, endDate: string) {
 
     if (!user) return null;
 
-    const { data: entries } = await supabase
-        .from("food_entries")
-        .select("cost, meal_source, calories, protein")
-        .eq("user_id", user.id)
-        .gte("logged_at", startDate)
-        .lte("logged_at", endDate)
-        .not("cost", "is", null);
+    const [{ data: entries }, { data: expenseEntries }] = await Promise.all([
+        supabase
+            .from("food_entries")
+            .select("cost, meal_source, calories, protein")
+            .eq("user_id", user.id)
+            .gte("logged_at", startDate)
+            .lte("logged_at", endDate)
+            .not("cost", "is", null),
+        supabase
+            .from("expense_entries")
+            .select("amount, description")
+            .eq("user_id", user.id)
+            .gte("expense_date", startDate.slice(0, 10))
+            .lte("expense_date", endDate.slice(0, 10)),
+    ]);
+
+    const grocerySpend = (expenseEntries || []).reduce((sum, e) => sum + (e.amount || 0), 0);
+    const groceryRuns = (expenseEntries || []).length;
 
     if (!entries || entries.length === 0) {
         return {
-            totalSpend: 0,
+            totalSpend: grocerySpend,
             mealCount: 0,
             avgCostPerMeal: 0,
             costPerProtein: 0,
             bySource: {} as Record<string, { count: number; total: number }>,
+            grocerySpend,
+            groceryRuns,
         };
     }
 
-    const totalSpend = entries.reduce((sum, e) => sum + (e.cost || 0), 0);
+    const mealSpend = entries.reduce((sum, e) => sum + (e.cost || 0), 0);
+    const totalSpend = mealSpend + grocerySpend;
     const totalProtein = entries.reduce((sum, e) => sum + (e.protein || 0), 0);
 
     const bySource: Record<string, { count: number; total: number }> = {};
@@ -91,9 +105,11 @@ export async function getBudgetSummary(startDate: string, endDate: string) {
     return {
         totalSpend,
         mealCount: entries.length,
-        avgCostPerMeal: entries.length > 0 ? totalSpend / entries.length : 0,
-        costPerProtein: totalProtein > 0 ? totalSpend / totalProtein : 0,
+        avgCostPerMeal: entries.length > 0 ? mealSpend / entries.length : 0,
+        costPerProtein: totalProtein > 0 ? mealSpend / totalProtein : 0,
         bySource,
+        grocerySpend,
+        groceryRuns,
     };
 }
 
