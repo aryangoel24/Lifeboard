@@ -3,7 +3,7 @@
 import { createClient } from "@/lib/supabase/server";
 import { subDays, format, startOfDay, endOfDay, parseISO } from "date-fns";
 import { getNow } from "@/lib/timezone";
-import type { WeightEntry, HabitEntry } from "@/types/database";
+import type { WeightEntry, HabitEntry, CustomHabit } from "@/types/database";
 import type { WeightStats, WeightCalorieData, TDEEResponse } from "@/lib/weight-utils";
 import { computeWeightStats, computeWeightCalorieCorrelation, computeTDEE } from "@/lib/weight-utils";
 import type { HabitWeeklyStats } from "@/lib/habit-utils";
@@ -208,6 +208,9 @@ export interface AnalyticsData {
     habitEntries: HabitEntry[];
     habitWeeklyStats: HabitWeeklyStats;
     habitDailyData: DailyHabitData[];
+    customHabits: CustomHabit[];
+    customHabitEntries: HabitEntry[];
+    creatineGoal: number;
 }
 
 export async function getAnalyticsData(today?: string): Promise<AnalyticsData> {
@@ -227,6 +230,9 @@ export async function getAnalyticsData(today?: string): Promise<AnalyticsData> {
         habitEntries: [],
         habitWeeklyStats: { creatineCompletionPct: 0, magnesiumCompletionPct: 0, gymDays: 0, gymGoal: 5, totalDays: 7 },
         habitDailyData: [],
+        customHabits: [],
+        customHabitEntries: [],
+        creatineGoal: 2,
     };
 
     if (!user) return emptyResult;
@@ -235,8 +241,10 @@ export async function getAnalyticsData(today?: string): Promise<AnalyticsData> {
     const thirtyDaysAgo = subDays(now, 29);
     const ninetyDaysAgo = subDays(now, 90);
 
-    // 4 parallel DB queries
-    const [foodResult, weightResult, profileResult, habitResult] = await Promise.all([
+    const thirtyDaysAgoStr = thirtyDaysAgo.toISOString().split("T")[0];
+
+    // 6 parallel DB queries
+    const [foodResult, weightResult, profileResult, habitResult, customHabitsResult, customHabitEntriesResult] = await Promise.all([
         supabase
             .from("food_entries")
             .select("calories, protein, carbs, fat, meal_category, logged_at")
@@ -259,8 +267,20 @@ export async function getAnalyticsData(today?: string): Promise<AnalyticsData> {
             .from("habit_entries")
             .select("*")
             .eq("user_id", user.id)
-            .gte("logged_at", thirtyDaysAgo.toISOString().split("T")[0])
+            .gte("logged_at", thirtyDaysAgoStr)
             .order("logged_at", { ascending: true }),
+        supabase
+            .from("custom_habits")
+            .select("*")
+            .eq("user_id", user.id)
+            .eq("archived", false)
+            .order("sort_order", { ascending: true }),
+        supabase
+            .from("habit_entries")
+            .select("*")
+            .eq("user_id", user.id)
+            .not("custom_habit_id", "is", null)
+            .gte("logged_at", thirtyDaysAgoStr),
     ]);
 
     const foodEntries = foodResult.data || [];
@@ -368,12 +388,14 @@ export async function getAnalyticsData(today?: string): Promise<AnalyticsData> {
 
     // === Derive habit stats ===
     const habitEntries = (habitResult.data as HabitEntry[]) || [];
+    const customHabits = (customHabitsResult.data as CustomHabit[]) || [];
+    const customHabitEntries = (customHabitEntriesResult.data as HabitEntry[]) || [];
     const creatineGoal = (profileResult.data?.creatine_goal as number) ?? 2;
     const gymWeeklyGoal = (profileResult.data?.gym_weekly_goal as number) ?? 5;
 
     // Weekly stats from last 7 days of habit data
     const weekHabitEntries = habitEntries.filter(
-        (e) => e.logged_at >= format(subDays(now, 6), "yyyy-MM-dd")
+        (e) => e.logged_at >= format(subDays(now, 6), "yyyy-MM-dd") && e.habit_type !== "custom"
     );
     const habitWeeklyStats = computeHabitWeeklyStats(weekHabitEntries, creatineGoal, gymWeeklyGoal);
     const habitDailyData = computeDailyHabitData(habitEntries, 30);
@@ -389,6 +411,9 @@ export async function getAnalyticsData(today?: string): Promise<AnalyticsData> {
         habitEntries,
         habitWeeklyStats,
         habitDailyData,
+        customHabits,
+        customHabitEntries,
+        creatineGoal,
     };
 }
 

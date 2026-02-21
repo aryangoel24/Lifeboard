@@ -4,8 +4,8 @@ import { getFoodEntries } from "@/lib/actions/food-entries";
 import { getStreaks } from "@/lib/actions/achievements";
 import { getMealTemplates } from "@/lib/actions/meal-templates";
 import { getWeightEntries } from "@/lib/actions/weight";
-import { getTodayHabits } from "@/lib/actions/habits";
-import { getCustomHabits, getTodayCustomHabitEntries } from "@/lib/actions/custom-habits";
+import { getTodayHabits, getHabitEntries } from "@/lib/actions/habits";
+import { getCustomHabits, getTodayCustomHabitEntries, getCustomHabitEntries } from "@/lib/actions/custom-habits";
 import { getToday } from "@/lib/timezone";
 import { FoodEntryList } from "@/components/food-entry-list";
 import { DailySummary } from "@/components/daily-summary";
@@ -32,7 +32,7 @@ export default async function DashboardPage({
 
   const date = searchParams.date || getToday();
 
-  const [entries, profileResult, streaks, templates, recentWeights, todayHabits, customHabits, customHabitEntries] =
+  const [entries, profileResult, streaks, templates, recentWeights, todayHabits, customHabits, customHabitEntries, weeklyHabitEntries, weeklyCustomHabitEntries] =
     await Promise.all([
       getFoodEntries(date),
       supabase.from("profiles").select("*").eq("id", user.id).single(),
@@ -42,6 +42,8 @@ export default async function DashboardPage({
       getTodayHabits(date),
       getCustomHabits(),
       getTodayCustomHabitEntries(date),
+      getHabitEntries(7),
+      getCustomHabitEntries(7),
     ]);
 
   const todayWeight = recentWeights.find((w) => w.logged_at === date) ?? null;
@@ -85,6 +87,8 @@ export default async function DashboardPage({
           todayHabits={todayHabits}
           customHabits={customHabits}
           customHabitEntries={customHabitEntries}
+          weeklyHabitEntries={weeklyHabitEntries}
+          weeklyCustomHabitEntries={weeklyCustomHabitEntries}
         />
       )}
 

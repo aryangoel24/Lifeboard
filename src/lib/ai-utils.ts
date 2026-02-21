@@ -200,6 +200,34 @@ export async function estimateNutritionFromPhoto(
   }
 }
 
+export async function suggestHabitIcon(
+  name: string
+): Promise<{ icon: string | null; error: string | null }> {
+  const openai = getOpenAIClient();
+  if (!openai) return { icon: null, error: "OpenAI not configured" };
+
+  try {
+    const response = await openai.chat.completions.create({
+      model: "gpt-4o-mini",
+      messages: [
+        {
+          role: "system",
+          content:
+            "You are an emoji picker. Given a habit name, respond with exactly one emoji that best represents it. Output only the single emoji, nothing else.",
+        },
+        { role: "user", content: name },
+      ],
+      temperature: 0.7,
+      max_tokens: 10,
+    });
+    const emoji = response.choices[0]?.message?.content?.trim() || null;
+    return { icon: emoji, error: null };
+  } catch (err) {
+    console.error("Habit icon generation error:", err);
+    return { icon: null, error: "Failed to generate icon" };
+  }
+}
+
 export async function extractNutritionFromLabelImage(
   imageUrl: string
 ): Promise<{ data: NutritionLabelData | null; error: string | null }> {

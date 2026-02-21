@@ -18,9 +18,10 @@ interface CustomHabitCardProps {
   habit: CustomHabit;
   entry: HabitEntry | undefined;
   date: string;
+  isFallingBehind?: boolean;
 }
 
-export function CustomHabitCard({ habit, entry, date }: CustomHabitCardProps) {
+export function CustomHabitCard({ habit, entry, date, isFallingBehind }: CustomHabitCardProps) {
   const [value, setValue] = useState(entry?.value ?? 0);
   const [saving, setSaving] = useState(false);
 
@@ -38,12 +39,16 @@ export function CustomHabitCard({ habit, entry, date }: CustomHabitCardProps) {
 
   if (habit.tracking_type === "counter") {
     const goal = habit.target_value;
+    const counterDone = value >= goal;
     return (
-      <Card className="glass-card rounded-2xl">
+      <Card className={`glass-card rounded-2xl${isFallingBehind ? " border-amber-400 dark:border-amber-600" : ""}`}>
         <CardHeader className="pb-2">
           <CardTitle className="text-sm font-medium flex items-center gap-2">
             <span>{habit.icon}</span>
             {habit.name}
+            {isFallingBehind && !counterDone && (
+              <span className="ml-auto text-xs text-amber-600 dark:text-amber-400 font-medium">Falling behind</span>
+            )}
           </CardTitle>
         </CardHeader>
         <CardContent>
@@ -65,7 +70,7 @@ export function CustomHabitCard({ habit, entry, date }: CustomHabitCardProps) {
                 size="icon"
                 variant="outline"
                 className="h-8 w-8"
-                disabled={saving || value >= goal}
+                disabled={saving}
                 onClick={() => handleUpdate(value + 1)}
               >
                 <Plus className="h-3.5 w-3.5" />
@@ -85,12 +90,16 @@ export function CustomHabitCard({ habit, entry, date }: CustomHabitCardProps) {
 
   if (habit.tracking_type === "duration") {
     const target = habit.target_value;
+    const durationDone = value >= target;
     return (
-      <Card className="glass-card rounded-2xl">
+      <Card className={`glass-card rounded-2xl${isFallingBehind ? " border-amber-400 dark:border-amber-600" : ""}`}>
         <CardHeader className="pb-2">
           <CardTitle className="text-sm font-medium flex items-center gap-2">
             <span>{habit.icon}</span>
             {habit.name}
+            {isFallingBehind && !durationDone && (
+              <span className="ml-auto text-xs text-amber-600 dark:text-amber-400 font-medium">Falling behind</span>
+            )}
           </CardTitle>
         </CardHeader>
         <CardContent>
@@ -123,11 +132,14 @@ export function CustomHabitCard({ habit, entry, date }: CustomHabitCardProps) {
   // checkbox (default)
   const isDone = value >= 1;
   return (
-    <Card>
+    <Card className={isFallingBehind ? "border-amber-400 dark:border-amber-600" : ""}>
       <CardHeader className="pb-2">
         <CardTitle className="text-sm font-medium flex items-center gap-2">
           <span>{habit.icon}</span>
           {habit.name}
+          {isFallingBehind && !isDone && (
+            <span className="ml-auto text-xs text-amber-600 dark:text-amber-400 font-medium">Falling behind</span>
+          )}
         </CardTitle>
       </CardHeader>
       <CardContent>

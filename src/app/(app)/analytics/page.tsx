@@ -12,7 +12,8 @@ export default async function AnalyticsPage({
     const today = searchParams.date || getToday();
     const {
         trends, weeklySummary, mealBreakdown, weightEntries, weightStats,
-        weightCalories, tdee, habitWeeklyStats, habitDailyData,
+        weightCalories, tdee, habitWeeklyStats, habitEntries,
+        customHabits, customHabitEntries, creatineGoal,
     } = await getAnalyticsData(today);
 
     return (
@@ -26,7 +27,10 @@ export default async function AnalyticsPage({
                 weightCalories={weightCalories}
                 tdee={tdee}
                 habitWeeklyStats={habitWeeklyStats}
-                habitDailyData={habitDailyData}
+                habitEntries={habitEntries}
+                customHabits={customHabits}
+                customHabitEntries={customHabitEntries}
+                creatineGoal={creatineGoal}
             />
         </div>
     );

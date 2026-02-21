@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useRef } from "react";
 import {
   Card,
   CardContent,
@@ -31,7 +31,8 @@ import {
   archiveCustomHabit,
   unarchiveCustomHabit,
 } from "@/lib/actions/custom-habits";
-import { Plus, Pencil, Archive, ArchiveRestore, Eye, EyeOff } from "lucide-react";
+import { Plus, Pencil, Archive, ArchiveRestore, Eye, EyeOff, Sparkles, Loader2 } from "lucide-react";
+import { generateHabitIcon } from "@/lib/actions/custom-habits";
 import type { CustomHabit } from "@/types/database";
 
 interface ManageHabitsProps {
@@ -56,6 +57,9 @@ function HabitFormDialog({
   onOpenChange: (open: boolean) => void;
 }) {
   const [saving, setSaving] = useState(false);
+  const [icon, setIcon] = useState<string>(habit?.icon || "✅");
+  const [generatingIcon, setGeneratingIcon] = useState(false);
+  const nameRef = useRef<HTMLInputElement>(null);
   const [frequency, setFrequency] = useState<string>(habit?.frequency || "daily");
   const [selectedDays, setSelectedDays] = useState<number[]>(
     habit?.frequency_days || []
@@ -87,6 +91,22 @@ function HabitFormDialog({
     setSaving(false);
   }
 
+  async function handleGenerateIcon() {
+    const habitName = nameRef.current?.value?.trim();
+    if (!habitName) {
+      toast.error("Enter a habit name first");
+      return;
+    }
+    setGeneratingIcon(true);
+    const result = await generateHabitIcon(habitName);
+    if (result.icon) {
+      setIcon(result.icon);
+    } else {
+      toast.error("Could not generate icon");
+    }
+    setGeneratingIcon(false);
+  }
+
   function toggleDay(day: number) {
     setSelectedDays((prev) =>
       prev.includes(day) ? prev.filter((d) => d !== day) : [...prev, day]
@@ -100,26 +120,43 @@ function HabitFormDialog({
           <DialogTitle>{isEdit ? "Edit Habit" : "Add Habit"}</DialogTitle>
         </DialogHeader>
         <form action={handleSubmit} className="space-y-4">
-          <div className="grid grid-cols-[1fr_80px] gap-3">
-            <div>
-              <Label htmlFor="name">Name</Label>
-              <Input
-                id="name"
-                name="name"
-                defaultValue={habit?.name}
-                placeholder="e.g. Meditation"
-                required
-              />
-            </div>
-            <div>
-              <Label htmlFor="icon">Icon</Label>
+          <div>
+            <Label htmlFor="name">Name</Label>
+            <Input
+              ref={nameRef}
+              id="name"
+              name="name"
+              defaultValue={habit?.name}
+              placeholder="e.g. Meditation"
+              required
+            />
+          </div>
+          <div>
+            <Label htmlFor="icon">Icon</Label>
+            <div className="flex gap-2">
               <Input
                 id="icon"
                 name="icon"
-                defaultValue={habit?.icon || "✅"}
+                value={icon}
+                onChange={(e) => setIcon(e.target.value)}
                 placeholder="🧘"
                 maxLength={4}
+                className="w-[68px]"
               />
+              <Button
+                type="button"
+                variant="outline"
+                size="icon"
+                onClick={handleGenerateIcon}
+                disabled={generatingIcon}
+                title="Suggest icon with AI"
+              >
+                {generatingIcon ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <Sparkles className="h-4 w-4" />
+                )}
+              </Button>
             </div>
           </div>
 

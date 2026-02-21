@@ -5,7 +5,7 @@ import { ChevronDown, ChevronUp } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { HabitCard } from "@/components/habit-card";
 import { CustomHabitCard } from "@/components/custom-habit-card";
-import { isHabitScheduledForDate } from "@/lib/habit-utils";
+import { isHabitScheduledForDate, computeHabitFallingBehind } from "@/lib/habit-utils";
 import type { CustomHabit, HabitEntry, Profile } from "@/types/database";
 
 interface HabitsSectionProps {
@@ -14,6 +14,8 @@ interface HabitsSectionProps {
   todayHabits: HabitEntry[];
   customHabits: CustomHabit[];
   customHabitEntries: HabitEntry[];
+  weeklyHabitEntries: HabitEntry[];
+  weeklyCustomHabitEntries: HabitEntry[];
 }
 
 export function HabitsSection({
@@ -22,8 +24,18 @@ export function HabitsSection({
   todayHabits,
   customHabits,
   customHabitEntries,
+  weeklyHabitEntries,
+  weeklyCustomHabitEntries,
 }: HabitsSectionProps) {
   const [expanded, setExpanded] = useState(true);
+
+  const fallingBehindMap = computeHabitFallingBehind(
+    weeklyHabitEntries,
+    weeklyCustomHabitEntries,
+    customHabits,
+    profile.creatine_goal ?? 2,
+    date
+  );
 
   const creatineEntry = todayHabits.find((h) => h.habit_type === "creatine");
   const magnesiumEntry = todayHabits.find((h) => h.habit_type === "magnesium");
@@ -87,6 +99,7 @@ export function HabitsSection({
             currentValue={creatineEntry?.value ?? 0}
             goal={profile.creatine_goal ?? 2}
             date={date}
+            isFallingBehind={fallingBehindMap["creatine"]}
           />
           <HabitCard
             key={`magnesium-${date}`}
@@ -94,6 +107,7 @@ export function HabitsSection({
             currentValue={magnesiumEntry?.value ?? 0}
             goal={1}
             date={date}
+            isFallingBehind={fallingBehindMap["magnesium"]}
           />
           <HabitCard
             key={`gym-${date}`}
@@ -101,6 +115,7 @@ export function HabitsSection({
             currentValue={gymEntry?.value ?? 0}
             goal={1}
             date={date}
+            isFallingBehind={fallingBehindMap["gym"]}
           />
           {scheduledHabits.map((habit) => (
             <CustomHabitCard
@@ -110,6 +125,7 @@ export function HabitsSection({
                 (e) => e.custom_habit_id === habit.id
               )}
               date={date}
+              isFallingBehind={fallingBehindMap[habit.id]}
             />
           ))}
         </div>

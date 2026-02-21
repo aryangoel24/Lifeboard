@@ -3,8 +3,17 @@
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { updateHabitStreak } from "@/lib/actions/habits";
-import { getToday } from "@/lib/timezone";
+import { getToday, getNow } from "@/lib/timezone";
 import type { CustomHabit, HabitEntry } from "@/types/database";
+import { suggestHabitIcon } from "@/lib/ai-utils";
+
+export async function generateHabitIcon(
+  name: string
+): Promise<{ icon?: string; error?: string }> {
+  const { icon, error } = await suggestHabitIcon(name);
+  if (error || !icon) return { error: error ?? "No icon returned" };
+  return { icon };
+}
 
 export async function getCustomHabits(): Promise<CustomHabit[]> {
   const supabase = createClient();
@@ -262,6 +271,35 @@ export async function logCustomHabit(
 
   revalidatePath("/dashboard");
   return {};
+}
+
+export async function getCustomHabitEntries(
+  days: number = 7
+): Promise<HabitEntry[]> {
+  const supabase = createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  if (!user) return [];
+
+  const startDate = getNow();
+  startDate.setDate(startDate.getDate() - days);
+
+  const { data, error } = await supabase
+    .from("habit_entries")
+    .select("*")
+    .eq("user_id", user.id)
+    .not("custom_habit_id", "is", null)
+    .gte("logged_at", startDate.toISOString().split("T")[0])
+    .order("logged_at", { ascending: true });
+
+  if (error) {
+    console.error("Error fetching custom habit entries:", error);
+    return [];
+  }
+
+  return (data as HabitEntry[]) || [];
 }
 
 export async function getTodayCustomHabitEntries(

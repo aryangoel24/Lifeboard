@@ -41,8 +41,6 @@ export async function updateGoals(formData: FormData) {
     daily_carbs_goal: parseInt(formData.get("daily_carbs_goal") as string) || 250,
     daily_fat_goal: parseInt(formData.get("daily_fat_goal") as string) || 65,
     goal_weight: goalWeightStr ? parseFloat(goalWeightStr) : null,
-    creatine_goal: parseInt(formData.get("creatine_goal") as string) || 2,
-    gym_weekly_goal: parseInt(formData.get("gym_weekly_goal") as string) || 5,
     timezone,
     updated_at: new Date().toISOString(),
   };
@@ -67,4 +65,27 @@ export async function updateGoals(formData: FormData) {
   revalidatePath("/dashboard");
   revalidatePath("/calendar");
   return { success: true };
+}
+
+export async function updateBuiltinHabitGoal(
+  field: "creatine_goal" | "gym_weekly_goal",
+  value: number
+): Promise<{ error?: string }> {
+  const supabase = createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  if (!user) return { error: "Unauthorized" };
+
+  const { error } = await supabase
+    .from("profiles")
+    .update({ [field]: value, updated_at: new Date().toISOString() })
+    .eq("id", user.id);
+
+  if (error) return { error: error.message };
+
+  revalidatePath("/goals");
+  revalidatePath("/dashboard");
+  return {};
 }

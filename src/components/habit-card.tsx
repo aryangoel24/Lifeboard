@@ -18,6 +18,7 @@ interface HabitCardProps {
   currentValue: number;
   goal: number;
   date: string;
+  isFallingBehind?: boolean;
 }
 
 const HABIT_CONFIG = {
@@ -41,7 +42,7 @@ const HABIT_CONFIG = {
   },
 } as const;
 
-export function HabitCard({ habitType, currentValue, goal, date }: HabitCardProps) {
+export function HabitCard({ habitType, currentValue, goal, date, isFallingBehind }: HabitCardProps) {
   const [value, setValue] = useState(currentValue);
   const [saving, setSaving] = useState(false);
   const config = HABIT_CONFIG[habitType];
@@ -60,12 +61,16 @@ export function HabitCard({ habitType, currentValue, goal, date }: HabitCardProp
 
   // Counter mode for creatine
   if (habitType === "creatine") {
+    const creatineDone = value >= goal;
     return (
-      <Card className="glass-card rounded-2xl">
+      <Card className={`glass-card rounded-2xl${isFallingBehind ? " border-amber-400 dark:border-amber-600" : ""}`}>
         <CardHeader className="pb-2">
           <CardTitle className="text-sm font-medium flex items-center gap-2">
             <Icon className={`h-4 w-4 ${config.iconColor}`} />
             {config.label}
+            {isFallingBehind && !creatineDone && (
+              <span className="ml-auto text-xs text-amber-600 dark:text-amber-400 font-medium">Falling behind</span>
+            )}
           </CardTitle>
         </CardHeader>
         <CardContent>
@@ -87,7 +92,7 @@ export function HabitCard({ habitType, currentValue, goal, date }: HabitCardProp
                 size="icon"
                 variant="outline"
                 className="h-8 w-8"
-                disabled={saving || value >= goal}
+                disabled={saving}
                 onClick={() => handleUpdate(value + 1)}
               >
                 <Plus className="h-3.5 w-3.5" />
@@ -109,11 +114,14 @@ export function HabitCard({ habitType, currentValue, goal, date }: HabitCardProp
   const isDone = value >= 1;
 
   return (
-    <Card>
+    <Card className={isFallingBehind ? "border-amber-400 dark:border-amber-600" : ""}>
       <CardHeader className="pb-2">
         <CardTitle className="text-sm font-medium flex items-center gap-2">
           <Icon className={`h-4 w-4 ${config.iconColor}`} />
           {config.label}
+          {isFallingBehind && !isDone && (
+            <span className="ml-auto text-xs text-amber-600 dark:text-amber-400 font-medium">Falling behind</span>
+          )}
         </CardTitle>
       </CardHeader>
       <CardContent>

@@ -19,12 +19,14 @@ import {
     Scale,
     Pill,
 } from "lucide-react";
-import type { WeightEntry } from "@/types/database";
+import type { WeightEntry, HabitEntry, CustomHabit } from "@/types/database";
 import type { WeightStats, WeightCalorieData, TDEEResponse } from "@/lib/actions/weight";
 import { TDEECard } from "@/components/tdee-card";
 import {
     LineChart,
     Line,
+    AreaChart,
+    Area,
     XAxis,
     YAxis,
     CartesianGrid,
@@ -35,11 +37,20 @@ import {
     Cell,
     Bar,
     ComposedChart,
+    ReferenceLine,
 } from "recharts";
 import { exportEntriesCsv } from "@/lib/actions/analytics";
 import { subDays, format } from "date-fns";
 import type { DailyMacroData, MealBreakdown } from "@/lib/actions/analytics";
-import type { HabitWeeklyStats, DailyHabitData } from "@/lib/habit-utils";
+import type { HabitWeeklyStats } from "@/lib/habit-utils";
+import { computeSingleHabitTrendData } from "@/lib/habit-utils";
+import {
+    Select,
+    SelectContent,
+    SelectItem,
+    SelectTrigger,
+    SelectValue,
+} from "@/components/ui/select";
 
 const PIE_COLORS = ["#f59e0b", "#3b82f6", "#8b5cf6", "#10b981"];
 const MEAL_LABELS: Record<string, string> = {
@@ -67,7 +78,10 @@ interface AnalyticsClientProps {
     weightCalories?: WeightCalorieData[];
     tdee?: TDEEResponse;
     habitWeeklyStats?: HabitWeeklyStats;
-    habitDailyData?: DailyHabitData[];
+    habitEntries?: HabitEntry[];
+    customHabits?: CustomHabit[];
+    customHabitEntries?: HabitEntry[];
+    creatineGoal?: number;
 }
 
 export function AnalyticsClient({
@@ -79,9 +93,13 @@ export function AnalyticsClient({
     weightCalories = [],
     tdee,
     habitWeeklyStats,
-    habitDailyData = [],
+    habitEntries = [],
+    customHabits = [],
+    customHabitEntries = [],
+    creatineGoal = 2,
 }: AnalyticsClientProps) {
     const [exporting, setExporting] = useState(false);
+    const [selectedHabitId, setSelectedHabitId] = useState<string>("creatine");
 
     const chartData = useMemo(() =>
         trends.map((d) => ({
@@ -117,14 +135,32 @@ export function AnalyticsClient({
         [weightCalories]
     );
 
-    const habitChartData = useMemo(() =>
-        habitDailyData.map((d) => ({
-            date: format(new Date(d.date + "T00:00:00"), "MM/dd"),
-            creatine: d.creatine,
-            magnesium: d.magnesium,
-            gym: d.gym,
+    const habitOptions = useMemo(() => [
+        { id: "creatine", label: "Creatine", isCustom: false, goal: creatineGoal },
+        { id: "magnesium", label: "Magnesium", isCustom: false, goal: 1 },
+        { id: "gym", label: "Gym", isCustom: false, goal: 1 },
+        ...customHabits.map((h) => ({
+            id: h.id,
+            label: h.name,
+            isCustom: true,
+            goal: h.target_value,
         })),
-        [habitDailyData]
+    ], [customHabits, creatineGoal]);
+
+    const singleHabitData = useMemo(() => {
+        const opt = habitOptions.find((o) => o.id === selectedHabitId);
+        if (!opt) return { points: [], goal: 1 };
+        return computeSingleHabitTrendData(
+            opt.id, opt.isCustom, habitEntries, customHabitEntries, opt.goal
+        );
+    }, [selectedHabitId, habitOptions, habitEntries, customHabitEntries]);
+
+    const habitChartData = useMemo(() =>
+        singleHabitData.points.map((p) => ({
+            date: format(new Date(p.date + "T00:00:00"), "MM/dd"),
+            value: p.value,
+        })),
+        [singleHabitData]
     );
 
     async function handleExport() {
@@ -550,43 +586,71 @@ export function AnalyticsClient({
                         </div>
                     )}
 
-                    {/* 30-day Habit Chart */}
+                    {/* 30-day Single Habit Chart */}
                     <Card>
                         <CardHeader>
-                            <CardTitle className="text-base">Daily Habits (30 Days)</CardTitle>
-                            <CardDescription>
-                                Habit completion over the last month
-                            </CardDescription>
+                            <div className="flex items-center justify-between">
+                                <div>
+                                    <CardTitle className="text-base">Habit Trend (30 Days)</CardTitle>
+                                    <CardDescription>
+                                        Daily completion over the last month
+                                    </CardDescription>
+                                </div>
+                                <Select value={selectedHabitId} onValueChange={setSelectedHabitId}>
+                                    <SelectTrigger className="w-[180px]">
+                                        <SelectValue placeholder="Select habit" />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                        {habitOptions.map((opt) => (
+                                            <SelectItem key={opt.id} value={opt.id}>
+                                                {opt.label}
+                                            </SelectItem>
+                                        ))}
+                                    </SelectContent>
+                                </Select>
+                            </div>
                         </CardHeader>
                         <CardContent>
-                            {habitChartData.length > 0 ? (
-                                <ResponsiveContainer width="100%" height={300}>
-                                    <ComposedChart data={habitChartData}>
-                                        <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
-                                        <XAxis
-                                            dataKey="date"
-                                            tick={{ fontSize: 12 }}
-                                            className="fill-muted-foreground"
-                                            interval="preserveStartEnd"
-                                        />
-                                        <YAxis tick={{ fontSize: 12 }} className="fill-muted-foreground" />
-                                        <Tooltip
-                                            contentStyle={{
-                                                backgroundColor: "hsl(var(--card))",
-                                                border: "1px solid hsl(var(--border))",
-                                                borderRadius: "8px",
-                                            }}
-                                        />
-                                        <Bar dataKey="creatine" fill="#3b82f6" name="Creatine" stackId="habits" />
-                                        <Bar dataKey="magnesium" fill="#8b5cf6" name="Magnesium" stackId="habits" />
-                                        <Bar dataKey="gym" fill="#f97316" name="Gym" stackId="habits" />
-                                    </ComposedChart>
-                                </ResponsiveContainer>
-                            ) : (
-                                <div className="flex items-center justify-center h-[300px] text-muted-foreground">
-                                    No habit data yet. Start tracking from the dashboard.
-                                </div>
-                            )}
+                            <ResponsiveContainer width="100%" height={300}>
+                                <AreaChart data={habitChartData}>
+                                    <defs>
+                                        <linearGradient id="habitGradient" x1="0" y1="0" x2="0" y2="1">
+                                            <stop offset="5%" stopColor="hsl(var(--primary))" stopOpacity={0.3} />
+                                            <stop offset="95%" stopColor="hsl(var(--primary))" stopOpacity={0} />
+                                        </linearGradient>
+                                    </defs>
+                                    <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
+                                    <XAxis
+                                        dataKey="date"
+                                        tick={{ fontSize: 12 }}
+                                        className="fill-muted-foreground"
+                                        interval="preserveStartEnd"
+                                    />
+                                    <YAxis tick={{ fontSize: 12 }} className="fill-muted-foreground" />
+                                    <Tooltip
+                                        contentStyle={{
+                                            backgroundColor: "hsl(var(--card))",
+                                            border: "1px solid hsl(var(--border))",
+                                            borderRadius: "8px",
+                                        }}
+                                    />
+                                    <ReferenceLine
+                                        y={singleHabitData.goal}
+                                        stroke="var(--muted-foreground)"
+                                        strokeDasharray="3 3"
+                                        label={{ value: "Goal", position: "insideTopRight", fontSize: 11 }}
+                                    />
+                                    <Area
+                                        type="monotone"
+                                        dataKey="value"
+                                        stroke="hsl(var(--primary))"
+                                        strokeWidth={2}
+                                        fill="url(#habitGradient)"
+                                        dot={false}
+                                        activeDot={{ r: 4 }}
+                                    />
+                                </AreaChart>
+                            </ResponsiveContainer>
                         </CardContent>
                     </Card>
                 </TabsContent>

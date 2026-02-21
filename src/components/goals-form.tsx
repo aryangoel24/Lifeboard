@@ -112,38 +112,6 @@ export function GoalsForm({ profile }: GoalsFormProps) {
                         </div>
                         <div className="relative flex justify-center text-xs uppercase">
                             <span className="bg-background px-2 text-muted-foreground">
-                                Habits
-                            </span>
-                        </div>
-                    </div>
-                    <div className="space-y-2">
-                        <Label htmlFor="creatine_goal">Creatine Servings / Day</Label>
-                        <Input
-                            id="creatine_goal"
-                            name="creatine_goal"
-                            type="number"
-                            min={1}
-                            max={10}
-                            defaultValue={profile.creatine_goal}
-                        />
-                    </div>
-                    <div className="space-y-2">
-                        <Label htmlFor="gym_weekly_goal">Gym Days / Week</Label>
-                        <Input
-                            id="gym_weekly_goal"
-                            name="gym_weekly_goal"
-                            type="number"
-                            min={1}
-                            max={7}
-                            defaultValue={profile.gym_weekly_goal}
-                        />
-                    </div>
-                    <div className="relative my-2">
-                        <div className="absolute inset-0 flex items-center">
-                            <span className="w-full border-t" />
-                        </div>
-                        <div className="relative flex justify-center text-xs uppercase">
-                            <span className="bg-background px-2 text-muted-foreground">
                                 Timezone
                             </span>
                         </div>

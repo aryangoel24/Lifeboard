@@ -3,6 +3,7 @@ import { getAuthUserId } from "@/lib/auth";
 import { redirect } from "next/navigation";
 import { GoalsForm } from "@/components/goals-form";
 import { ApiTokenCard } from "@/components/api-token-card";
+import { BuiltinHabitsCard } from "@/components/builtin-habits-card";
 import { ManageHabits } from "@/components/manage-habits";
 import { getAllCustomHabits } from "@/lib/actions/custom-habits";
 
@@ -35,6 +36,7 @@ export default async function GoalsPage() {
     <div className="max-w-lg mx-auto space-y-6">
       <h1 className="text-2xl font-bold">Daily Goals</h1>
       <GoalsForm profile={profile} />
+      <BuiltinHabitsCard profile={profile} />
       <ManageHabits habits={customHabits} />
       <ApiTokenCard
         hasToken={!!profile.api_token_hash}
