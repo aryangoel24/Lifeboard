@@ -144,14 +144,22 @@ async function handleTextMessage(chatId: string, text: string): Promise<void> {
   const matchedRecipe = findRecipeMatch(recipes, text);
 
   if (matchedRecipe) {
+    const servings = matchedRecipe.servings || 1;
+    const perServing = {
+      calories: Math.round(matchedRecipe.total_calories / servings),
+      protein: Math.round(matchedRecipe.total_protein / servings * 10) / 10,
+      carbs: Math.round(matchedRecipe.total_carbs / servings * 10) / 10,
+      fat: Math.round(matchedRecipe.total_fat / servings * 10) / 10,
+    };
+
     const sessionId = await savePendingSession(user.id, chatId, {
       source: "recipe",
       recipe_id: matchedRecipe.id,
       name: matchedRecipe.name,
-      calories: matchedRecipe.total_calories,
-      protein: matchedRecipe.total_protein,
-      carbs: matchedRecipe.total_carbs,
-      fat: matchedRecipe.total_fat,
+      calories: perServing.calories,
+      protein: perServing.protein,
+      carbs: perServing.carbs,
+      fat: perServing.fat,
       meal_category: getDefaultMealCategory(),
       original_text: text,
     });
@@ -163,7 +171,7 @@ async function handleTextMessage(chatId: string, text: string): Promise<void> {
 
     await sendMessage(
       chatId,
-      `Is this <b>${matchedRecipe.name}</b> from your recipes?\n📊 ${matchedRecipe.total_calories} cal  |  ${matchedRecipe.total_protein}g protein  |  ${matchedRecipe.total_carbs}g carbs  |  ${matchedRecipe.total_fat}g fat`,
+      `Is this <b>${matchedRecipe.name}</b> from your recipes? (1 serving)\n📊 ${perServing.calories} cal  |  ${perServing.protein}g protein  |  ${perServing.carbs}g carbs  |  ${perServing.fat}g fat`,
       {
         parse_mode: "HTML",
         reply_markup: buildInlineKeyboard([
