@@ -18,6 +18,7 @@ const navItems = [
   { href: "/analytics", label: "Analytics" },
   { href: "/achievements", label: "Achievements" },
   { href: "/goals", label: "Goals" },
+  { href: "/learn", label: "Learn" },
 ];
 
 export { navItems };

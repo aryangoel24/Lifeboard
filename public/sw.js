@@ -36,12 +36,13 @@ self.addEventListener("fetch", (event) => {
     return;
   }
 
-  // Cache-first for static assets (images, fonts, CSS, JS)
+  // Cache-first for static media only (images, fonts).
+  // JS and CSS are excluded: in dev, Next.js chunks lack content hashes so
+  // caching them causes stale-JS hydration mismatches. In production they
+  // are content-hashed and the browser HTTP cache handles them.
   if (
     request.destination === "image" ||
-    request.destination === "font" ||
-    request.destination === "style" ||
-    request.destination === "script"
+    request.destination === "font"
   ) {
     event.respondWith(
       caches.match(request).then(
