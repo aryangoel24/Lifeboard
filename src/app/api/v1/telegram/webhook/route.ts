@@ -43,7 +43,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
 
   // Handle callback queries (button presses)
   if (update.callback_query) {
-    handleCallbackQuery(update.callback_query).catch(console.error);
+    await handleCallbackQuery(update.callback_query).catch(console.error);
     return NextResponse.json({ ok: true });
   }
 
@@ -54,12 +54,12 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
 
     if (message.text) {
       if (message.text.startsWith("/")) {
-        handleCommand(chatId, message.text).catch(console.error);
+        await handleCommand(chatId, message.text).catch(console.error);
       } else {
-        handleTextMessage(chatId, message.text).catch(console.error);
+        await handleTextMessage(chatId, message.text).catch(console.error);
       }
     } else if (message.photo) {
-      handlePhotoMessage(chatId, message.photo).catch(console.error);
+      await handlePhotoMessage(chatId, message.photo).catch(console.error);
     }
   }
 
