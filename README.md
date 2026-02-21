@@ -10,37 +10,6 @@ Food Tracker is a full-stack personal health app designed around reducing fricti
 
 ---
 
-## Pages
-
-### Dashboard
-The daily hub. Shows all food entries for the selected date alongside a live macro summary (calories, protein, carbs, fat vs. daily goals). Includes a weight log, habit tracking cards (built-in and custom), quick-log meal templates, and streak counters. Navigate to any past or future date.
-
-### Calendar
-A monthly calendar view where each day is colour-coded by calorie goal completion. Click any day to see a full nutrition summary for that date.
-
-### Analytics
-Trend charts and aggregated stats over configurable time windows. Covers calorie and macro trends, meal category breakdowns, weight history with TDEE estimation, and per-habit completion rates.
-
-### Recipes
-A personal recipe library. Create recipes by adding ingredients (linked to pantry items or entered manually), set serving counts, and let the app calculate total and per-serving macros. Log any recipe directly as a food entry with a configurable number of servings.
-
-### Pantry
-An ingredient library grouped by category (protein, dairy, grain, vegetable, fruit, fat/oil, spice, beverage, other). Each item stores nutrition per base unit and optional cost, forming the source of truth for recipe ingredient macros.
-
-### Goals
-Configure daily nutrition targets (calories, protein, carbs, fat), goal weight, timezone, and built-in habit goals (creatine servings/day, gym days/week). Manage custom habits — set tracking type (checkbox, counter, or duration), frequency, and target values. Generate and manage your personal API token for external integrations.
-
-### Budget
-Track food-related spending. Set weekly and monthly budget goals, log expenses manually or via automated receipt parsing, and see a breakdown of cooking vs. eating-out costs.
-
-### Achievements
-An achievement and streak system. Unlock badges for logging consistency, hitting macro goals, cooking streaks, and habit completion. Tracks current and longest streaks per habit and activity type.
-
-### Learn
-A personal learning hub. Fetches a daily AI-generated news briefing on user-selected topics, provides an actionable summary and tip, and includes a flashcard system with spaced repetition (SM-2 algorithm) for retaining what you read.
-
----
-
 ## Automations
 
 Food Tracker exposes a token-authenticated REST API (`/api/v1/`) that external tools can call without touching the web app.
@@ -97,3 +66,32 @@ All API requests authenticate via a SHA-256 hashed personal token generated in t
 | `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Supabase anonymous key (safe to expose) |
 | `SUPABASE_SERVICE_ROLE_KEY` | Supabase service role key — used in API routes to bypass RLS |
 | `OPENAI_API_KEY` | OpenAI API key for all AI-powered features |
+
+## Pages
+
+### Dashboard
+The daily hub. Shows all food entries for the selected date alongside a live macro summary (calories, protein, carbs, fat vs. daily goals). Includes a weight log, habit tracking cards (built-in and custom), quick-log meal templates, and streak counters. Navigate to any past or future date.
+
+### Calendar
+A monthly calendar view where each day is colour-coded by calorie goal completion. Click any day to see a full nutrition summary for that date.
+
+### Analytics
+Trend charts and aggregated stats over configurable time windows. Covers calorie and macro trends, meal category breakdowns, weight history with TDEE estimation, and per-habit completion rates.
+
+### Recipes
+A personal recipe library. Create recipes by adding ingredients (linked to pantry items or entered manually), set serving counts, and let the app calculate total and per-serving macros. Log any recipe directly as a food entry with a configurable number of servings.
+
+### Pantry
+An ingredient library grouped by category (protein, dairy, grain, vegetable, fruit, fat/oil, spice, beverage, other). Each item stores nutrition per base unit and optional cost, forming the source of truth for recipe ingredient macros.
+
+### Goals
+Configure daily nutrition targets (calories, protein, carbs, fat), goal weight, timezone, and built-in habit goals (creatine servings/day, gym days/week). Manage custom habits — set tracking type (checkbox, counter, or duration), frequency, and target values. Generate and manage your personal API token for external integrations.
+
+### Budget
+Track food-related spending. Set weekly and monthly budget goals, log expenses manually or via automated receipt parsing, and see a breakdown of cooking vs. eating-out costs.
+
+### Achievements
+An achievement and streak system. Unlock badges for logging consistency, hitting macro goals, cooking streaks, and habit completion. Tracks current and longest streaks per habit and activity type.
+
+### Learn
+A personal learning hub. Fetches a daily AI-generated news briefing on user-selected topics, provides an actionable summary and tip, and includes a flashcard system with spaced repetition (SM-2 algorithm) for retaining what you read.
