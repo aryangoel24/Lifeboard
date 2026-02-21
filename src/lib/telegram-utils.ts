@@ -19,7 +19,11 @@ export async function sendMessage(
     reply_markup?: object;
   }
 ): Promise<void> {
-  await fetch(`${TELEGRAM_API}/sendMessage`, {
+  if (!process.env.TELEGRAM_BOT_TOKEN) {
+    console.error("[telegram] TELEGRAM_BOT_TOKEN is not set");
+    return;
+  }
+  const res = await fetch(`${TELEGRAM_API}/sendMessage`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
@@ -28,6 +32,9 @@ export async function sendMessage(
       ...options,
     }),
   });
+  if (!res.ok) {
+    console.error("[telegram] sendMessage failed:", res.status, await res.text());
+  }
 }
 
 export async function answerCallbackQuery(
@@ -45,7 +52,6 @@ export async function answerCallbackQuery(
 }
 
 export async function downloadTelegramFile(fileId: string): Promise<string | null> {
-  // Get file path from Telegram
   const fileRes = await fetch(`${TELEGRAM_API}/getFile?file_id=${fileId}`);
   const fileData = await fileRes.json() as { ok: boolean; result?: { file_path: string } };
 
@@ -54,7 +60,6 @@ export async function downloadTelegramFile(fileId: string): Promise<string | nul
     return null;
   }
 
-  // Download the file bytes
   const downloadUrl = `https://api.telegram.org/file/bot${process.env.TELEGRAM_BOT_TOKEN}/${fileData.result.file_path}`;
   const imgRes = await fetch(downloadUrl);
 
