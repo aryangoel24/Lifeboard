@@ -28,7 +28,9 @@ import type { MealCategory } from "@/types/database";
 export async function POST(request: NextRequest): Promise<NextResponse> {
   // Verify secret token
   const secret = request.headers.get("X-Telegram-Bot-Api-Secret-Token");
+  console.log("[telegram] incoming secret:", secret?.slice(0, 8), "env secret:", process.env.TELEGRAM_WEBHOOK_SECRET?.slice(0, 8));
   if (secret !== process.env.TELEGRAM_WEBHOOK_SECRET) {
+    console.log("[telegram] secret mismatch, rejecting");
     return NextResponse.json({ ok: false }, { status: 200 });
   }
 
