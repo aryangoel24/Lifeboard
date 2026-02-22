@@ -85,19 +85,34 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  const { error } = await supabase.from("habit_entries").upsert(
-    {
+  const { data: existingEntry } = await supabase
+    .from("habit_entries")
+    .select("id")
+    .eq("user_id", auth.userId)
+    .eq("habit_type", habit_type)
+    .eq("logged_at", loggedAt)
+    .single();
+
+  if (existingEntry) {
+    const { error } = await supabase
+      .from("habit_entries")
+      .update({ value })
+      .eq("id", existingEntry.id);
+    if (error) {
+      console.error("Habit update error:", error);
+      return apiError("INTERNAL_ERROR", "Failed to update habit", 500);
+    }
+  } else {
+    const { error } = await supabase.from("habit_entries").insert({
       user_id: auth.userId,
       habit_type,
       logged_at: loggedAt,
       value,
-    },
-    { onConflict: "user_id,habit_type,logged_at" }
-  );
-
-  if (error) {
-    console.error("Habit log error:", error);
-    return apiError("INTERNAL_ERROR", "Failed to log habit", 500);
+    });
+    if (error) {
+      console.error("Habit log error:", error);
+      return apiError("INTERNAL_ERROR", "Failed to log habit", 500);
+    }
   }
 
   await updateHabitStreak(auth.userId, habit_type, loggedAt, value, supabase);

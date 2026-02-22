@@ -20,19 +20,29 @@ export async function logHabit(
 
   const loggedAt = date || getToday();
 
-  const { error } = await supabase
+  const { data: existingEntry } = await supabase
     .from("habit_entries")
-    .upsert(
-      {
-        user_id: user.id,
-        habit_type: habitType,
-        logged_at: loggedAt,
-        value,
-      },
-      { onConflict: "user_id,habit_type,logged_at" }
-    );
+    .select("id")
+    .eq("user_id", user.id)
+    .eq("habit_type", habitType)
+    .eq("logged_at", loggedAt)
+    .single();
 
-  if (error) return { error: error.message };
+  if (existingEntry) {
+    const { error } = await supabase
+      .from("habit_entries")
+      .update({ value })
+      .eq("id", existingEntry.id);
+    if (error) return { error: error.message };
+  } else {
+    const { error } = await supabase.from("habit_entries").insert({
+      user_id: user.id,
+      habit_type: habitType,
+      logged_at: loggedAt,
+      value,
+    });
+    if (error) return { error: error.message };
+  }
 
   await updateHabitStreak(user.id, habitType, loggedAt, value, supabase);
 
