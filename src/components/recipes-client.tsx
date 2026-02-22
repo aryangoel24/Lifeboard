@@ -21,12 +21,13 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
-import { Plus, Trash2, Clock, ChefHat, Utensils, BookOpen, UtensilsCrossed, Search, ChevronDown, ChevronUp, Pencil } from "lucide-react";
+import { Plus, Trash2, Clock, ChefHat, Utensils, BookOpen, UtensilsCrossed, Search, ChevronDown, ChevronUp, Pencil, Bookmark } from "lucide-react";
 import { createRecipe, deleteRecipe, logFromRecipe, updateRecipe } from "@/lib/actions/recipes";
 import {
     createMealTemplate,
     logFromTemplate,
     deleteMealTemplate,
+    addRecipeAsTemplate,
 } from "@/lib/actions/meal-templates";
 import { formatDate } from "@/lib/utils";
 import type { Recipe, RecipeIngredient, MealTemplate, MealCategory, PantryItem } from "@/types/database";
@@ -99,6 +100,8 @@ export function RecipesClient({
     const [expandedRecipes, setExpandedRecipes] = useState<Set<string>>(new Set());
     const [editRecipe, setEditRecipe] = useState<(Recipe & { ingredients: RecipeIngredient[] }) | null>(null);
     const [editIngredients, setEditIngredients] = useState<IngredientInput[]>([{ ...EMPTY_INGREDIENT }]);
+    const [templateRecipe, setTemplateRecipe] = useState<(Recipe & { ingredients: RecipeIngredient[] }) | null>(null);
+    const [templateCategory, setTemplateCategory] = useState<MealCategory>("lunch");
 
     const filteredRecipes = useMemo(() => {
         if (!recipeSearch.trim()) return recipes;
@@ -288,6 +291,19 @@ export function RecipesClient({
         }
     }
 
+    async function handleAddToTemplate(mealCategory: MealCategory) {
+        if (!templateRecipe) return;
+        setLoading(true);
+        const result = await addRecipeAsTemplate(templateRecipe.id, mealCategory);
+        if (result?.error) {
+            toast.error(result.error);
+        } else {
+            toast.success("Added to Quick Templates");
+            setTemplateRecipe(null);
+        }
+        setLoading(false);
+    }
+
     function renderIngredientForm(
         ings: IngredientInput[],
         addFn: () => void,
@@ -468,6 +484,17 @@ export function RecipesClient({
                                                         }}
                                                     >
                                                         <Pencil className="h-3.5 w-3.5" />
+                                                    </Button>
+                                                    <Button
+                                                        variant="ghost"
+                                                        size="icon"
+                                                        className="h-7 w-7"
+                                                        onClick={() => {
+                                                            setTemplateRecipe(recipe);
+                                                            setTemplateCategory("lunch");
+                                                        }}
+                                                    >
+                                                        <Bookmark className="h-3.5 w-3.5" />
                                                     </Button>
                                                     <Button
                                                         variant="ghost"
@@ -788,6 +815,47 @@ export function RecipesClient({
                                 {loading ? "Saving..." : "Save Changes"}
                             </Button>
                         </form>
+                    )}
+                </DialogContent>
+            </Dialog>
+
+            {/* Save as Quick Template Dialog */}
+            <Dialog open={!!templateRecipe} onOpenChange={(open) => { if (!open) setTemplateRecipe(null); }}>
+                <DialogContent>
+                    <DialogHeader>
+                        <DialogTitle>Add to Quick Templates</DialogTitle>
+                    </DialogHeader>
+                    {templateRecipe && (
+                        <div className="space-y-4">
+                            <div>
+                                <Label>Recipe</Label>
+                                <p className="mt-1 text-sm font-medium">{templateRecipe.name}</p>
+                                <p className="text-xs text-muted-foreground mt-0.5">
+                                    Per serving: {Math.round(templateRecipe.total_calories / templateRecipe.servings)} cal
+                                    {" \u2022 "}
+                                    {Math.round(templateRecipe.total_protein / templateRecipe.servings)}g P
+                                    {" \u2022 "}
+                                    {Math.round(templateRecipe.total_carbs / templateRecipe.servings)}g C
+                                    {" \u2022 "}
+                                    {Math.round(templateRecipe.total_fat / templateRecipe.servings)}g F
+                                </p>
+                            </div>
+                            <div className="space-y-2">
+                                <Label>Meal Category</Label>
+                                <Select value={templateCategory} onValueChange={(v) => setTemplateCategory(v as MealCategory)}>
+                                    <SelectTrigger><SelectValue /></SelectTrigger>
+                                    <SelectContent>
+                                        <SelectItem value="breakfast">Breakfast</SelectItem>
+                                        <SelectItem value="lunch">Lunch</SelectItem>
+                                        <SelectItem value="dinner">Dinner</SelectItem>
+                                        <SelectItem value="snack">Snack</SelectItem>
+                                    </SelectContent>
+                                </Select>
+                            </div>
+                            <Button className="w-full" onClick={() => handleAddToTemplate(templateCategory)} disabled={loading}>
+                                {loading ? "Saving..." : "Add Template"}
+                            </Button>
+                        </div>
                     )}
                 </DialogContent>
             </Dialog>

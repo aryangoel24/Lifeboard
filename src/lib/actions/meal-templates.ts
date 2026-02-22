@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
-import type { MealTemplate } from "@/types/database";
+import type { MealTemplate, MealCategory } from "@/types/database";
 
 export async function getMealTemplates(): Promise<MealTemplate[]> {
     const supabase = createClient();
@@ -97,6 +97,42 @@ export async function logFromTemplate(templateId: string, date: string) {
         .eq("user_id", user.id);
 
     revalidatePath("/dashboard");
+    revalidatePath("/recipes");
+    return { success: true };
+}
+
+export async function addRecipeAsTemplate(recipeId: string, mealCategory: MealCategory) {
+    const supabase = createClient();
+    const {
+        data: { user },
+    } = await supabase.auth.getUser();
+
+    if (!user) return { error: "Unauthorized" };
+
+    const { data: recipe, error: fetchError } = await supabase
+        .from("recipes")
+        .select("name, servings, total_calories, total_protein, total_carbs, total_fat")
+        .eq("id", recipeId)
+        .eq("user_id", user.id)
+        .single();
+
+    if (fetchError || !recipe) return { error: "Recipe not found" };
+
+    const servings = recipe.servings || 1;
+    const template = {
+        user_id: user.id,
+        name: recipe.name,
+        calories: Math.round(recipe.total_calories / servings),
+        protein: Math.round(recipe.total_protein / servings),
+        carbs: Math.round(recipe.total_carbs / servings),
+        fat: Math.round(recipe.total_fat / servings),
+        meal_category: mealCategory,
+    };
+
+    const { error } = await supabase.from("meal_templates").insert(template);
+
+    if (error) return { error: error.message };
+
     revalidatePath("/recipes");
     return { success: true };
 }
