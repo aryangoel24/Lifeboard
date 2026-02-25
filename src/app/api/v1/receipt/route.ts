@@ -3,7 +3,7 @@ import { authenticateApiRequest, isAuthError } from "@/lib/api-auth";
 import { apiSuccess, apiError } from "@/lib/api-response";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getToday } from "@/lib/timezone";
-import { extractTotalFromReceipt } from "@/lib/receipt-utils";
+import { extractReceiptDetails } from "@/lib/receipt-utils";
 
 export async function POST(request: NextRequest) {
   const auth = await authenticateApiRequest(request);
@@ -16,6 +16,8 @@ export async function POST(request: NextRequest) {
     email_body?: string;
     description?: string;
     date?: string;
+    category?: string;
+    merchant_hint?: string;
   };
   try {
     body = await request.json();
@@ -23,14 +25,14 @@ export async function POST(request: NextRequest) {
     return apiError("INVALID_INPUT", "Invalid JSON body", 400);
   }
 
-  const { email_body, description, date } = body;
+  const { email_body, description, date, category, merchant_hint } = body;
 
   if (!email_body || !email_body.trim()) {
     return apiError("INVALID_INPUT", "email_body is required", 400);
   }
 
-  const amount = await extractTotalFromReceipt(email_body);
-  if (amount === null) {
+  const details = await extractReceiptDetails(email_body, merchant_hint, category);
+  if (details.amount === null) {
     return apiError("AI_FAILED", "Could not extract total from receipt", 422);
   }
 
@@ -39,11 +41,13 @@ export async function POST(request: NextRequest) {
   const supabase = createAdminClient();
   const { error } = await supabase.from("expense_entries").insert({
     user_id: auth.userId,
-    amount,
+    amount: details.amount,
     description: description || null,
     expense_date: expenseDate,
     source: "receipt",
     raw_text: email_body,
+    merchant_name: details.merchant_name,
+    category: details.category,
   });
 
   if (error) {
@@ -51,5 +55,8 @@ export async function POST(request: NextRequest) {
     return apiError("INTERNAL_ERROR", "Failed to save expense entry", 500);
   }
 
-  return apiSuccess({ amount, date: expenseDate }, 201);
+  return apiSuccess(
+    { amount: details.amount, merchant_name: details.merchant_name, category: details.category, date: expenseDate },
+    201
+  );
 }

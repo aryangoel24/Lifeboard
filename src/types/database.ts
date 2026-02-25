@@ -112,6 +112,7 @@ export type BudgetGoal = {
   user_id: string;
   period: "weekly" | "monthly";
   amount: number;
+  category: string | null; // null = overall budget
   created_at: string;
 };
 
@@ -201,5 +202,7 @@ export type ExpenseEntry = {
   expense_date: string;
   source: "receipt" | "manual";
   raw_text: string | null;
+  category: string | null;
+  merchant_name: string | null;
   created_at: string;
 };
