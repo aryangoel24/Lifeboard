@@ -61,6 +61,9 @@ interface BudgetSummary {
 interface BudgetClientProps {
     budgetGoals: BudgetGoal[];
     summary: BudgetSummary | null;
+    prevSummary: BudgetSummary | null;
+    monthSummary: BudgetSummary | null;
+    prevMonthSummary: BudgetSummary | null;
     expenses: ExpenseEntry[];
     cookingStats: { totalMeals: number; homeCookedMeals: number; percentage: number } | null;
     view: "weekly" | "monthly";
@@ -85,6 +88,9 @@ function PeriodLabel({ view, startDate, endDate }: { view: "weekly" | "monthly";
 export function BudgetClient({
     budgetGoals,
     summary,
+    prevSummary,
+    monthSummary,
+    prevMonthSummary,
     expenses,
     cookingStats,
     view,
@@ -99,6 +105,7 @@ export function BudgetClient({
     const [budgetsDialogOpen, setBudgetsDialogOpen] = useState(false);
     const [editExpense, setEditExpense] = useState<ExpenseEntry | null>(null);
     const [saving, setSaving] = useState(false);
+    const [filterCategory, setFilterCategory] = useState<string | null>(null);
 
     // Period navigation
     function navigate(newOffset: number) {
@@ -139,10 +146,30 @@ export function BudgetClient({
     });
 
     // Overall budget progress
-    const totalSpend = summary?.totalSpend || 0;
+    const viewTotalSpend = summary?.totalSpend || 0;
+    const displayTotalSpend = overallGoal?.period === "monthly"
+        ? (monthSummary?.totalSpend || 0)
+        : viewTotalSpend;
+    const displayPrevSpend = overallGoal?.period === "monthly"
+        ? (prevMonthSummary?.totalSpend || 0)
+        : (prevSummary?.totalSpend || 0);
     const overallPercent = overallGoal
-        ? Math.min(Math.round((totalSpend / overallGoal.amount) * 100), 100)
+        ? Math.min(Math.round((displayTotalSpend / overallGoal.amount) * 100), 100)
         : 0;
+
+    // Period-over-period delta
+    const spendDelta = displayTotalSpend - displayPrevSpend;
+
+    // Monthly projection (weekly view only)
+    const projectedMonthly = view === "weekly" && offset === 0 && viewTotalSpend > 0 ? viewTotalSpend * (30.44 / 7) : null;
+
+    // Category filter chips — only categories that have at least one expense this period
+    const categoriesWithExpenses = Array.from(
+        new Set(expenses.map((e) => e.category).filter(Boolean))
+    ) as string[];
+    const filteredExpenses = filterCategory
+        ? expenses.filter((e) => e.category === filterCategory)
+        : expenses;
 
     async function handleAddExpense(formData: FormData) {
         setSaving(true);
@@ -319,7 +346,7 @@ export function BudgetClient({
                                 {overallGoal.period === "weekly" ? "Weekly" : "Monthly"} Budget
                             </span>
                             <span className="text-sm text-muted-foreground">
-                                ${totalSpend.toFixed(2)} / ${overallGoal.amount.toFixed(2)}
+                                ${displayTotalSpend.toFixed(2)} / ${overallGoal.amount.toFixed(2)}
                             </span>
                         </div>
                         <div className="h-3 bg-secondary rounded-full overflow-hidden">
@@ -335,18 +362,33 @@ export function BudgetClient({
                             />
                         </div>
                         <p className="text-xs text-muted-foreground mt-1">
-                            ${Math.max(overallGoal.amount - totalSpend, 0).toFixed(2)} remaining
-                            {overallPercent >= 90 && totalSpend < overallGoal.amount && (
+                            ${Math.max(overallGoal.amount - displayTotalSpend, 0).toFixed(2)} remaining
+                            {overallPercent >= 90 && displayTotalSpend < overallGoal.amount && (
                                 <span className="text-amber-600 dark:text-amber-400 ml-2">
                                     Approaching limit
                                 </span>
                             )}
-                            {totalSpend >= overallGoal.amount && (
+                            {displayTotalSpend >= overallGoal.amount && (
                                 <span className="text-destructive ml-2">Budget exceeded</span>
                             )}
                         </p>
+                        {displayPrevSpend > 0 && (
+                            <p className="text-xs text-muted-foreground mt-1">
+                                {spendDelta >= 0 ? "↑" : "↓"} ${Math.abs(spendDelta).toFixed(2)} vs last period
+                            </p>
+                        )}
+                        {projectedMonthly !== null && (
+                            <p className="text-xs text-muted-foreground mt-1">
+                                At this rate: ~${projectedMonthly.toFixed(2)}/month
+                            </p>
+                        )}
                     </CardContent>
                 </Card>
+            )}
+            {!overallGoal && projectedMonthly !== null && (
+                <p className="text-xs text-muted-foreground mb-4">
+                    At this rate: ~${projectedMonthly.toFixed(2)}/month
+                </p>
             )}
 
             {/* Category Budget Cards */}
@@ -401,13 +443,43 @@ export function BudgetClient({
                     </CardDescription>
                 </CardHeader>
                 <CardContent>
+                    {categoriesWithExpenses.length > 0 && (
+                        <div className="flex flex-wrap gap-1.5 mb-4">
+                            <Button
+                                variant={filterCategory === null ? "secondary" : "ghost"}
+                                size="sm"
+                                className="h-7 text-xs px-3"
+                                onClick={() => setFilterCategory(null)}
+                            >
+                                All
+                            </Button>
+                            {categoriesWithExpenses.map((catId) => {
+                                const info = getCategoryInfo(catId);
+                                return (
+                                    <Button
+                                        key={catId}
+                                        variant={filterCategory === catId ? "secondary" : "ghost"}
+                                        size="sm"
+                                        className="h-7 text-xs px-3"
+                                        onClick={() => setFilterCategory(catId)}
+                                    >
+                                        {info.emoji} {info.label}
+                                    </Button>
+                                );
+                            })}
+                        </div>
+                    )}
                     {expenses.length === 0 ? (
                         <p className="text-muted-foreground text-sm text-center py-4">
                             No expenses recorded for this period
                         </p>
+                    ) : filteredExpenses.length === 0 ? (
+                        <p className="text-muted-foreground text-sm text-center py-4">
+                            No expenses in this category
+                        </p>
                     ) : (
                         <div className="space-y-2">
-                            {expenses.map((expense) => {
+                            {filteredExpenses.map((expense) => {
                                 const cat = getCategoryInfo(expense.category);
                                 return (
                                     <div
@@ -420,11 +492,17 @@ export function BudgetClient({
                                                 <p className="text-sm font-medium truncate">
                                                     {expense.merchant_name || expense.description || "Expense"}
                                                 </p>
-                                                <p className="text-xs text-muted-foreground">
+                                                <p className="text-xs text-muted-foreground flex items-center gap-1 flex-wrap">
                                                     {expense.expense_date} ·{" "}
-                                                    <Badge variant="secondary" className="text-xs py-0 h-4">
-                                                        {cat.label}
-                                                    </Badge>
+                                                    {expense.category ? (
+                                                        <Badge variant="secondary" className="text-xs py-0 h-4">
+                                                            {cat.label}
+                                                        </Badge>
+                                                    ) : (
+                                                        <Badge variant="outline" className="text-xs py-0 h-4 border-amber-500 text-amber-600">
+                                                            Uncategorized
+                                                        </Badge>
+                                                    )}
                                                 </p>
                                             </div>
                                         </div>
