@@ -179,7 +179,7 @@ export function AnalyticsClient({
         const url = URL.createObjectURL(blob);
         const a = document.createElement("a");
         a.href = url;
-        a.download = `food-tracker-export-${format(new Date(), "yyyy-MM-dd")}.csv`;
+        a.download = `lifeboard-export-${format(new Date(), "yyyy-MM-dd")}.csv`;
         a.click();
         URL.revokeObjectURL(url);
         toast.success("Export downloaded!");

@@ -41,12 +41,12 @@ export default function LoginPage() {
 
   return (
     <>
-      <h1 className="text-2xl font-bold text-center mb-6">Food Tracker</h1>
+      <h1 className="text-2xl font-bold text-center mb-6">Lifeboard</h1>
       <Card className="shadow-lg">
         <CardHeader>
           <CardTitle className="text-2xl">Log in</CardTitle>
           <CardDescription>
-            Enter your email and password to access your food tracker.
+            Enter your email and password to access your dashboard.
           </CardDescription>
         </CardHeader>
         <form action={handleSubmit}>

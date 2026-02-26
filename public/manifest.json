@@ -1,7 +1,7 @@
 {
-  "name": "Food Tracker",
-  "short_name": "Food Tracker",
-  "description": "Track your meals and nutrition goals",
+  "name": "Lifeboard",
+  "short_name": "Lifeboard",
+  "description": "Your personal dashboard for health, finance, and learning.",
   "start_url": "/dashboard",
   "display": "standalone",
   "background_color": "#ffffff",

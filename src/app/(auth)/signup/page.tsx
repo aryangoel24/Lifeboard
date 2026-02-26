@@ -41,12 +41,12 @@ export default function SignupPage() {
 
   return (
     <>
-      <h1 className="text-2xl font-bold text-center mb-6">Food Tracker</h1>
+      <h1 className="text-2xl font-bold text-center mb-6">Lifeboard</h1>
       <Card className="shadow-lg">
         <CardHeader>
           <CardTitle className="text-2xl">Sign up</CardTitle>
           <CardDescription>
-            Create an account to start tracking your nutrition.
+            Create an account to start using your personal dashboard.
           </CardDescription>
         </CardHeader>
         <form action={handleSubmit}>

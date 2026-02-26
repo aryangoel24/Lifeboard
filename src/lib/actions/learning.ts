@@ -151,7 +151,7 @@ export async function generateNewsBriefing(topics: NewsTopic[], force = false): 
     try {
       const url = RSS_FEEDS[topic];
       const response = await fetch(url, {
-        headers: { "User-Agent": "FoodTracker/1.0" },
+        headers: { "User-Agent": "Lifeboard/1.0" },
         next: { revalidate: 3600 },
       });
       const xml = await response.text();

@@ -17,13 +17,13 @@ const geistMono = localFont({
 });
 
 export const metadata: Metadata = {
-  title: "Food Tracker",
-  description: "Track your meals and nutrition goals",
+  title: "Lifeboard",
+  description: "Your personal dashboard for health, finance, and learning.",
   manifest: "/manifest.json",
   appleWebApp: {
     capable: true,
     statusBarStyle: "default",
-    title: "Food Tracker",
+    title: "Lifeboard",
   },
   icons: {
     apple: "/icons/apple-touch-icon.png",

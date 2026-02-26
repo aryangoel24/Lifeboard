@@ -75,7 +75,7 @@ async function handleCommand(chatId: string, text: string): Promise<void> {
   if (command === "/start") {
     await sendMessage(
       chatId,
-      "👋 Welcome to your Food Tracker bot!\n\nTo link your account, run:\n<code>/link YOUR_API_TOKEN</code>\n\nGet your token from the Goals page in the app.",
+      "👋 Welcome to your Lifeboard bot!\n\nTo link your account, run:\n<code>/link YOUR_API_TOKEN</code>\n\nGet your token from the Goals page in the app.",
       { parse_mode: "HTML" }
     );
     return;

@@ -6,22 +6,47 @@ import { useTheme } from "next-themes";
 import { logout } from "@/lib/actions/auth";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
-import { Sun, Moon } from "lucide-react";
+import { Sun, Moon, ChevronDown } from "lucide-react";
 import { MobileNav } from "@/components/mobile-nav";
+import {
+  DropdownMenu,
+  DropdownMenuTrigger,
+  DropdownMenuContent,
+  DropdownMenuItem,
+} from "@/components/ui/dropdown-menu";
 
-const navItems = [
-  { href: "/dashboard", label: "Dashboard" },
-  { href: "/calendar", label: "Calendar" },
-  { href: "/recipes", label: "Recipes" },
-  { href: "/pantry", label: "Pantry" },
-  { href: "/budget", label: "Budget" },
-  { href: "/analytics", label: "Analytics" },
-  { href: "/achievements", label: "Achievements" },
-  { href: "/goals", label: "Goals" },
-  { href: "/learn", label: "Learn" },
+const navGroups = [
+  {
+    label: "Dashboard",
+    items: [{ href: "/dashboard", label: "Dashboard" }],
+  },
+  {
+    label: "Food",
+    items: [
+      { href: "/calendar", label: "Calendar" },
+      { href: "/recipes", label: "Recipes" },
+      { href: "/pantry", label: "Pantry" },
+    ],
+  },
+  {
+    label: "Finance",
+    items: [{ href: "/budget", label: "Budget" }],
+  },
+  {
+    label: "Progress",
+    items: [
+      { href: "/goals", label: "Goals" },
+      { href: "/analytics", label: "Analytics" },
+      { href: "/achievements", label: "Achievements" },
+    ],
+  },
+  {
+    label: "Learn",
+    items: [{ href: "/learn", label: "Learn" }],
+  },
 ];
 
-export { navItems };
+export { navGroups };
 
 function ThemeToggle() {
   const { theme, setTheme } = useTheme();
@@ -50,24 +75,64 @@ export function Header() {
       <div className="container mx-auto flex h-16 items-center justify-between px-4">
         <nav className="flex items-center gap-6">
           <Link href="/dashboard" className="font-bold text-xl">
-            <span className="text-emerald-600 dark:text-emerald-400">Food</span>{" "}
-            <span>Tracker</span>
+            <span className="text-emerald-600 dark:text-emerald-400">Life</span>
+            <span>board</span>
           </Link>
           <div className="hidden md:flex items-center gap-1">
-            {navItems.map((item) => (
-              <Link
-                key={item.href}
-                href={item.href}
-                className={cn(
-                  "text-sm transition-all duration-200 px-3 py-1.5 rounded-full",
-                  pathname === item.href
-                    ? "bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 font-medium"
-                    : "text-muted-foreground hover:text-foreground"
-                )}
-              >
-                {item.label}
-              </Link>
-            ))}
+            {navGroups.map((group) => {
+              const isGroupActive = group.items.some(
+                (item) => pathname === item.href
+              );
+              if (group.items.length === 1) {
+                const item = group.items[0];
+                return (
+                  <Link
+                    key={item.href}
+                    href={item.href}
+                    className={cn(
+                      "text-sm transition-all duration-200 px-3 py-1.5 rounded-full",
+                      pathname === item.href
+                        ? "bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 font-medium"
+                        : "text-muted-foreground hover:text-foreground"
+                    )}
+                  >
+                    {item.label}
+                  </Link>
+                );
+              }
+              return (
+                <DropdownMenu key={group.label}>
+                  <DropdownMenuTrigger asChild>
+                    <button
+                      className={cn(
+                        "flex items-center gap-1 text-sm transition-all duration-200 px-3 py-1.5 rounded-full",
+                        isGroupActive
+                          ? "bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 font-medium"
+                          : "text-muted-foreground hover:text-foreground"
+                      )}
+                    >
+                      {group.label}
+                      <ChevronDown className="h-3.5 w-3.5" />
+                    </button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="start">
+                    {group.items.map((item) => (
+                      <DropdownMenuItem key={item.href} asChild>
+                        <Link
+                          href={item.href}
+                          className={cn(
+                            pathname === item.href &&
+                              "text-emerald-700 dark:text-emerald-400 font-medium"
+                          )}
+                        >
+                          {item.label}
+                        </Link>
+                      </DropdownMenuItem>
+                    ))}
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              );
+            })}
           </div>
         </nav>
         <div className="hidden md:flex items-center gap-2">
