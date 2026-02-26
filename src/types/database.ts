@@ -200,9 +200,23 @@ export type ExpenseEntry = {
   amount: number;
   description: string | null;
   expense_date: string;
-  source: "receipt" | "manual";
+  source: "receipt" | "manual" | "plaid";
   raw_text: string | null;
   category: string | null;
   merchant_name: string | null;
+  created_at: string;
+  is_recurring: boolean;
+  recurring_day_of_month: number | null;
+  recurring_parent_id: string | null;
+  plaid_transaction_id: string | null;
+};
+
+export type PlaidConnection = {
+  id: string;
+  user_id: string;
+  access_token: string;
+  item_id: string;
+  institution_name: string | null;
+  sync_cursor: string | null;
   created_at: string;
 };

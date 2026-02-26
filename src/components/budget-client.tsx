@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useState, useTransition, useRef } from "react";
 import { useRouter } from "next/navigation";
 import {
     Card,
@@ -27,16 +27,34 @@ import {
     DialogTrigger,
 } from "@/components/ui/dialog";
 import { Badge } from "@/components/ui/badge";
+import { Checkbox } from "@/components/ui/checkbox";
 import { toast } from "sonner";
-import { ChevronLeft, ChevronRight, Plus, Settings, Pencil, Trash2, ChefHat } from "lucide-react";
+import {
+    ChevronLeft,
+    ChevronRight,
+    Plus,
+    Settings,
+    Pencil,
+    Trash2,
+    ChefHat,
+    RefreshCw,
+    Landmark,
+    Loader2,
+    ChevronDown,
+    ChevronUp,
+} from "lucide-react";
 import {
     setBudgetGoal,
     addExpenseEntry,
     updateExpenseEntry,
     deleteExpenseEntry,
+    deleteRecurringTemplate,
+    suggestExpenseCategory,
 } from "@/lib/actions/budget";
-import type { BudgetGoal, ExpenseEntry } from "@/types/database";
+import { syncPlaidTransactions, disconnectPlaid } from "@/lib/actions/plaid";
+import type { BudgetGoal, ExpenseEntry, PlaidConnection } from "@/types/database";
 import { format, parseISO } from "date-fns";
+import { PlaidLinkButton } from "@/components/plaid-link-button";
 
 export const SPENDING_CATEGORIES = [
     { id: "groceries", label: "Groceries", emoji: "🛒" },
@@ -70,6 +88,8 @@ interface BudgetClientProps {
     offset: number;
     startDate: string;
     endDate: string;
+    recurringTemplates: ExpenseEntry[];
+    plaidConnections: PlaidConnection[];
 }
 
 function PeriodLabel({ view, startDate, endDate }: { view: "weekly" | "monthly"; startDate: string; endDate: string }) {
@@ -97,6 +117,8 @@ export function BudgetClient({
     offset,
     startDate,
     endDate,
+    recurringTemplates,
+    plaidConnections,
 }: BudgetClientProps) {
     const router = useRouter();
     const [, startNavTransition] = useTransition();
@@ -106,6 +128,8 @@ export function BudgetClient({
     const [editExpense, setEditExpense] = useState<ExpenseEntry | null>(null);
     const [saving, setSaving] = useState(false);
     const [filterCategory, setFilterCategory] = useState<string | null>(null);
+    const [recurringOpen, setRecurringOpen] = useState(false);
+    const [syncing, setSyncing] = useState(false);
 
     // Period navigation
     function navigate(newOffset: number) {
@@ -129,16 +153,6 @@ export function BudgetClient({
     }
 
     // Categories to show: those with spending OR a budget goal
-    const activeCategoryIds = new Set<string>([
-        ...SPENDING_CATEGORIES.map((c) => c.id),
-    ]);
-    if (summary) {
-        for (const cat of Object.keys(summary.byCategory)) activeCategoryIds.add(cat);
-    }
-    for (const g of budgetGoals) {
-        if (g.category) activeCategoryIds.add(g.category);
-    }
-
     const visibleCategories = SPENDING_CATEGORIES.filter((c) => {
         const hasSpend = summary?.byCategory[c.id]?.total;
         const hasBudget = categoryGoalMap[c.id];
@@ -208,6 +222,39 @@ export function BudgetClient({
         }
     }
 
+    async function handleDeleteTemplate(id: string) {
+        const result = await deleteRecurringTemplate(id);
+        if (result.error) {
+            toast.error(result.error);
+        } else {
+            toast.success("Recurring expense removed");
+        }
+    }
+
+    async function handleSyncPlaid() {
+        setSyncing(true);
+        const result = await syncPlaidTransactions();
+        if (result.error) {
+            toast.error(result.error, {
+                description: result.needsRelink ? "Click Connect Bank to relink your account." : undefined,
+            });
+        } else {
+            toast.success(`Synced ${result.synced} transaction${result.synced !== 1 ? "s" : ""}`);
+            router.refresh();
+        }
+        setSyncing(false);
+    }
+
+    async function handleDisconnectPlaid(id: string) {
+        const result = await disconnectPlaid(id);
+        if (result.error) {
+            toast.error(result.error);
+        } else {
+            toast.success("Bank disconnected");
+            router.refresh();
+        }
+    }
+
     return (
         <div>
             {/* Header */}
@@ -216,7 +263,26 @@ export function BudgetClient({
                     <h1 className="text-2xl font-bold">Budget</h1>
                     <p className="text-muted-foreground text-sm mt-1">Track your spending</p>
                 </div>
-                <div className="flex gap-2">
+                <div className="flex gap-2 flex-wrap justify-end">
+                    {/* Plaid: show sync if connected, connect if not */}
+                    {plaidConnections.length > 0 ? (
+                        <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={handleSyncPlaid}
+                            disabled={syncing}
+                        >
+                            {syncing ? (
+                                <Loader2 className="h-4 w-4 mr-1 animate-spin" />
+                            ) : (
+                                <RefreshCw className="h-4 w-4 mr-1" />
+                            )}
+                            Sync Transactions
+                        </Button>
+                    ) : (
+                        <PlaidLinkButton />
+                    )}
+
                     <Dialog open={addDialogOpen} onOpenChange={setAddDialogOpen}>
                         <DialogTrigger asChild>
                             <Button size="sm">
@@ -224,64 +290,11 @@ export function BudgetClient({
                                 Add Expense
                             </Button>
                         </DialogTrigger>
-                        <DialogContent>
-                            <DialogHeader>
-                                <DialogTitle>Add Expense</DialogTitle>
-                            </DialogHeader>
-                            <form action={handleAddExpense} className="space-y-4">
-                                <div className="space-y-2">
-                                    <Label htmlFor="add-amount">Amount ($)</Label>
-                                    <Input
-                                        id="add-amount"
-                                        name="amount"
-                                        type="number"
-                                        min={0}
-                                        step={0.01}
-                                        placeholder="0.00"
-                                        required
-                                    />
-                                </div>
-                                <div className="space-y-2">
-                                    <Label htmlFor="add-merchant">Merchant</Label>
-                                    <Input
-                                        id="add-merchant"
-                                        name="merchant_name"
-                                        placeholder="Store or service name"
-                                    />
-                                </div>
-                                <div className="space-y-2">
-                                    <Label htmlFor="add-category">Category</Label>
-                                    <Select name="category">
-                                        <SelectTrigger>
-                                            <SelectValue placeholder="Select category" />
-                                        </SelectTrigger>
-                                        <SelectContent>
-                                            {SPENDING_CATEGORIES.map((c) => (
-                                                <SelectItem key={c.id} value={c.id}>
-                                                    {c.emoji} {c.label}
-                                                </SelectItem>
-                                            ))}
-                                        </SelectContent>
-                                    </Select>
-                                </div>
-                                <div className="space-y-2">
-                                    <Label htmlFor="add-date">Date</Label>
-                                    <Input
-                                        id="add-date"
-                                        name="expense_date"
-                                        type="date"
-                                        defaultValue={new Date().toISOString().slice(0, 10)}
-                                    />
-                                </div>
-                                <div className="space-y-2">
-                                    <Label htmlFor="add-desc">Description (optional)</Label>
-                                    <Input id="add-desc" name="description" placeholder="Notes" />
-                                </div>
-                                <Button type="submit" className="w-full" disabled={saving}>
-                                    {saving ? "Saving..." : "Add Expense"}
-                                </Button>
-                            </form>
-                        </DialogContent>
+                        <AddExpenseDialog
+                            saving={saving}
+                            onSubmit={handleAddExpense}
+                            startDate={startDate}
+                        />
                     </Dialog>
 
                     <Dialog open={budgetsDialogOpen} onOpenChange={setBudgetsDialogOpen}>
@@ -298,6 +311,24 @@ export function BudgetClient({
                     </Dialog>
                 </div>
             </div>
+
+            {/* Connected bank info */}
+            {plaidConnections.length > 0 && (
+                <div className="flex flex-wrap gap-2 mb-4">
+                    {plaidConnections.map((conn) => (
+                        <div key={conn.id} className="flex items-center gap-2 text-xs text-muted-foreground bg-secondary rounded-md px-3 py-1.5">
+                            <Landmark className="h-3 w-3" />
+                            <span>{conn.institution_name || "Bank"} connected</span>
+                            <button
+                                className="ml-1 hover:text-destructive transition-colors"
+                                onClick={() => handleDisconnectPlaid(conn.id)}
+                            >
+                                ×
+                            </button>
+                        </div>
+                    ))}
+                </div>
+            )}
 
             {/* Period Navigator */}
             <div className="flex flex-col items-center gap-2 mb-6">
@@ -489,8 +520,14 @@ export function BudgetClient({
                                         <div className="flex items-center gap-3 min-w-0">
                                             <span className="text-base">{cat.emoji}</span>
                                             <div className="min-w-0">
-                                                <p className="text-sm font-medium truncate">
+                                                <p className="text-sm font-medium truncate flex items-center gap-1.5">
                                                     {expense.merchant_name || expense.description || "Expense"}
+                                                    {expense.recurring_parent_id && (
+                                                        <RefreshCw className="h-3 w-3 text-muted-foreground shrink-0" aria-label="Recurring" />
+                                                    )}
+                                                    {expense.source === "plaid" && (
+                                                        <Landmark className="h-3 w-3 text-muted-foreground shrink-0" aria-label="Bank import" />
+                                                    )}
                                                 </p>
                                                 <p className="text-xs text-muted-foreground flex items-center gap-1 flex-wrap">
                                                     {expense.expense_date} ·{" "}
@@ -534,6 +571,77 @@ export function BudgetClient({
                     )}
                 </CardContent>
             </Card>
+
+            {/* Recurring Expenses section (monthly view only) */}
+            {view === "monthly" && (
+                <Card className="mb-6">
+                    <CardHeader
+                        className="cursor-pointer select-none"
+                        onClick={() => setRecurringOpen((v) => !v)}
+                    >
+                        <div className="flex items-center justify-between">
+                            <div className="flex items-center gap-2">
+                                <RefreshCw className="h-4 w-4" />
+                                <CardTitle className="text-base">Recurring Expenses</CardTitle>
+                                {recurringTemplates.length > 0 && (
+                                    <Badge variant="secondary" className="text-xs">
+                                        {recurringTemplates.length}
+                                    </Badge>
+                                )}
+                            </div>
+                            {recurringOpen ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+                        </div>
+                        <CardDescription>Monthly auto-charged expenses</CardDescription>
+                    </CardHeader>
+                    {recurringOpen && (
+                        <CardContent>
+                            {recurringTemplates.length === 0 ? (
+                                <p className="text-muted-foreground text-sm text-center py-4">
+                                    No recurring expenses. Add one by checking &quot;Repeat monthly&quot; when adding an expense.
+                                </p>
+                            ) : (
+                                <div className="space-y-2">
+                                    {recurringTemplates.map((tmpl) => {
+                                        const cat = getCategoryInfo(tmpl.category);
+                                        return (
+                                            <div
+                                                key={tmpl.id}
+                                                className="flex items-center justify-between py-2 border-b last:border-0"
+                                            >
+                                                <div className="flex items-center gap-3 min-w-0">
+                                                    <span className="text-base">{cat.emoji}</span>
+                                                    <div className="min-w-0">
+                                                        <p className="text-sm font-medium truncate">
+                                                            {tmpl.merchant_name || tmpl.description || "Recurring"}
+                                                        </p>
+                                                        <p className="text-xs text-muted-foreground">
+                                                            Every {tmpl.recurring_day_of_month}{getOrdinalSuffix(tmpl.recurring_day_of_month || 1)} of month
+                                                            {tmpl.category && ` · ${cat.label}`}
+                                                        </p>
+                                                    </div>
+                                                </div>
+                                                <div className="flex items-center gap-2 shrink-0">
+                                                    <span className="font-semibold text-sm">
+                                                        ${tmpl.amount.toFixed(2)}
+                                                    </span>
+                                                    <Button
+                                                        variant="ghost"
+                                                        size="icon"
+                                                        className="h-7 w-7 text-destructive hover:text-destructive"
+                                                        onClick={() => handleDeleteTemplate(tmpl.id)}
+                                                    >
+                                                        <Trash2 className="h-3.5 w-3.5" />
+                                                    </Button>
+                                                </div>
+                                            </div>
+                                        );
+                                    })}
+                                </div>
+                            )}
+                        </CardContent>
+                    )}
+                </Card>
+            )}
 
             {/* Cooking Habits */}
             <Card>
@@ -640,6 +748,161 @@ export function BudgetClient({
                 </Dialog>
             )}
         </div>
+    );
+}
+
+function getOrdinalSuffix(n: number): string {
+    const s = ["th", "st", "nd", "rd"];
+    const v = n % 100;
+    return s[(v - 20) % 10] || s[v] || s[0];
+}
+
+// ── Add Expense Dialog (extracted for clarity) ──────────────────────────────
+
+function AddExpenseDialog({
+    saving,
+    onSubmit,
+    startDate,
+}: {
+    saving: boolean;
+    onSubmit: (fd: FormData) => Promise<void>;
+    startDate: string;
+}) {
+    const [isRecurring, setIsRecurring] = useState(false);
+    const [selectedCategory, setSelectedCategory] = useState<string>("");
+    const [categorySuggested, setCategorySuggested] = useState(false);
+    const [merchantValue, setMerchantValue] = useState("");
+    const suggestingRef = useRef(false);
+
+    async function handleMerchantBlur() {
+        if (!merchantValue.trim() || selectedCategory || suggestingRef.current) return;
+        suggestingRef.current = true;
+        try {
+            const result = await suggestExpenseCategory(merchantValue.trim());
+            if (result.category && !selectedCategory) {
+                setSelectedCategory(result.category);
+                setCategorySuggested(true);
+            }
+        } finally {
+            suggestingRef.current = false;
+        }
+    }
+
+    function handleCategoryChange(val: string) {
+        setSelectedCategory(val);
+        setCategorySuggested(false);
+    }
+
+    async function handleFormSubmit(fd: FormData) {
+        fd.set("is_recurring", isRecurring ? "true" : "false");
+        if (selectedCategory) fd.set("category", selectedCategory);
+        await onSubmit(fd);
+    }
+
+    const today = new Date();
+    const defaultDay = today.getDate();
+    // Default expense_date to start of the viewed period if in past, otherwise today
+    const defaultDate = startDate > today.toISOString().slice(0, 10)
+        ? today.toISOString().slice(0, 10)
+        : today.toISOString().slice(0, 10);
+
+    return (
+        <DialogContent>
+            <DialogHeader>
+                <DialogTitle>Add Expense</DialogTitle>
+            </DialogHeader>
+            <form action={handleFormSubmit} className="space-y-4">
+                <div className="space-y-2">
+                    <Label htmlFor="add-amount">Amount ($)</Label>
+                    <Input
+                        id="add-amount"
+                        name="amount"
+                        type="number"
+                        min={0}
+                        step={0.01}
+                        placeholder="0.00"
+                        required
+                    />
+                </div>
+                <div className="space-y-2">
+                    <Label htmlFor="add-merchant">Merchant</Label>
+                    <Input
+                        id="add-merchant"
+                        name="merchant_name"
+                        placeholder="Store or service name"
+                        value={merchantValue}
+                        onChange={(e) => setMerchantValue(e.target.value)}
+                        onBlur={handleMerchantBlur}
+                    />
+                </div>
+                <div className="space-y-2">
+                    <Label htmlFor="add-category">Category</Label>
+                    <Select
+                        name="category"
+                        value={selectedCategory}
+                        onValueChange={handleCategoryChange}
+                    >
+                        <SelectTrigger>
+                            <SelectValue placeholder="Select category" />
+                        </SelectTrigger>
+                        <SelectContent>
+                            {SPENDING_CATEGORIES.map((c) => (
+                                <SelectItem key={c.id} value={c.id}>
+                                    {c.emoji} {c.label}
+                                </SelectItem>
+                            ))}
+                        </SelectContent>
+                    </Select>
+                    {categorySuggested && (
+                        <p className="text-xs text-muted-foreground">Suggested based on merchant</p>
+                    )}
+                </div>
+                <div className="space-y-2">
+                    <Label htmlFor="add-desc">Description (optional)</Label>
+                    <Input id="add-desc" name="description" placeholder="Notes" />
+                </div>
+
+                {/* Repeat monthly checkbox */}
+                <div className="flex items-center gap-2">
+                    <Checkbox
+                        id="is-recurring"
+                        checked={isRecurring}
+                        onCheckedChange={(checked) => setIsRecurring(!!checked)}
+                    />
+                    <Label htmlFor="is-recurring" className="cursor-pointer font-normal">
+                        Repeat monthly
+                    </Label>
+                </div>
+
+                {isRecurring ? (
+                    <div className="space-y-2">
+                        <Label htmlFor="recurring-day">Day of month (1–31)</Label>
+                        <Input
+                            id="recurring-day"
+                            name="recurring_day_of_month"
+                            type="number"
+                            min={1}
+                            max={31}
+                            defaultValue={defaultDay}
+                        />
+                    </div>
+                ) : (
+                    <div className="space-y-2">
+                        <Label htmlFor="add-date">Date</Label>
+                        <Input
+                            id="add-date"
+                            name="expense_date"
+                            type="date"
+                            defaultValue={defaultDate}
+                        />
+                    </div>
+                )}
+
+                <Button type="submit" className="w-full" disabled={saving}>
+                    {saving ? "Saving..." : "Add Expense"}
+                </Button>
+            </form>
+        </DialogContent>
     );
 }
 

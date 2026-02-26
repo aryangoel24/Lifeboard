@@ -3,7 +3,10 @@ import {
     getBudgetSummary,
     getCookingStats,
     getExpenseEntries,
+    getRecurringTemplates,
+    ensureRecurringExpensesSpawned,
 } from "@/lib/actions/budget";
+import { getPlaidConnections } from "@/lib/actions/plaid";
 import { BudgetClient } from "@/components/budget-client";
 import {
     startOfWeek,
@@ -75,7 +78,12 @@ export default async function BudgetPage({ searchParams }: BudgetPageProps) {
         prevMonthSummaryEnd = prevEndDate;
     }
 
-    const [budgetGoals, summary, prevSummary, expenses, cookingStats, rawMonthSummary, rawPrevMonthSummary] =
+    // For monthly view: ensure recurring expenses are spawned before fetching entries
+    if (view === "monthly") {
+        await ensureRecurringExpensesSpawned(startDate, endDate);
+    }
+
+    const [budgetGoals, summary, prevSummary, expenses, cookingStats, rawMonthSummary, rawPrevMonthSummary, recurringTemplates, plaidConnections] =
         await Promise.all([
             getBudgetGoals(),
             getBudgetSummary(startDate, endDate),
@@ -84,6 +92,8 @@ export default async function BudgetPage({ searchParams }: BudgetPageProps) {
             getCookingStats(monthStart, monthEnd),
             view === "weekly" ? getBudgetSummary(monthSummaryStart, monthSummaryEnd) : Promise.resolve(null),
             view === "weekly" ? getBudgetSummary(prevMonthSummaryStart, prevMonthSummaryEnd) : Promise.resolve(null),
+            view === "monthly" ? getRecurringTemplates() : Promise.resolve([]),
+            getPlaidConnections(),
         ]);
 
     const monthSummary = rawMonthSummary ?? summary;
@@ -103,6 +113,8 @@ export default async function BudgetPage({ searchParams }: BudgetPageProps) {
                 offset={offset}
                 startDate={startDate}
                 endDate={endDate}
+                recurringTemplates={recurringTemplates}
+                plaidConnections={plaidConnections}
             />
         </div>
     );

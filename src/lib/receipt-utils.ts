@@ -94,3 +94,32 @@ export async function extractTotalFromReceipt(emailBody: string): Promise<number
   const details = await extractReceiptDetails(emailBody);
   return details.amount;
 }
+
+const CATEGORY_SUGGESTION_PROMPT = `Given the merchant name, return the most appropriate spending category from: ${CATEGORY_IDS}. Return a JSON object with a single field "category" containing the category ID, or null if unclear.`;
+
+export async function suggestCategoryForMerchant(merchantName: string): Promise<string | null> {
+  const openai = getOpenAIClient();
+  if (!openai) return null;
+
+  try {
+    const response = await openai.chat.completions.create({
+      model: "gpt-4o-mini",
+      messages: [
+        { role: "system", content: CATEGORY_SUGGESTION_PROMPT },
+        { role: "user", content: merchantName },
+      ],
+      response_format: { type: "json_object" },
+      temperature: 0.1,
+      max_tokens: 20,
+    });
+
+    const content = response.choices[0]?.message?.content;
+    if (!content) return null;
+
+    const parsed = JSON.parse(content) as { category: string | null };
+    const validIds = SPENDING_CATEGORIES.map((c) => c.id);
+    return parsed.category && validIds.includes(parsed.category) ? parsed.category : null;
+  } catch {
+    return null;
+  }
+}
