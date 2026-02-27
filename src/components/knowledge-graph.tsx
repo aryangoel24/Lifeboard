@@ -5,6 +5,7 @@ import {
   ReactFlow,
   Background,
   MiniMap,
+  Panel,
   BaseEdge,
   getBezierPath,
   type Node,
@@ -51,7 +52,7 @@ import {
   CommandItem,
   CommandList,
 } from "@/components/ui/command";
-import { Plus, Maximize2, Loader2, Brain, ZoomIn, ZoomOut, Focus, Map as MapIcon, Sparkles, LayoutGrid } from "lucide-react";
+import { Plus, Maximize2, Loader2, Brain, ZoomIn, ZoomOut, Focus, Map as MapIcon, Sparkles, LayoutGrid, MousePointerClick, List } from "lucide-react";
 import { ROOT_COLORS } from "@/lib/knowledge-utils";
 
 // Custom dashed cross-link edge (defined at module level, outside component)
@@ -160,7 +161,7 @@ interface KnowledgeGraphInnerProps {
 }
 
 function KnowledgeGraphInner({ initialNodes, initialLinks }: KnowledgeGraphInnerProps) {
-  const { fitView, zoomIn, zoomOut } = useReactFlow();
+  const { fitView, fitBounds, zoomIn, zoomOut } = useReactFlow();
   const [knowledgeNodes, setKnowledgeNodes] = useState<KnowledgeNode[]>(initialNodes);
   const [knowledgeLinks, setKnowledgeLinks] = useState<KnowledgeLink[]>(initialLinks);
   const [collapsedIds, setCollapsedIds] = useState<Set<string>>(new Set());
@@ -189,12 +190,23 @@ function KnowledgeGraphInner({ initialNodes, initialLinks }: KnowledgeGraphInner
   const [synthesisLoading, setSynthesisLoading] = useState(false);
   const [synthesisDialogOpen, setSynthesisDialogOpen] = useState(false);
 
+  // Layout mode state
+  const [isLayoutMode, setIsLayoutMode] = useState(false);
+  const [rfSelectedCount, setRfSelectedCount] = useState(0);
+
+  // Legend state
+  const [showLegend, setShowLegend] = useState(true);
+
   // Track persisted positions for diffing
   const lastPersistedPositions = useRef<Map<string, { x: number; y: number }>>(new Map());
   // Drag-click guard for synthesis mode
   const isDraggingRef = useRef(false);
   // Ref mirror for synthesis mode (for stable callbacks)
   const synthesisModeRef = useRef(false);
+  // Ref mirror for layout mode (for stable callbacks)
+  const isLayoutModeRef = useRef(false);
+  // Subtree bounds cache
+  const subtreeCacheRef = useRef<Map<string, Set<string>>>(new Map());
 
   const onToggleCollapse = useCallback((nodeId: string) => {
     setCollapsedIds((prev) => {
@@ -339,6 +351,14 @@ function KnowledgeGraphInner({ initialNodes, initialLinks }: KnowledgeGraphInner
     synthesisModeRef.current = synthesisModeActive;
   }, [synthesisModeActive]);
 
+  // Sync layout mode ref
+  useEffect(() => {
+    isLayoutModeRef.current = isLayoutMode;
+  }, [isLayoutMode]);
+
+  // Clear subtree bounds cache when nodes change
+  useEffect(() => { subtreeCacheRef.current.clear(); }, [knowledgeNodes]);
+
   // Update synthesis selection highlight on rfNodes
   useEffect(() => {
     setRfNodes((prev) =>
@@ -367,6 +387,7 @@ function KnowledgeGraphInner({ initialNodes, initialLinks }: KnowledgeGraphInner
   const onNodeDragStop: OnNodeDrag = useCallback(
     async (_, __, nodes) => {
       setTimeout(() => { isDraggingRef.current = false; }, 50);
+      if (!nodes || nodes.length === 0) return;
       const changed: { id: string; x: number; y: number }[] = [];
       for (const n of nodes) {
         const last = lastPersistedPositions.current.get(n.id);
@@ -387,6 +408,7 @@ function KnowledgeGraphInner({ initialNodes, initialLinks }: KnowledgeGraphInner
 
   const onNodeClick = useCallback((_evt: unknown, node: Node) => {
     if (isDraggingRef.current) return;
+    if (isLayoutModeRef.current) return;
     if (synthesisModeRef.current) {
       setSynthesisSelectedIds((prev) => {
         const next = new Set(prev);
@@ -424,15 +446,23 @@ function KnowledgeGraphInner({ initialNodes, initialLinks }: KnowledgeGraphInner
     return () => window.removeEventListener("keydown", onKeyDown);
   }, []);
 
-  // Synthesis mode keyboard shortcuts
+  // Keyboard shortcuts: ESC priority + synthesis Enter
   useEffect(() => {
     function onKeyDown(e: KeyboardEvent) {
-      if (!synthesisModeActive || synthesisDialogOpen) return;
       if (e.key === "Escape") {
-        e.preventDefault();
-        exitSynthesisMode();
+        if (synthesisModeActive && !synthesisDialogOpen) {
+          e.preventDefault();
+          exitSynthesisMode();
+        } else if (isLayoutMode) {
+          e.preventDefault();
+          exitLayoutMode();
+        } else if (rfSelectedCount > 0) {
+          e.preventDefault();
+          setRfNodes(prev => prev.map(n => n.selected ? { ...n, selected: false } : n));
+          setRfSelectedCount(0);
+        }
       }
-      if (e.key === "Enter" && synthesisSelectedIds.size >= 2 && !synthesisLoading) {
+      if (e.key === "Enter" && synthesisModeActive && !synthesisDialogOpen && synthesisSelectedIds.size >= 2 && !synthesisLoading) {
         e.preventDefault();
         handleSynthesize();
       }
@@ -440,9 +470,10 @@ function KnowledgeGraphInner({ initialNodes, initialLinks }: KnowledgeGraphInner
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [synthesisModeActive, synthesisDialogOpen, synthesisSelectedIds, synthesisLoading]);
+  }, [synthesisModeActive, synthesisDialogOpen, synthesisSelectedIds, synthesisLoading, isLayoutMode, rfSelectedCount]);
 
   function enterSynthesisMode() {
+    exitLayoutMode();
     setSynthesisModeActive(true);
     setSelectedNodeId(null);
     setFocusEnabled(false);
@@ -454,6 +485,12 @@ function KnowledgeGraphInner({ initialNodes, initialLinks }: KnowledgeGraphInner
     setSynthesisResult(null);
     setSynthesisLoading(false);
     setSynthesisDialogOpen(false);
+  }
+
+  function exitLayoutMode() {
+    setIsLayoutMode(false);
+    setRfSelectedCount(0);
+    setRfNodes(prev => prev.map(n => n.selected ? { ...n, selected: false } : n));
   }
 
   async function handleSynthesize() {
@@ -722,6 +759,43 @@ function KnowledgeGraphInner({ initialNodes, initialLinks }: KnowledgeGraphInner
     return m;
   }, [knowledgeLinks]);
 
+  // Subtree helpers for legend navigation
+  function getSubtreeIds(rootNodeId: string): Set<string> {
+    if (subtreeCacheRef.current.has(rootNodeId)) {
+      return subtreeCacheRef.current.get(rootNodeId)!;
+    }
+    const ids = new Set<string>();
+    function dfs(id: string) {
+      ids.add(id);
+      for (const child of childrenMap.get(id) ?? []) dfs(child);
+    }
+    dfs(rootNodeId);
+    subtreeCacheRef.current.set(rootNodeId, ids);
+    return ids;
+  }
+
+  function getSubtreeBounds(rootNodeId: string) {
+    const ids = getSubtreeIds(rootNodeId);
+    const visibleNodes = rfNodes.filter(n => ids.has(n.id) && !n.hidden);
+    const fallbackNodes = rfNodes.filter(n => n.id === rootNodeId);
+    const targets = visibleNodes.length > 0 ? visibleNodes : fallbackNodes;
+    if (targets.length === 0) return null;
+    const NODE_W = 208, NODE_H = 80;
+    const xs = targets.map(n => n.position.x);
+    const ys = targets.map(n => n.position.y);
+    return {
+      x: Math.min(...xs) - 40,
+      y: Math.min(...ys) - 40,
+      width: Math.max(...xs) - Math.min(...xs) + NODE_W + 80,
+      height: Math.max(...ys) - Math.min(...ys) + NODE_H + 80,
+    };
+  }
+
+  function navigateToSubtree(rootNodeId: string) {
+    const bounds = getSubtreeBounds(rootNodeId);
+    if (bounds) fitBounds(bounds, { padding: 0.15, duration: 500 });
+  }
+
   // focusSet: nodes that should remain fully visible
   const focusSet = useMemo((): Set<string> | null => {
     if (!focusEnabled || !selectedNodeId) return null;
@@ -746,6 +820,10 @@ function KnowledgeGraphInner({ initialNodes, initialLinks }: KnowledgeGraphInner
     }), [rfEdges, focusSet]);
 
   const isEmpty = knowledgeNodes.length === 0;
+
+  const legendRoots = knowledgeNodes
+    .filter(n => n.depth === 0)
+    .map(n => ({ node: n, color: getRootColor(n, knowledgeNodes) }));
 
   const selectedSynthesisNodes = synthesisResult
     ? knowledgeNodes.filter((n) => synthesisSelectedIds.has(n.id))
@@ -775,6 +853,12 @@ function KnowledgeGraphInner({ initialNodes, initialLinks }: KnowledgeGraphInner
         maxZoom={2}
         defaultEdgeOptions={{ type: "smoothstep" }}
         proOptions={{ hideAttribution: true }}
+        selectionOnDrag={isLayoutMode}
+        panOnDrag={isLayoutMode ? [1, 2] : true}
+        multiSelectionKeyCode="Shift"
+        snapToGrid={isLayoutMode}
+        snapGrid={[20, 20]}
+        onSelectionChange={({ nodes }) => setRfSelectedCount(nodes.length)}
       >
         <Background gap={20} size={1} className="opacity-30" />
         {minimapVisible && (
@@ -784,6 +868,49 @@ function KnowledgeGraphInner({ initialNodes, initialLinks }: KnowledgeGraphInner
             maskColor="rgba(0,0,0,0.15)"
             className="rounded-lg border border-border"
           />
+        )}
+
+        {/* Layout mode banner + selection count bar */}
+        {isLayoutMode && (
+          <Panel position="top-center">
+            <div className="flex flex-col items-center gap-1.5 mt-2">
+              <div className="text-xs bg-background/80 border rounded-md px-2.5 py-1 text-muted-foreground">
+                Layout mode: drag to lasso · Shift+click to add · Esc to exit
+              </div>
+              {rfSelectedCount > 1 && (
+                <div className="flex items-center gap-3 bg-background/90 border rounded-md px-3 py-1.5 shadow-sm">
+                  <span className="text-xs text-muted-foreground">{rfSelectedCount} nodes selected</span>
+                  <button
+                    className="text-xs text-muted-foreground hover:text-foreground transition-colors"
+                    onClick={exitLayoutMode}
+                  >
+                    Clear
+                  </button>
+                </div>
+              )}
+            </div>
+          </Panel>
+        )}
+
+        {/* Root topic legend */}
+        {showLegend && legendRoots.length > 0 && (
+          <Panel position="bottom-left">
+            <div className="rounded-lg border bg-background/90 backdrop-blur-sm shadow-sm p-1.5 space-y-0.5 max-h-64 overflow-y-auto mb-2 ml-2">
+              <p className="text-[10px] uppercase tracking-wider text-muted-foreground px-1.5 pb-0.5 font-medium">Topics</p>
+              {legendRoots.map(({ node, color }) => (
+                <button
+                  key={node.id}
+                  onClick={() => navigateToSubtree(node.id)}
+                  className="flex items-center gap-2 px-1.5 py-1 rounded hover:bg-muted w-full text-left transition-colors group"
+                >
+                  <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: color }} />
+                  <span className="text-xs truncate max-w-[150px] group-hover:text-foreground text-muted-foreground transition-colors">
+                    {node.title}
+                  </span>
+                </button>
+              ))}
+            </div>
+          </Panel>
         )}
       </ReactFlow>
 
@@ -886,12 +1013,37 @@ function KnowledgeGraphInner({ initialNodes, initialLinks }: KnowledgeGraphInner
           Synthesize
         </Button>
         <Button
+          variant={isLayoutMode ? "default" : "outline"}
+          size="sm"
+          onClick={() => {
+            if (isLayoutMode) {
+              exitLayoutMode();
+            } else {
+              exitSynthesisMode();
+              setFocusEnabled(false);
+              setIsLayoutMode(true);
+            }
+          }}
+          title="Layout mode (lasso + snap)"
+        >
+          <MousePointerClick className="h-4 w-4 mr-1.5" />
+          Select
+        </Button>
+        <Button
           variant="outline"
           size="sm"
           onClick={() => fitView({ duration: 500 })}
         >
           <Maximize2 className="h-4 w-4 mr-1.5" />
           Recenter
+        </Button>
+        <Button
+          variant={showLegend ? "default" : "outline"}
+          size="sm"
+          onClick={() => setShowLegend(v => !v)}
+          title="Topic legend"
+        >
+          <List className="h-4 w-4" />
         </Button>
         <Button
           size="sm"
