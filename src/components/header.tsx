@@ -45,6 +45,7 @@ const navGroups = [
     items: [
       { href: "/learn", label: "News" },
       { href: "/learn/hub", label: "Knowledge Hub" },
+      { href: "/learn/digest", label: "Daily Digest" },
     ],
   },
 ];
