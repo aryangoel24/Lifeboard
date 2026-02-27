@@ -26,6 +26,7 @@ import {
   updateNodePositions,
   suggestSubtopics,
   synthesizeNodes,
+  updateNodeTitle,
 } from "@/lib/actions/knowledge";
 import type { KnowledgeNode, KnowledgeLink, NodeResource } from "@/types/database";
 import type { SynthesisResult } from "@/lib/knowledge-utils";
@@ -50,7 +51,7 @@ import {
   CommandItem,
   CommandList,
 } from "@/components/ui/command";
-import { Plus, Maximize2, Loader2, Brain, ZoomIn, ZoomOut, Focus, Map as MapIcon, Sparkles } from "lucide-react";
+import { Plus, Maximize2, Loader2, Brain, ZoomIn, ZoomOut, Focus, Map as MapIcon, Sparkles, LayoutGrid } from "lucide-react";
 import { ROOT_COLORS } from "@/lib/knowledge-utils";
 
 // Custom dashed cross-link edge (defined at module level, outside component)
@@ -69,6 +70,51 @@ const NODE_TYPES = { knowledgeNode: KnowledgeNodeCard };
 const EDGE_TYPES = { crossLink: CrossLinkEdge };
 
 const TEMPLATE_TOPICS = ["History", "Science", "Anime"];
+
+const X_SPACING = 220;
+const Y_SPACING = 180;
+const TREE_GAP = 350;
+
+function computeAutoLayout(nodes: KnowledgeNode[]): Map<string, { x: number; y: number }> {
+  const childrenMap = new Map<string, string[]>();
+  for (const n of nodes) {
+    if (n.parent_id) {
+      const arr = childrenMap.get(n.parent_id) ?? [];
+      arr.push(n.id);
+      childrenMap.set(n.parent_id, arr);
+    }
+  }
+
+  const widthCache = new Map<string, number>();
+  function subtreeWidth(id: string): number {
+    if (widthCache.has(id)) return widthCache.get(id)!;
+    const children = childrenMap.get(id) ?? [];
+    const w = children.length === 0 ? 1 : children.reduce((s, c) => s + subtreeWidth(c), 0);
+    widthCache.set(id, w);
+    return w;
+  }
+
+  const result = new Map<string, { x: number; y: number }>();
+  function assign(id: string, leftX: number, y: number) {
+    const width = subtreeWidth(id);
+    result.set(id, { x: leftX + ((width - 1) / 2) * X_SPACING, y });
+    const children = childrenMap.get(id) ?? [];
+    let childLeft = leftX;
+    for (const c of children) {
+      assign(c, childLeft, y + Y_SPACING);
+      childLeft += subtreeWidth(c) * X_SPACING;
+    }
+  }
+
+  const roots = nodes.filter((n) => n.depth === 0);
+  let rootX = 0;
+  for (const root of roots) {
+    assign(root.id, rootX, 0);
+    rootX += subtreeWidth(root.id) * X_SPACING + TREE_GAP;
+  }
+
+  return result;
+}
 
 const GRID_SPACING = 250;
 
@@ -133,6 +179,8 @@ function KnowledgeGraphInner({ initialNodes, initialLinks }: KnowledgeGraphInner
   const [focusEnabled, setFocusEnabled] = useState(false);
   const [minimapVisible, setMinimapVisible] = useState(false);
   const [spotlightOpen, setSpotlightOpen] = useState(false);
+
+  const [autoLayoutPending, setAutoLayoutPending] = useState(false);
 
   // Synthesis mode state
   const [synthesisModeActive, setSynthesisModeActive] = useState(false);
@@ -222,6 +270,7 @@ function KnowledgeGraphInner({ initialNodes, initialLinks }: KnowledgeGraphInner
             linkCount: linkCountMap.get(node.id) ?? 0,
             onToggleCollapse,
             isSynthesisSelected: false,
+            onRename: handleRename,
           } satisfies KnowledgeNodeData,
         };
       });
@@ -581,6 +630,49 @@ function KnowledgeGraphInner({ initialNodes, initialLinks }: KnowledgeGraphInner
     setKnowledgeLinks((prev) => prev.filter((l) => l.id !== linkId));
   }
 
+  async function handleRename(nodeId: string, newTitle: string) {
+    const result = await updateNodeTitle(nodeId, newTitle);
+    if ("error" in result) {
+      toast.error(result.error);
+      return;
+    }
+    setKnowledgeNodes((prev) =>
+      prev.map((n) => (n.id === nodeId ? { ...n, title: result.title } : n))
+    );
+  }
+
+  function handleNodeMoved(updatedNodes: KnowledgeNode[]) {
+    const updateMap = new Map(updatedNodes.map((n) => [n.id, n]));
+    setKnowledgeNodes((prev) =>
+      prev.map((n) => updateMap.get(n.id) ?? n)
+    );
+  }
+
+  async function handleAutoLayout() {
+    setAutoLayoutPending(true);
+    const layoutMap = computeAutoLayout(knowledgeNodes);
+    const updates: { id: string; x: number; y: number }[] = [];
+    layoutMap.forEach((pos, id) => {
+      updates.push({ id, x: pos.x, y: pos.y });
+      lastPersistedPositions.current.set(id, pos);
+    });
+    setRfNodes((prev) =>
+      prev.map((n) => {
+        const pos = layoutMap.get(n.id);
+        return pos ? { ...n, position: pos } : n;
+      })
+    );
+    await updateNodePositions(updates);
+    setAutoLayoutPending(false);
+    setTimeout(() => fitView({ duration: 500 }), 50);
+  }
+
+  function handleDescriptionChange(nodeId: string, description: string | null) {
+    setKnowledgeNodes((prev) =>
+      prev.map((n) => (n.id === nodeId ? { ...n, description } : n))
+    );
+  }
+
   const selectedNode = knowledgeNodes.find((n) => n.id === selectedNodeId) ?? null;
   const expandNode = knowledgeNodes.find((n) => n.id === expandNodeId) ?? null;
   const selectedRootColor = selectedNode
@@ -771,6 +863,20 @@ function KnowledgeGraphInner({ initialNodes, initialLinks }: KnowledgeGraphInner
           Focus
         </Button>
         <Button
+          variant="outline"
+          size="sm"
+          onClick={handleAutoLayout}
+          disabled={autoLayoutPending || knowledgeNodes.length === 0}
+          title="Auto-arrange nodes"
+        >
+          {autoLayoutPending ? (
+            <Loader2 className="h-4 w-4 mr-1.5 animate-spin" />
+          ) : (
+            <LayoutGrid className="h-4 w-4 mr-1.5" />
+          )}
+          Layout
+        </Button>
+        <Button
           variant={synthesisModeActive ? "default" : "outline"}
           size="sm"
           onClick={() => synthesisModeActive ? exitSynthesisMode() : enterSynthesisMode()}
@@ -837,6 +943,9 @@ function KnowledgeGraphInner({ initialNodes, initialLinks }: KnowledgeGraphInner
         onLinkAdd={handleLinkAdd}
         onLinkDelete={handleLinkDelete}
         onChildAdded={handleSubtopicsAdded}
+        onTitleChange={handleRename}
+        onNodeMoved={handleNodeMoved}
+        onDescriptionChange={handleDescriptionChange}
       />
 
       {/* Add root dialog */}

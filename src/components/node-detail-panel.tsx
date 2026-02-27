@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useCallback, useRef } from "react";
+import { useEffect, useState, useCallback, useRef, useMemo } from "react";
 import {
   getNodeDetail,
   saveUserNotes,
@@ -12,6 +12,8 @@ import {
   deleteKnowledgeLink,
   addChildNodes,
   findGaps,
+  moveNode,
+  saveDescription,
 } from "@/lib/actions/knowledge";
 import type { GapAnalysis } from "@/lib/knowledge-utils";
 import type { KnowledgeNode, KnowledgeLink, NodeResource, NodeType, MasteryStatus } from "@/types/database";
@@ -50,6 +52,9 @@ import {
   HelpCircle,
   Check,
   ScanSearch,
+  Edit2,
+  Home,
+  Move,
 } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
@@ -71,6 +76,9 @@ interface NodeDetailPanelProps {
   onLinkAdd: (link: KnowledgeLink) => void;
   onLinkDelete: (linkId: string) => void;
   onChildAdded?: (newNodes: KnowledgeNode[]) => void;
+  onTitleChange?: (nodeId: string, newTitle: string) => Promise<void>;
+  onNodeMoved?: (nodes: KnowledgeNode[]) => void;
+  onDescriptionChange?: (nodeId: string, description: string | null) => void;
 }
 
 interface DetailState {
@@ -95,6 +103,21 @@ const MASTERY_OPTIONS: { status: MasteryStatus; label: string; color: string }[]
   { status: 'practicing', label: 'Practicing', color: '#f97316' },
   { status: 'mastered', label: 'Mastered', color: '#22c55e' },
 ];
+
+function getDescendantIds(nodeId: string, allNodes: KnowledgeNode[]): Set<string> {
+  const result = new Set<string>();
+  const queue = [nodeId];
+  while (queue.length) {
+    const cur = queue.pop()!;
+    for (const n of allNodes) {
+      if (n.parent_id === cur && !result.has(n.id)) {
+        result.add(n.id);
+        queue.push(n.id);
+      }
+    }
+  }
+  return result;
+}
 
 function formatRelativeTime(isoString: string): string {
   const diff = Date.now() - new Date(isoString).getTime();
@@ -124,6 +147,9 @@ export function NodeDetailPanel({
   onLinkAdd,
   onLinkDelete,
   onChildAdded,
+  onTitleChange,
+  onNodeMoved,
+  onDescriptionChange,
 }: NodeDetailPanelProps) {
   const [detail, setDetail] = useState<DetailState | null>(null);
   const [isGenerating, setIsGenerating] = useState(false);
@@ -165,6 +191,28 @@ export function NodeDetailPanel({
   const [gapResult, setGapResult] = useState<GapAnalysis | null>(null);
   const [gapLoading, setGapLoading] = useState(false);
   const [addedGapItems, setAddedGapItems] = useState<Set<string>>(new Set());
+
+  // Rename state
+  const [isEditingTitle, setIsEditingTitle] = useState(false);
+  const [editingTitle, setEditingTitle] = useState("");
+
+  // Move state
+  const [movePickerOpen, setMovePickerOpen] = useState(false);
+  const [moveSaving, setMoveSaving] = useState(false);
+
+  // Sibling state
+  const [showSiblingInput, setShowSiblingInput] = useState(false);
+  const [siblingInput, setSiblingInput] = useState("");
+  const [addingSibling, setAddingSibling] = useState(false);
+
+  // Description edit state
+  const [isEditingDescription, setIsEditingDescription] = useState(false);
+  const [editDescription, setEditDescription] = useState("");
+  const [descriptionSaving, setDescriptionSaving] = useState(false);
+
+  useEffect(() => {
+    setEditDescription(detail?.summary ?? "");
+  }, [detail]);
 
   const fetchDetail = useCallback(
     async (nodeId: string) => {
@@ -220,6 +268,13 @@ export function NodeDetailPanel({
     setGapResult(null);
     setGapLoading(false);
     setAddedGapItems(new Set());
+    setIsEditingTitle(false);
+    setEditingTitle(node?.title ?? "");
+    setMovePickerOpen(false);
+    setMoveSaving(false);
+    setShowSiblingInput(false);
+    setSiblingInput("");
+    setIsEditingDescription(false);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [node?.id]);
 
@@ -388,6 +443,60 @@ export function NodeDetailPanel({
     toast.success("Child node added");
   }
 
+  async function handleConfirmRename() {
+    if (!node) return;
+    const trimmed = editingTitle.trim();
+    setIsEditingTitle(false);
+    if (!trimmed || trimmed === node.title) return;
+    await onTitleChange?.(node.id, trimmed);
+  }
+
+  async function handleMoveNode(newParentId: string | null) {
+    if (!node) return;
+    setMovePickerOpen(false);
+    setMoveSaving(true);
+    const result = await moveNode(node.id, newParentId);
+    setMoveSaving(false);
+    if ("error" in result) {
+      toast.error(result.error);
+      return;
+    }
+    onNodeMoved?.(result.nodes);
+    toast.success(newParentId === null ? "Node is now a root topic" : "Node moved");
+  }
+
+  async function handleAddSibling() {
+    if (!node || !siblingInput.trim() || !node.parent_id) return;
+    setAddingSibling(true);
+    const result = await addChildNodes(node.parent_id, [siblingInput.trim()], false);
+    setAddingSibling(false);
+    if ("error" in result) {
+      toast.error(result.error);
+      return;
+    }
+    onChildAdded?.(result.nodes);
+    setSiblingInput("");
+    setShowSiblingInput(false);
+    toast.success("Sibling node added");
+  }
+
+  async function handleSaveDescription() {
+    if (!node) return;
+    const trimmed = editDescription.trim();
+    const value = trimmed === "" ? null : trimmed;
+    setDescriptionSaving(true);
+    const result = await saveDescription(node.id, value);
+    setDescriptionSaving(false);
+    if ("error" in result) {
+      toast.error(result.error);
+      return;
+    }
+    setDetail(value ? { summary: value, key_facts: detail?.key_facts ?? [] } : null);
+    setIsEditingDescription(false);
+    onDescriptionChange?.(node.id, result.description);
+    toast.success("Description saved");
+  }
+
   function dedupeAndCap(items: string[], max: number): string[] {
     const seen = new Set<string>();
     return items
@@ -435,6 +544,17 @@ export function NodeDetailPanel({
     onChildAdded?.(result.nodes);
   }
 
+  // These useMemo hooks must come before the early return to satisfy Rules of Hooks
+  const descendantIds = useMemo(
+    () => node ? getDescendantIds(node.id, allNodes) : new Set<string>(),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [node?.id, allNodes]
+  );
+  const movableNodes = useMemo(
+    () => node ? allNodes.filter((n) => n.id !== node.id && !descendantIds.has(n.id)) : [],
+    [allNodes, node?.id, descendantIds]
+  );
+
   // Build breadcrumb
   const breadcrumb = buildBreadcrumb(node, nodes);
 
@@ -451,6 +571,11 @@ export function NodeDetailPanel({
   const linkableNodes = allNodes.filter(
     (n) => n.id !== node.id && !linkedNodeIds.has(n.id)
   );
+
+  // Current parent node
+  const currentParent = node.parent_id
+    ? allNodes.find((n) => n.id === node.parent_id) ?? null
+    : null;
 
   const lastReviewed = node.last_reviewed_at;
 
@@ -482,7 +607,30 @@ export function NodeDetailPanel({
               ))}
             </div>
           )}
-          <h3 className="font-semibold text-sm leading-tight">{node.title}</h3>
+          {isEditingTitle ? (
+            <input
+              className="font-semibold text-sm leading-tight w-full bg-transparent border-b border-primary outline-none"
+              value={editingTitle}
+              onChange={(e) => setEditingTitle(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") handleConfirmRename();
+                if (e.key === "Escape") setIsEditingTitle(false);
+              }}
+              onBlur={handleConfirmRename}
+              autoFocus
+            />
+          ) : (
+            <h3
+              className="font-semibold text-sm leading-tight cursor-text"
+              onDoubleClick={() => {
+                setEditingTitle(node.title);
+                setIsEditingTitle(true);
+              }}
+              title="Double-click to rename"
+            >
+              {node.title}
+            </h3>
+          )}
         </div>
         <Button variant="ghost" size="icon" className="h-7 w-7 shrink-0" onClick={onClose}>
           <X className="h-4 w-4" />
@@ -530,6 +678,69 @@ export function NodeDetailPanel({
                 );
               })}
             </div>
+          </div>
+
+          {/* Parent / Move */}
+          <div className="space-y-2">
+            <span className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
+              Parent
+            </span>
+            <Popover open={movePickerOpen} onOpenChange={setMovePickerOpen}>
+              <PopoverTrigger asChild>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="w-full h-7 text-xs justify-start"
+                  disabled={moveSaving}
+                >
+                  {moveSaving ? (
+                    <Loader2 className="h-3 w-3 animate-spin mr-1.5" />
+                  ) : (
+                    <Move className="h-3 w-3 mr-1.5 text-muted-foreground" />
+                  )}
+                  <span className="truncate">
+                    {currentParent ? currentParent.title : "Root topic"}
+                  </span>
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent className="w-64 p-0" side="bottom" align="start">
+                <Command>
+                  <CommandInput placeholder="Search nodes…" className="h-8 text-xs" />
+                  <CommandList className="max-h-52">
+                    <CommandEmpty className="text-xs py-3 text-center text-muted-foreground">
+                      No nodes found
+                    </CommandEmpty>
+                    <CommandGroup>
+                      <CommandItem
+                        value="__make_root__"
+                        onSelect={() => handleMoveNode(null)}
+                        className="cursor-pointer"
+                      >
+                        <Home className="h-3 w-3 mr-2 text-muted-foreground" />
+                        <span className="text-xs">Make root topic</span>
+                      </CommandItem>
+                      {movableNodes.map((n) => {
+                        const crumb = buildBreadcrumb(n, allNodes);
+                        const crumbText = crumb.map((c) => c.title).join(' › ');
+                        return (
+                          <CommandItem
+                            key={n.id}
+                            value={crumbText ? `${n.title} ${crumbText}` : n.title}
+                            onSelect={() => handleMoveNode(n.id)}
+                            className="flex flex-col items-start gap-0 py-1.5 cursor-pointer"
+                          >
+                            <span className="text-xs font-medium">{n.title}</span>
+                            {crumbText && (
+                              <span className="text-[10px] text-muted-foreground">{crumbText}</span>
+                            )}
+                          </CommandItem>
+                        );
+                      })}
+                    </CommandGroup>
+                  </CommandList>
+                </Command>
+              </PopoverContent>
+            </Popover>
           </div>
 
           {/* Mastery */}
@@ -752,6 +963,42 @@ export function NodeDetailPanel({
                 Add child
               </button>
             )}
+
+            {/* Add sibling (only for non-root nodes) */}
+            {node.parent_id && (
+              showSiblingInput ? (
+                <div className="flex gap-1.5">
+                  <Input
+                    placeholder="Sibling node title…"
+                    value={siblingInput}
+                    onChange={(e) => setSiblingInput(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") handleAddSibling();
+                      if (e.key === "Escape") { setShowSiblingInput(false); setSiblingInput(""); }
+                    }}
+                    className="h-7 text-xs flex-1"
+                    autoFocus
+                  />
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="h-7 px-2"
+                    onClick={handleAddSibling}
+                    disabled={addingSibling || !siblingInput.trim()}
+                  >
+                    {addingSibling ? <Loader2 className="h-3 w-3 animate-spin" /> : <Plus className="h-3 w-3" />}
+                  </Button>
+                </div>
+              ) : (
+                <button
+                  className="text-xs text-muted-foreground hover:text-foreground flex items-center gap-1 transition-colors"
+                  onClick={() => setShowSiblingInput(true)}
+                >
+                  <Plus className="h-3 w-3" />
+                  Add sibling
+                </button>
+              )
+            )}
           </div>
 
           <div className="border-t" />
@@ -868,6 +1115,41 @@ export function NodeDetailPanel({
             <p className="text-sm text-destructive">{error}</p>
           )}
 
+          {/* Write your own summary (when no AI summary yet) */}
+          {!detail && !isGenerating && !error && !isEditingDescription && (
+            <button
+              className="text-xs text-muted-foreground hover:text-foreground flex items-center gap-1 transition-colors"
+              onClick={() => { setEditDescription(""); setIsEditingDescription(true); }}
+            >
+              <Edit2 className="h-3 w-3" />
+              Write your own summary
+            </button>
+          )}
+
+          {isEditingDescription && (
+            <div className="space-y-2">
+              <span className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
+                Summary
+              </span>
+              <Textarea
+                value={editDescription}
+                onChange={(e) => setEditDescription(e.target.value)}
+                className="min-h-[100px] resize-none text-sm"
+                placeholder="Write a summary for this node…"
+                autoFocus
+              />
+              <div className="flex gap-1.5">
+                <Button size="sm" className="flex-1 h-7 text-xs" onClick={handleSaveDescription} disabled={descriptionSaving}>
+                  {descriptionSaving && <Loader2 className="h-3 w-3 animate-spin mr-1.5" />}
+                  Save
+                </Button>
+                <Button size="sm" variant="outline" className="h-7 text-xs" onClick={() => setIsEditingDescription(false)}>
+                  Cancel
+                </Button>
+              </div>
+            </div>
+          )}
+
           {detail && (
             <>
               <div>
@@ -876,8 +1158,37 @@ export function NodeDetailPanel({
                   <span className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
                     Summary
                   </span>
+                  {!isEditingDescription && (
+                    <button
+                      className="ml-auto p-0.5 rounded hover:bg-muted transition-colors text-muted-foreground hover:text-foreground"
+                      onClick={() => { setEditDescription(detail.summary); setIsEditingDescription(true); }}
+                      title="Edit summary"
+                    >
+                      <Edit2 className="h-3 w-3" />
+                    </button>
+                  )}
                 </div>
-                <p className="text-sm leading-relaxed">{detail.summary}</p>
+                {isEditingDescription ? (
+                  <div className="space-y-2">
+                    <Textarea
+                      value={editDescription}
+                      onChange={(e) => setEditDescription(e.target.value)}
+                      className="min-h-[100px] resize-none text-sm"
+                      autoFocus
+                    />
+                    <div className="flex gap-1.5">
+                      <Button size="sm" className="flex-1 h-7 text-xs" onClick={handleSaveDescription} disabled={descriptionSaving}>
+                        {descriptionSaving && <Loader2 className="h-3 w-3 animate-spin mr-1.5" />}
+                        Save
+                      </Button>
+                      <Button size="sm" variant="outline" className="h-7 text-xs" onClick={() => setIsEditingDescription(false)}>
+                        Cancel
+                      </Button>
+                    </div>
+                  </div>
+                ) : (
+                  <p className="text-sm leading-relaxed">{detail.summary}</p>
+                )}
               </div>
 
               {detail.key_facts.length > 0 && (

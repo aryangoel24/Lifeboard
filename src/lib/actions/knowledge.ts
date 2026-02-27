@@ -596,6 +596,164 @@ export async function findGaps(
   };
 }
 
+export async function updateNodeTitle(
+  nodeId: string,
+  title: string
+): Promise<{ title: string } | { error: string }> {
+  const supabase = createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return { error: "Unauthorized" };
+
+  const trimmed = title.trim();
+  if (!trimmed) return { error: "Title is required" };
+
+  const { error } = await supabase
+    .from("knowledge_nodes")
+    .update({ title: trimmed, updated_at: new Date().toISOString() })
+    .eq("id", nodeId)
+    .eq("user_id", user.id);
+
+  if (error) return { error: error.message };
+
+  revalidatePath("/learn/hub");
+  return { title: trimmed };
+}
+
+export async function moveNode(
+  nodeId: string,
+  newParentId: string | null
+): Promise<{ nodes: KnowledgeNode[] } | { error: string }> {
+  const supabase = createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return { error: "Unauthorized" };
+
+  if (newParentId === nodeId) return { error: "Cannot move a node to itself" };
+
+  const { data: allNodes } = await supabase
+    .from("knowledge_nodes")
+    .select("*")
+    .eq("user_id", user.id);
+
+  if (!allNodes) return { error: "Failed to fetch nodes" };
+
+  const nodeMap = new Map<string, KnowledgeNode>();
+  for (const n of allNodes) nodeMap.set(n.id, n as KnowledgeNode);
+
+  const targetNode = nodeMap.get(nodeId);
+  if (!targetNode) return { error: "Node not found" };
+
+  // Cycle check: walk up from newParentId; if we hit nodeId it's a cycle
+  if (newParentId !== null) {
+    let cur: string | null = newParentId;
+    while (cur !== null) {
+      if (cur === nodeId) return { error: "Cannot move a node into its own subtree" };
+      const curNode = nodeMap.get(cur);
+      cur = curNode?.parent_id ?? null;
+    }
+    if (!nodeMap.has(newParentId)) return { error: "New parent not found" };
+  }
+
+  // Compute new root/depth values
+  let newRootId: string;
+  let newDepth: number;
+  let newColor: string | undefined;
+
+  if (newParentId === null) {
+    const rootCount = allNodes.filter((n) => n.parent_id === null && n.id !== nodeId).length;
+    newColor = pickRootColor(rootCount);
+    newRootId = nodeId;
+    newDepth = 0;
+  } else {
+    const newParentNode = nodeMap.get(newParentId)!;
+    newRootId = newParentNode.root_id;
+    newDepth = newParentNode.depth + 1;
+  }
+
+  const depthDelta = newDepth - targetNode.depth;
+
+  // Collect all descendants
+  function collectDescendantIds(id: string): string[] {
+    const children = allNodes!.filter((n) => n.parent_id === id).map((n) => n.id);
+    return [...children, ...children.flatMap((c) => collectDescendantIds(c))];
+  }
+  const descendantIds = collectDescendantIds(nodeId);
+
+  // Update moved node
+  const movedUpdate: Record<string, unknown> = {
+    parent_id: newParentId,
+    root_id: newRootId,
+    depth: newDepth,
+    updated_at: new Date().toISOString(),
+  };
+  if (newColor !== undefined) movedUpdate.color = newColor;
+
+  const { error: moveError } = await supabase
+    .from("knowledge_nodes")
+    .update(movedUpdate)
+    .eq("id", nodeId)
+    .eq("user_id", user.id);
+
+  if (moveError) return { error: moveError.message };
+
+  // Cascade descendants
+  if (descendantIds.length > 0) {
+    await Promise.all(
+      descendantIds.map((id) => {
+        const desc = nodeMap.get(id)!;
+        return supabase
+          .from("knowledge_nodes")
+          .update({
+            root_id: newRootId,
+            depth: desc.depth + depthDelta,
+            updated_at: new Date().toISOString(),
+          })
+          .eq("id", id)
+          .eq("user_id", user.id);
+      })
+    );
+  }
+
+  // Return all affected nodes with updated values
+  const allAffectedIds = [nodeId, ...descendantIds];
+  const { data: updatedNodes } = await supabase
+    .from("knowledge_nodes")
+    .select("*")
+    .in("id", allAffectedIds)
+    .eq("user_id", user.id);
+
+  revalidatePath("/learn/hub");
+  return { nodes: (updatedNodes as KnowledgeNode[]) ?? [] };
+}
+
+export async function saveDescription(
+  nodeId: string,
+  description: string | null
+): Promise<{ description: string | null } | { error: string }> {
+  const supabase = createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return { error: "Unauthorized" };
+
+  const { error } = await supabase
+    .from("knowledge_nodes")
+    .update({
+      description,
+      detail_model: DETAIL_MODEL,
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", nodeId)
+    .eq("user_id", user.id);
+
+  if (error) return { error: error.message };
+
+  return { description };
+}
+
 export async function synthesizeNodes(
   nodeIds: string[]
 ): Promise<SynthesisResult | { error: string }> {

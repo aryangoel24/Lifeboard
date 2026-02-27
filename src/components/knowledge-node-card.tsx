@@ -1,6 +1,7 @@
 "use client";
 
-import { memo, useState } from "react";
+import { memo, useState, useEffect, useRef } from "react";
+import { Input } from "@/components/ui/input";
 import { Handle, Position, type NodeProps } from "@xyflow/react";
 import {
   Plus,
@@ -33,6 +34,7 @@ export interface KnowledgeNodeData {
   linkCount: number;
   onToggleCollapse: (nodeId: string) => void;
   isSynthesisSelected?: boolean;
+  onRename?: (nodeId: string, newTitle: string) => Promise<void>;
 }
 
 const NODE_TYPE_ICONS: Partial<Record<NodeType, LucideIcon>> = {
@@ -79,9 +81,35 @@ export const KnowledgeNodeCard = memo(function KnowledgeNodeCard({
     linkCount,
     onToggleCollapse,
     isSynthesisSelected,
+    onRename,
   } = data;
   const [showActions, setShowActions] = useState(false);
+  const [isEditing, setIsEditing] = useState(false);
+  const [editTitle, setEditTitle] = useState(node.title);
+  const inputRef = useRef<HTMLInputElement>(null);
   const isRoot = node.depth === 0;
+
+  useEffect(() => {
+    setEditTitle(node.title);
+  }, [node.title]);
+
+  function startEditing(e: React.MouseEvent) {
+    e.stopPropagation();
+    setIsEditing(true);
+    setEditTitle(node.title);
+  }
+
+  async function confirmRename() {
+    const trimmed = editTitle.trim();
+    setIsEditing(false);
+    if (!trimmed || trimmed === node.title) return;
+    await onRename?.(node.id, trimmed);
+  }
+
+  function cancelEdit() {
+    setEditTitle(node.title);
+    setIsEditing(false);
+  }
 
   const rgb = hexToRgb(rootColor);
   const bgTint = rgb
@@ -106,6 +134,7 @@ export const KnowledgeNodeCard = memo(function KnowledgeNodeCard({
       }}
       onMouseEnter={() => setShowActions(true)}
       onMouseLeave={() => setShowActions(false)}
+      onDoubleClick={onRename ? startEditing : undefined}
     >
       {/* Synthesis check badge */}
       {isSynthesisSelected && (
@@ -147,14 +176,34 @@ export const KnowledgeNodeCard = memo(function KnowledgeNodeCard({
       )}
 
       <div className={cn("px-3 py-2 pl-3.5", linkCount > 0 ? "pt-4" : "")}>
-        <p
-          className={cn(
-            "leading-tight break-words",
-            isRoot ? "font-bold text-sm" : "font-medium text-xs"
-          )}
-        >
-          {node.title}
-        </p>
+        {isEditing ? (
+          <Input
+            ref={inputRef}
+            value={editTitle}
+            onChange={(e) => setEditTitle(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") { e.stopPropagation(); confirmRename(); }
+              if (e.key === "Escape") { e.stopPropagation(); cancelEdit(); }
+              if (e.key === "Delete" || e.key === "Backspace") { e.stopPropagation(); }
+            }}
+            onBlur={confirmRename}
+            onClick={(e) => e.stopPropagation()}
+            autoFocus
+            className={cn(
+              "h-auto border-0 shadow-none bg-transparent p-0 focus-visible:ring-0 focus-visible:ring-offset-0 leading-tight break-words",
+              isRoot ? "font-bold text-sm" : "font-medium text-xs"
+            )}
+          />
+        ) : (
+          <p
+            className={cn(
+              "leading-tight break-words",
+              isRoot ? "font-bold text-sm" : "font-medium text-xs"
+            )}
+          >
+            {node.title}
+          </p>
+        )}
       </div>
 
       {/* Mastery dot (bottom-left) */}
