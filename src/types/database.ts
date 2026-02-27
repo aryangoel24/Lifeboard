@@ -206,3 +206,91 @@ export type ExpenseEntry = {
   merchant_name: string | null;
   created_at: string;
 };
+
+export type NodeResource = {
+  url: string;
+  label: string | null;
+};
+
+export type KnowledgeNode = {
+  id: string;
+  user_id: string;
+  parent_id: string | null;
+  root_id: string;
+  title: string;
+  description: string | null;
+  key_facts: string[];
+  color: string | null;
+  position_x: number;
+  position_y: number;
+  depth: number;
+  ai_generated: boolean;
+  is_generating: boolean;
+  last_ai_generated_at: string | null;
+  detail_model: string | null;
+  user_notes: string | null;
+  user_facts: string[];
+  resources: NodeResource[];
+  node_type: 'topic' | 'concept' | 'person' | 'book' | 'skill' | 'project' | 'question' | 'insight';
+  mastery_status: 'not_started' | 'learning' | 'practicing' | 'mastered';
+  confidence_score: number | null;
+  last_reviewed_at: string | null;
+  updated_at: string;
+  created_at: string;
+};
+
+export type KnowledgeLink = {
+  id: string;
+  user_id: string;
+  a_id: string;
+  b_id: string;
+  created_at: string;
+};
+
+export type NodeType = KnowledgeNode['node_type'];
+export type MasteryStatus = KnowledgeNode['mastery_status'];
+
+export type DigestNodeUpdate = {
+  node_id: string;
+  confidence: number;
+  add_takeaways: string[];
+};
+
+export type DigestNewNode = {
+  temp_id: string;
+  proposed_title: string;
+  node_type: NodeType;
+  suggested_parent_node_id: string;
+  why: string;
+};
+
+export type DigestUnassigned = {
+  text: string;
+  why_unmatched: string;
+};
+
+export type DigestPayload = {
+  summary: string;
+  highlights: string[];
+  node_updates: DigestNodeUpdate[];
+  new_nodes: DigestNewNode[];
+  unassigned: DigestUnassigned[];
+};
+
+export type DailyDigest = {
+  id: string;
+  user_id: string;
+  date: string;
+  raw_text: string;
+  summary: string | null;
+  created_at: string;
+};
+
+export type DigestSuggestion = {
+  id: string;
+  digest_id: string;
+  user_id: string;
+  status: 'pending' | 'applied' | 'dismissed';
+  payload_json: DigestPayload;
+  created_at: string;
+};

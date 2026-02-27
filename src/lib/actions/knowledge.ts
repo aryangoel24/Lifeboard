@@ -1,0 +1,790 @@
+"use server";
+
+import { revalidatePath } from "next/cache";
+import { createClient } from "@/lib/supabase/server";
+import type { KnowledgeNode, KnowledgeLink, NodeResource, NodeType, MasteryStatus } from "@/types/database";
+import {
+  generateSubtopics,
+  generateNodeDetail,
+  generateGapAnalysis,
+  generateSynthesis,
+  pickRootColor,
+  type GapAnalysis,
+  type SynthesisResult,
+} from "@/lib/knowledge-utils";
+
+const DETAIL_MODEL = "gpt-4o-mini";
+
+export async function getKnowledgeGraph(): Promise<{ nodes: KnowledgeNode[]; links: KnowledgeLink[] }> {
+  const supabase = createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return { nodes: [], links: [] };
+
+  const [{ data: nodes }, { data: links }] = await Promise.all([
+    supabase
+      .from("knowledge_nodes")
+      .select("*")
+      .eq("user_id", user.id)
+      .order("created_at", { ascending: true }),
+    supabase
+      .from("knowledge_node_links")
+      .select("*")
+      .eq("user_id", user.id),
+  ]);
+
+  return { nodes: (nodes as KnowledgeNode[]) ?? [], links: (links as KnowledgeLink[]) ?? [] };
+}
+
+export async function addRootNode(
+  title: string
+): Promise<{ node: KnowledgeNode } | { error: string }> {
+  const supabase = createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return { error: "Unauthorized" };
+
+  const trimmed = title.trim();
+  if (!trimmed) return { error: "Title is required" };
+
+  // Count existing root nodes to assign next color
+  const { count } = await supabase
+    .from("knowledge_nodes")
+    .select("*", { count: "exact", head: true })
+    .eq("user_id", user.id)
+    .is("parent_id", null);
+
+  const color = pickRootColor(count ?? 0);
+
+  // Insert with a placeholder root_id; then update root_id = id
+  const { data, error } = await supabase
+    .from("knowledge_nodes")
+    .insert({
+      user_id: user.id,
+      parent_id: null,
+      root_id: "00000000-0000-0000-0000-000000000000", // placeholder
+      title: trimmed,
+      color,
+      position_x: 0,
+      position_y: 0,
+      depth: 0,
+      ai_generated: false,
+    })
+    .select()
+    .single();
+
+  if (error || !data) return { error: error?.message ?? "Insert failed" };
+
+  // Update root_id = own id
+  await supabase
+    .from("knowledge_nodes")
+    .update({ root_id: data.id })
+    .eq("id", data.id);
+
+  revalidatePath("/learn/hub");
+  return { node: { ...(data as KnowledgeNode), root_id: data.id } };
+}
+
+export async function addChildNodes(
+  parentId: string,
+  titles: string[],
+  aiGenerated: boolean
+): Promise<{ nodes: KnowledgeNode[] } | { error: string }> {
+  const supabase = createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return { error: "Unauthorized" };
+
+  // Validate parent belongs to user
+  const { data: parent } = await supabase
+    .from("knowledge_nodes")
+    .select("id, root_id, depth")
+    .eq("id", parentId)
+    .eq("user_id", user.id)
+    .single();
+
+  if (!parent) return { error: "Parent not found" };
+
+  const trimmedTitles = titles.map((t) => t.trim()).filter(Boolean);
+  if (trimmedTitles.length === 0) return { error: "No titles provided" };
+
+  // Dedup against existing children (case-insensitive) to prevent double-inserts
+  const { data: existingChildren } = await supabase
+    .from("knowledge_nodes")
+    .select("title")
+    .eq("parent_id", parentId)
+    .eq("user_id", user.id);
+  const existingTitlesLower = new Set(
+    (existingChildren ?? []).map((c: { title: string }) => c.title.toLowerCase())
+  );
+  const filtered = trimmedTitles.filter((t) => !existingTitlesLower.has(t.toLowerCase()));
+  if (filtered.length === 0) return { nodes: [] };
+
+  const rows = filtered.map((title) => ({
+    user_id: user.id,
+    parent_id: parentId,
+    root_id: parent.root_id,
+    title,
+    position_x: 0,
+    position_y: 0,
+    depth: parent.depth + 1,
+    ai_generated: aiGenerated,
+  }));
+
+  const { data, error } = await supabase
+    .from("knowledge_nodes")
+    .insert(rows)
+    .select();
+
+  if (error) return { error: error.message };
+
+  revalidatePath("/learn/hub");
+  return { nodes: (data as KnowledgeNode[]) || [] };
+}
+
+export async function deleteNode(
+  nodeId: string
+): Promise<{ deleted_ids: string[] } | { error: string }> {
+  const supabase = createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return { error: "Unauthorized" };
+
+  // Verify ownership
+  const { data: node } = await supabase
+    .from("knowledge_nodes")
+    .select("id")
+    .eq("id", nodeId)
+    .eq("user_id", user.id)
+    .single();
+
+  if (!node) return { error: "Node not found" };
+
+  // Collect all descendants in memory (cascade will handle DB, but we need ids for UI)
+  const { data: allNodes } = await supabase
+    .from("knowledge_nodes")
+    .select("id, parent_id")
+    .eq("user_id", user.id);
+
+  const nodeMap = new Map<string, string | null>();
+  for (const n of allNodes ?? []) {
+    nodeMap.set(n.id, n.parent_id);
+  }
+
+  function collectSubtree(id: string): string[] {
+    const children = Array.from(nodeMap.entries())
+      .filter(([, pid]) => pid === id)
+      .map(([cid]) => cid);
+    return [id, ...children.flatMap((c) => collectSubtree(c))];
+  }
+
+  const deleted_ids = collectSubtree(nodeId);
+
+  const { error } = await supabase
+    .from("knowledge_nodes")
+    .delete()
+    .eq("id", nodeId)
+    .eq("user_id", user.id);
+
+  if (error) return { error: error.message };
+
+  revalidatePath("/learn/hub");
+  return { deleted_ids };
+}
+
+export async function updateNodePositions(
+  updates: { id: string; x: number; y: number }[]
+): Promise<{ error: string } | void> {
+  const supabase = createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return { error: "Unauthorized" };
+
+  if (updates.length === 0) return;
+
+  const results = await Promise.all(
+    updates.map(({ id, x, y }) =>
+      supabase
+        .from("knowledge_nodes")
+        .update({ position_x: x, position_y: y, updated_at: new Date().toISOString() })
+        .eq("id", id)
+        .eq("user_id", user.id)
+    )
+  );
+
+  const failed = results.find((r) => r.error);
+  if (failed?.error) return { error: failed.error.message };
+}
+
+export async function getNodeDetail(nodeId: string): Promise<
+  | { summary: string; key_facts: string[] }
+  | { generating: true }
+  | { error: string }
+> {
+  const supabase = createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return { error: "Unauthorized" };
+
+  const { data: node } = await supabase
+    .from("knowledge_nodes")
+    .select("id, title, parent_id, description, key_facts, is_generating, detail_model")
+    .eq("id", nodeId)
+    .eq("user_id", user.id)
+    .single();
+
+  if (!node) return { error: "Node not found" };
+
+  // Cache hit
+  if (node.description && node.detail_model === DETAIL_MODEL) {
+    return { summary: node.description, key_facts: node.key_facts as string[] };
+  }
+
+  // Try to acquire generation lock
+  const { data: lockData } = await supabase
+    .from("knowledge_nodes")
+    .update({ is_generating: true })
+    .eq("id", nodeId)
+    .eq("user_id", user.id)
+    .eq("is_generating", false)
+    .select("id");
+
+  if (!lockData || lockData.length === 0) {
+    return { generating: true };
+  }
+
+  // Build ancestor chain
+  const { data: allNodes } = await supabase
+    .from("knowledge_nodes")
+    .select("id, parent_id, title")
+    .eq("user_id", user.id);
+
+  const nodeById = new Map<string, { parent_id: string | null; title: string }>();
+  for (const n of allNodes ?? []) {
+    nodeById.set(n.id, { parent_id: n.parent_id, title: n.title });
+  }
+
+  const ancestorChain: string[] = [];
+  let cur = nodeById.get(nodeId);
+  while (cur?.parent_id) {
+    const parent = nodeById.get(cur.parent_id);
+    if (!parent) break;
+    ancestorChain.unshift(parent.title);
+    cur = parent;
+  }
+
+  const detail = await generateNodeDetail(node.title, ancestorChain);
+
+  if (!detail) {
+    await supabase
+      .from("knowledge_nodes")
+      .update({ is_generating: false })
+      .eq("id", nodeId);
+    return { error: "AI generation failed" };
+  }
+
+  await supabase
+    .from("knowledge_nodes")
+    .update({
+      description: detail.summary,
+      key_facts: detail.key_facts,
+      is_generating: false,
+      last_ai_generated_at: new Date().toISOString(),
+      detail_model: DETAIL_MODEL,
+    })
+    .eq("id", nodeId);
+
+  return { summary: detail.summary, key_facts: detail.key_facts };
+}
+
+export async function saveUserNotes(
+  nodeId: string,
+  notes: string
+): Promise<{ user_notes: string | null } | { error: string }> {
+  const supabase = createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return { error: "Unauthorized" };
+
+  const trimmed = notes.trim();
+  const value = trimmed === "" ? null : trimmed;
+
+  const { error } = await supabase
+    .from("knowledge_nodes")
+    .update({ user_notes: value, updated_at: new Date().toISOString() })
+    .eq("id", nodeId)
+    .eq("user_id", user.id);
+
+  if (error) return { error: error.message };
+
+  return { user_notes: value };
+}
+
+export async function saveResources(
+  nodeId: string,
+  resources: NodeResource[]
+): Promise<{ resources: NodeResource[] } | { error: string }> {
+  const supabase = createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return { error: "Unauthorized" };
+
+  const { error } = await supabase
+    .from("knowledge_nodes")
+    .update({ resources, updated_at: new Date().toISOString() })
+    .eq("id", nodeId)
+    .eq("user_id", user.id);
+
+  if (error) return { error: error.message };
+
+  return { resources };
+}
+
+export async function saveUserFacts(
+  nodeId: string,
+  facts: string[]
+): Promise<{ user_facts: string[] } | { error: string }> {
+  const supabase = createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return { error: "Unauthorized" };
+
+  const { error } = await supabase
+    .from("knowledge_nodes")
+    .update({ user_facts: facts, updated_at: new Date().toISOString() })
+    .eq("id", nodeId)
+    .eq("user_id", user.id);
+
+  if (error) return { error: error.message };
+
+  return { user_facts: facts };
+}
+
+export async function addKnowledgeLink(
+  nodeIdA: string,
+  nodeIdB: string
+): Promise<{ link: KnowledgeLink } | { error: string }> {
+  const supabase = createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return { error: "Unauthorized" };
+
+  // Enforce canonical order
+  const a_id = nodeIdA < nodeIdB ? nodeIdA : nodeIdB;
+  const b_id = nodeIdA < nodeIdB ? nodeIdB : nodeIdA;
+
+  const { data, error } = await supabase
+    .from("knowledge_node_links")
+    .insert({ user_id: user.id, a_id, b_id })
+    .select()
+    .single();
+
+  if (error || !data) return { error: error?.message ?? "Insert failed" };
+
+  revalidatePath("/learn/hub");
+  return { link: data as KnowledgeLink };
+}
+
+export async function deleteKnowledgeLink(
+  linkId: string
+): Promise<Record<string, never> | { error: string }> {
+  const supabase = createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return { error: "Unauthorized" };
+
+  const { error } = await supabase
+    .from("knowledge_node_links")
+    .delete()
+    .eq("id", linkId)
+    .eq("user_id", user.id);
+
+  if (error) return { error: error.message };
+
+  revalidatePath("/learn/hub");
+  return {};
+}
+
+export async function updateNodeType(
+  nodeId: string,
+  nodeType: NodeType
+): Promise<{ node_type: NodeType } | { error: string }> {
+  const supabase = createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return { error: "Unauthorized" };
+
+  const { error } = await supabase
+    .from("knowledge_nodes")
+    .update({ node_type: nodeType, updated_at: new Date().toISOString() })
+    .eq("id", nodeId)
+    .eq("user_id", user.id);
+
+  if (error) return { error: error.message };
+
+  return { node_type: nodeType };
+}
+
+export async function updateMastery(
+  nodeId: string,
+  newStatus: MasteryStatus,
+  newConfidence: number | null,
+  previousStatus: MasteryStatus
+): Promise<{ mastery_status: MasteryStatus; confidence_score: number | null; last_reviewed_at: string | null } | { error: string }> {
+  const supabase = createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return { error: "Unauthorized" };
+
+  const statusChanged = newStatus !== previousStatus;
+  const last_reviewed_at = statusChanged ? new Date().toISOString() : undefined;
+
+  const update: Record<string, unknown> = {
+    mastery_status: newStatus,
+    confidence_score: newConfidence,
+    updated_at: new Date().toISOString(),
+  };
+  if (statusChanged) {
+    update.last_reviewed_at = last_reviewed_at;
+  }
+
+  const { data, error } = await supabase
+    .from("knowledge_nodes")
+    .update(update)
+    .eq("id", nodeId)
+    .eq("user_id", user.id)
+    .select("mastery_status, confidence_score, last_reviewed_at")
+    .single();
+
+  if (error || !data) return { error: error?.message ?? "Update failed" };
+
+  return {
+    mastery_status: data.mastery_status as MasteryStatus,
+    confidence_score: data.confidence_score as number | null,
+    last_reviewed_at: data.last_reviewed_at as string | null,
+  };
+}
+
+export async function suggestSubtopics(
+  nodeId: string
+): Promise<{ suggestions: string[] } | { error: string }> {
+  const supabase = createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return { error: "Unauthorized" };
+
+  const { data: node } = await supabase
+    .from("knowledge_nodes")
+    .select("id, title, parent_id")
+    .eq("id", nodeId)
+    .eq("user_id", user.id)
+    .single();
+
+  if (!node) return { error: "Node not found" };
+
+  // Build ancestor chain from all nodes
+  const { data: allNodes } = await supabase
+    .from("knowledge_nodes")
+    .select("id, parent_id, title")
+    .eq("user_id", user.id);
+
+  const nodeById = new Map<string, { parent_id: string | null; title: string }>();
+  for (const n of allNodes ?? []) {
+    nodeById.set(n.id, { parent_id: n.parent_id, title: n.title });
+  }
+
+  const ancestorChain: string[] = [];
+  let cur = nodeById.get(nodeId);
+  while (cur?.parent_id) {
+    const parent = nodeById.get(cur.parent_id);
+    if (!parent) break;
+    ancestorChain.unshift(parent.title);
+    cur = parent;
+  }
+
+  const suggestions = await generateSubtopics(node.title, ancestorChain);
+  return { suggestions };
+}
+
+export async function findGaps(
+  nodeId: string
+): Promise<GapAnalysis | { error: string }> {
+  const supabase = createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return { error: "Unauthorized" };
+
+  const { data: node } = await supabase
+    .from("knowledge_nodes")
+    .select("id, title, parent_id, user_notes, user_facts")
+    .eq("id", nodeId)
+    .eq("user_id", user.id)
+    .single();
+
+  if (!node) return { error: "Node not found" };
+
+  const [{ data: children }, { data: allNodes }] = await Promise.all([
+    supabase
+      .from("knowledge_nodes")
+      .select("title")
+      .eq("parent_id", nodeId)
+      .eq("user_id", user.id),
+    supabase
+      .from("knowledge_nodes")
+      .select("id, parent_id, title")
+      .eq("user_id", user.id),
+  ]);
+
+  const childTitles = (children ?? []).map((c: { title: string }) => c.title);
+
+  const nodeById = new Map<string, { parent_id: string | null; title: string }>();
+  for (const n of allNodes ?? []) {
+    nodeById.set(n.id, { parent_id: n.parent_id, title: n.title });
+  }
+
+  const ancestorChain: string[] = [];
+  let cur = nodeById.get(nodeId);
+  while (cur?.parent_id) {
+    const parent = nodeById.get(cur.parent_id);
+    if (!parent) break;
+    ancestorChain.unshift(parent.title);
+    cur = parent;
+  }
+
+  const result = await generateGapAnalysis(
+    node.title,
+    childTitles,
+    ancestorChain,
+    node.user_notes ?? null,
+    (node.user_facts as string[]) ?? []
+  );
+
+  if (!result) return { error: "AI generation failed" };
+
+  function dedupeAndCap(items: string[], max: number): string[] {
+    const seen = new Set<string>();
+    return items
+      .map((s) => s.trim().replace(/\s+/g, " "))
+      .filter((s) => {
+        const k = s.toLowerCase();
+        if (seen.has(k)) return false;
+        seen.add(k);
+        return true;
+      })
+      .slice(0, max);
+  }
+
+  return {
+    foundational: dedupeAndCap(result.foundational, 4),
+    advanced: dedupeAndCap(result.advanced, 3),
+    learning_path: dedupeAndCap(result.learning_path, 5),
+  };
+}
+
+export async function updateNodeTitle(
+  nodeId: string,
+  title: string
+): Promise<{ title: string } | { error: string }> {
+  const supabase = createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return { error: "Unauthorized" };
+
+  const trimmed = title.trim();
+  if (!trimmed) return { error: "Title is required" };
+
+  const { error } = await supabase
+    .from("knowledge_nodes")
+    .update({ title: trimmed, updated_at: new Date().toISOString() })
+    .eq("id", nodeId)
+    .eq("user_id", user.id);
+
+  if (error) return { error: error.message };
+
+  revalidatePath("/learn/hub");
+  return { title: trimmed };
+}
+
+export async function moveNode(
+  nodeId: string,
+  newParentId: string | null
+): Promise<{ nodes: KnowledgeNode[] } | { error: string }> {
+  const supabase = createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return { error: "Unauthorized" };
+
+  if (newParentId === nodeId) return { error: "Cannot move a node to itself" };
+
+  const { data: allNodes } = await supabase
+    .from("knowledge_nodes")
+    .select("*")
+    .eq("user_id", user.id);
+
+  if (!allNodes) return { error: "Failed to fetch nodes" };
+
+  const nodeMap = new Map<string, KnowledgeNode>();
+  for (const n of allNodes) nodeMap.set(n.id, n as KnowledgeNode);
+
+  const targetNode = nodeMap.get(nodeId);
+  if (!targetNode) return { error: "Node not found" };
+
+  // Cycle check: walk up from newParentId; if we hit nodeId it's a cycle
+  if (newParentId !== null) {
+    let cur: string | null = newParentId;
+    while (cur !== null) {
+      if (cur === nodeId) return { error: "Cannot move a node into its own subtree" };
+      const curNode = nodeMap.get(cur);
+      cur = curNode?.parent_id ?? null;
+    }
+    if (!nodeMap.has(newParentId)) return { error: "New parent not found" };
+  }
+
+  // Compute new root/depth values
+  let newRootId: string;
+  let newDepth: number;
+  let newColor: string | undefined;
+
+  if (newParentId === null) {
+    const rootCount = allNodes.filter((n) => n.parent_id === null && n.id !== nodeId).length;
+    newColor = pickRootColor(rootCount);
+    newRootId = nodeId;
+    newDepth = 0;
+  } else {
+    const newParentNode = nodeMap.get(newParentId)!;
+    newRootId = newParentNode.root_id;
+    newDepth = newParentNode.depth + 1;
+  }
+
+  const depthDelta = newDepth - targetNode.depth;
+
+  // Collect all descendants
+  function collectDescendantIds(id: string): string[] {
+    const children = allNodes!.filter((n) => n.parent_id === id).map((n) => n.id);
+    return [...children, ...children.flatMap((c) => collectDescendantIds(c))];
+  }
+  const descendantIds = collectDescendantIds(nodeId);
+
+  // Update moved node
+  const movedUpdate: Record<string, unknown> = {
+    parent_id: newParentId,
+    root_id: newRootId,
+    depth: newDepth,
+    updated_at: new Date().toISOString(),
+  };
+  if (newColor !== undefined) movedUpdate.color = newColor;
+
+  const { error: moveError } = await supabase
+    .from("knowledge_nodes")
+    .update(movedUpdate)
+    .eq("id", nodeId)
+    .eq("user_id", user.id);
+
+  if (moveError) return { error: moveError.message };
+
+  // Cascade descendants
+  if (descendantIds.length > 0) {
+    await Promise.all(
+      descendantIds.map((id) => {
+        const desc = nodeMap.get(id)!;
+        return supabase
+          .from("knowledge_nodes")
+          .update({
+            root_id: newRootId,
+            depth: desc.depth + depthDelta,
+            updated_at: new Date().toISOString(),
+          })
+          .eq("id", id)
+          .eq("user_id", user.id);
+      })
+    );
+  }
+
+  // Return all affected nodes with updated values
+  const allAffectedIds = [nodeId, ...descendantIds];
+  const { data: updatedNodes } = await supabase
+    .from("knowledge_nodes")
+    .select("*")
+    .in("id", allAffectedIds)
+    .eq("user_id", user.id);
+
+  revalidatePath("/learn/hub");
+  return { nodes: (updatedNodes as KnowledgeNode[]) ?? [] };
+}
+
+export async function saveDescription(
+  nodeId: string,
+  description: string | null
+): Promise<{ description: string | null } | { error: string }> {
+  const supabase = createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return { error: "Unauthorized" };
+
+  const { error } = await supabase
+    .from("knowledge_nodes")
+    .update({
+      description,
+      detail_model: DETAIL_MODEL,
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", nodeId)
+    .eq("user_id", user.id);
+
+  if (error) return { error: error.message };
+
+  return { description };
+}
+
+export async function synthesizeNodes(
+  nodeIds: string[]
+): Promise<SynthesisResult | { error: string }> {
+  if (nodeIds.length < 2 || nodeIds.length > 10) {
+    return { error: "Please select 2–10 nodes to synthesize" };
+  }
+
+  const supabase = createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return { error: "Unauthorized" };
+
+  const { data: nodes } = await supabase
+    .from("knowledge_nodes")
+    .select("id, title, description, user_notes, user_facts")
+    .in("id", nodeIds)
+    .eq("user_id", user.id);
+
+  if (!nodes || nodes.length < 2) return { error: "Nodes not found" };
+
+  const result = await generateSynthesis(
+    nodes as {
+      title: string;
+      description?: string | null;
+      user_notes?: string | null;
+      user_facts?: string[] | null;
+    }[]
+  );
+
+  if (!result) return { error: "AI synthesis failed" };
+
+  return result;
+}
