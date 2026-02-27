@@ -206,3 +206,31 @@ export type ExpenseEntry = {
   merchant_name: string | null;
   created_at: string;
 };
+
+export type NodeResource = {
+  url: string;
+  label: string | null;
+};
+
+export type KnowledgeNode = {
+  id: string;
+  user_id: string;
+  parent_id: string | null;
+  root_id: string;
+  title: string;
+  description: string | null;
+  key_facts: string[];
+  color: string | null;
+  position_x: number;
+  position_y: number;
+  depth: number;
+  ai_generated: boolean;
+  is_generating: boolean;
+  last_ai_generated_at: string | null;
+  detail_model: string | null;
+  user_notes: string | null;
+  user_facts: string[];
+  resources: NodeResource[];
+  updated_at: string;
+  created_at: string;
+};

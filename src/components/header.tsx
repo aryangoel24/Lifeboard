@@ -42,7 +42,10 @@ const navGroups = [
   },
   {
     label: "Learn",
-    items: [{ href: "/learn", label: "Learn" }],
+    items: [
+      { href: "/learn", label: "News" },
+      { href: "/learn/hub", label: "Knowledge Hub" },
+    ],
   },
 ];
 
