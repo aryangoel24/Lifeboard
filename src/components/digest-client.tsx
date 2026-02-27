@@ -30,7 +30,7 @@ function todayISO(): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 }
 
-function confidenceColor(confidence: number): string {
+function _confidenceColor(confidence: number): string {
   if (confidence >= 0.8) return "text-emerald-600 dark:text-emerald-400";
   if (confidence >= 0.65) return "text-yellow-600 dark:text-yellow-400";
   return "text-red-600 dark:text-red-400";

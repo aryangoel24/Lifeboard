@@ -540,7 +540,7 @@ export function NodeDetailPanel({
       toast.error(result.error);
       return;
     }
-    setAddedGapItems((prev) => new Set([...prev, key]));
+    setAddedGapItems((prev) => new Set(Array.from(prev).concat(key)));
     onChildAdded?.(result.nodes);
   }
 
@@ -552,7 +552,7 @@ export function NodeDetailPanel({
   );
   const movableNodes = useMemo(
     () => node ? allNodes.filter((n) => n.id !== node.id && !descendantIds.has(n.id)) : [],
-    [allNodes, node?.id, descendantIds]
+    [allNodes, node, descendantIds]
   );
 
   // Build breadcrumb
