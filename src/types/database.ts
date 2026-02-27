@@ -231,6 +231,21 @@ export type KnowledgeNode = {
   user_notes: string | null;
   user_facts: string[];
   resources: NodeResource[];
+  node_type: 'topic' | 'concept' | 'person' | 'book' | 'skill' | 'project' | 'question' | 'insight';
+  mastery_status: 'not_started' | 'learning' | 'practicing' | 'mastered';
+  confidence_score: number | null;
+  last_reviewed_at: string | null;
   updated_at: string;
   created_at: string;
 };
+
+export type KnowledgeLink = {
+  id: string;
+  user_id: string;
+  a_id: string;
+  b_id: string;
+  created_at: string;
+};
+
+export type NodeType = KnowledgeNode['node_type'];
+export type MasteryStatus = KnowledgeNode['mastery_status'];

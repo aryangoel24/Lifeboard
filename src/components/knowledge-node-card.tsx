@@ -2,9 +2,22 @@
 
 import { memo, useState } from "react";
 import { Handle, Position, type NodeProps } from "@xyflow/react";
-import { Plus, Trash2 } from "lucide-react";
+import {
+  Plus,
+  Trash2,
+  ChevronDown,
+  ChevronRight,
+  Lightbulb,
+  User,
+  Book,
+  Zap,
+  FolderOpen,
+  HelpCircle,
+  Sparkles,
+} from "lucide-react";
 import { cn } from "@/lib/utils";
-import type { KnowledgeNode } from "@/types/database";
+import type { KnowledgeNode, NodeType, MasteryStatus } from "@/types/database";
+import type { LucideIcon } from "lucide-react";
 
 export interface KnowledgeNodeData {
   node: KnowledgeNode;
@@ -14,7 +27,29 @@ export interface KnowledgeNodeData {
   onSelect: (nodeId: string) => void;
   selected: boolean;
   hasUserContent: boolean;
+  nodeType: NodeType;
+  masteryStatus: MasteryStatus;
+  childCount: number;
+  isCollapsed: boolean;
+  linkCount: number;
+  onToggleCollapse: (nodeId: string) => void;
 }
+
+const NODE_TYPE_ICONS: Partial<Record<NodeType, LucideIcon>> = {
+  concept: Lightbulb,
+  person: User,
+  book: Book,
+  skill: Zap,
+  project: FolderOpen,
+  question: HelpCircle,
+  insight: Sparkles,
+};
+
+const MASTERY_COLORS: Record<Exclude<MasteryStatus, 'not_started'>, string> = {
+  learning: '#3b82f6',
+  practicing: '#f97316',
+  mastered: '#22c55e',
+};
 
 function hexToRgb(hex: string): { r: number; g: number; b: number } | null {
   const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
@@ -30,14 +65,31 @@ function hexToRgb(hex: string): { r: number; g: number; b: number } | null {
 export const KnowledgeNodeCard = memo(function KnowledgeNodeCard({
   data,
 }: NodeProps & { data: KnowledgeNodeData }) {
-  const { node, rootColor, onExpand, onDelete, onSelect, selected, hasUserContent } = data;
-  const [showDelete, setShowDelete] = useState(false);
+  const {
+    node,
+    rootColor,
+    onExpand,
+    onDelete,
+    onSelect,
+    selected,
+    hasUserContent,
+    nodeType,
+    masteryStatus,
+    childCount,
+    isCollapsed,
+    linkCount,
+    onToggleCollapse,
+  } = data;
+  const [showActions, setShowActions] = useState(false);
   const isRoot = node.depth === 0;
 
   const rgb = hexToRgb(rootColor);
   const bgTint = rgb
     ? `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, 0.08)`
     : "transparent";
+
+  const TypeIcon = nodeType !== 'topic' ? NODE_TYPE_ICONS[nodeType] : null;
+  const masteryColor = masteryStatus !== 'not_started' ? MASTERY_COLORS[masteryStatus] : null;
 
   return (
     <div
@@ -52,8 +104,8 @@ export const KnowledgeNodeCard = memo(function KnowledgeNodeCard({
         boxShadow: selected ? `0 0 0 2px ${rootColor}` : undefined,
       }}
       onClick={() => onSelect(node.id)}
-      onMouseEnter={() => setShowDelete(true)}
-      onMouseLeave={() => setShowDelete(false)}
+      onMouseEnter={() => setShowActions(true)}
+      onMouseLeave={() => setShowActions(false)}
     >
       {/* Left color bar */}
       <div
@@ -61,6 +113,14 @@ export const KnowledgeNodeCard = memo(function KnowledgeNodeCard({
         style={{ backgroundColor: rootColor }}
       />
 
+      {/* Cross-link badge (top-left, above color bar) */}
+      {linkCount > 0 && (
+        <span className="absolute top-1 left-3 text-[9px] text-muted-foreground bg-muted/80 rounded px-1 py-0 leading-4 font-mono">
+          ↔ {linkCount}
+        </span>
+      )}
+
+      {/* User content dot (top-right) */}
       {hasUserContent && (
         <span
           className="absolute top-1.5 right-1.5 h-1.5 w-1.5 rounded-full"
@@ -68,7 +128,17 @@ export const KnowledgeNodeCard = memo(function KnowledgeNodeCard({
         />
       )}
 
-      <div className="px-3 py-2 pl-3.5">
+      {/* Node type icon (top-right, below user content dot if present) */}
+      {TypeIcon && (
+        <span
+          className="absolute right-1.5 opacity-60"
+          style={{ color: rootColor, top: hasUserContent ? '14px' : '6px' }}
+        >
+          <TypeIcon className="h-3 w-3" />
+        </span>
+      )}
+
+      <div className={cn("px-3 py-2 pl-3.5", linkCount > 0 ? "pt-4" : "")}>
         <p
           className={cn(
             "leading-tight break-words",
@@ -79,13 +149,41 @@ export const KnowledgeNodeCard = memo(function KnowledgeNodeCard({
         </p>
       </div>
 
+      {/* Mastery dot (bottom-left) */}
+      {masteryColor && (
+        <span
+          className="absolute bottom-2 left-3 h-1.5 w-1.5 rounded-full"
+          style={{ backgroundColor: masteryColor }}
+        />
+      )}
+
       {/* Action buttons */}
       <div
         className={cn(
           "absolute bottom-1 right-1 flex gap-1 transition-opacity",
-          showDelete || selected ? "opacity-100" : "opacity-0"
+          showActions || selected ? "opacity-100" : "opacity-0"
         )}
       >
+        {/* Collapse/expand button (only if has children) */}
+        {childCount > 0 && (
+          <button
+            className="p-1 rounded hover:bg-black/10 dark:hover:bg-white/10 transition-colors flex items-center gap-0.5"
+            title={isCollapsed ? "Expand subtree" : "Collapse subtree"}
+            onClick={(e) => {
+              e.stopPropagation();
+              onToggleCollapse(node.id);
+            }}
+          >
+            {isCollapsed ? (
+              <>
+                <ChevronRight className="h-3 w-3" style={{ color: rootColor }} />
+                <span className="text-[9px]" style={{ color: rootColor }}>{childCount}</span>
+              </>
+            ) : (
+              <ChevronDown className="h-3 w-3" style={{ color: rootColor }} />
+            )}
+          </button>
+        )}
         <button
           className="p-1 rounded hover:bg-black/10 dark:hover:bg-white/10 transition-colors"
           title="Expand subtopics"

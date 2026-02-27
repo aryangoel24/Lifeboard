@@ -4,10 +4,13 @@ import { useCallback, useMemo, useRef, useState, useEffect } from "react";
 import {
   ReactFlow,
   Background,
+  BaseEdge,
+  getBezierPath,
   type Node,
   type Edge,
   type NodeChange,
   type EdgeChange,
+  type EdgeProps,
   applyNodeChanges,
   applyEdgeChanges,
   useReactFlow,
@@ -21,8 +24,10 @@ import {
   deleteNode,
   updateNodePositions,
   suggestSubtopics,
+  addKnowledgeLink,
+  deleteKnowledgeLink,
 } from "@/lib/actions/knowledge";
-import type { KnowledgeNode, NodeResource } from "@/types/database";
+import type { KnowledgeNode, KnowledgeLink, NodeResource } from "@/types/database";
 import { KnowledgeNodeCard, type KnowledgeNodeData } from "@/components/knowledge-node-card";
 import { NodeDetailPanel } from "@/components/node-detail-panel";
 import { SubtopicSuggestionSheet } from "@/components/subtopic-suggestion-sheet";
@@ -38,7 +43,20 @@ import { Input } from "@/components/ui/input";
 import { Plus, Maximize2, Loader2, Brain, ZoomIn, ZoomOut } from "lucide-react";
 import { ROOT_COLORS } from "@/lib/knowledge-utils";
 
+// Custom dashed cross-link edge (defined at module level, outside component)
+function CrossLinkEdge({ sourceX, sourceY, sourcePosition, targetX, targetY, targetPosition, id }: EdgeProps) {
+  const [edgePath] = getBezierPath({ sourceX, sourceY, sourcePosition, targetX, targetY, targetPosition, curvature: 0.2 });
+  return (
+    <BaseEdge
+      id={id}
+      path={edgePath}
+      style={{ stroke: "#94a3b8", strokeWidth: 1.5, strokeDasharray: "5,4", opacity: 0.7 }}
+    />
+  );
+}
+
 const NODE_TYPES = { knowledgeNode: KnowledgeNodeCard };
+const EDGE_TYPES = { crossLink: CrossLinkEdge };
 
 const TEMPLATE_TOPICS = ["History", "Science", "Anime"];
 
@@ -49,13 +67,25 @@ function getRootColor(node: KnowledgeNode, allNodes: KnowledgeNode[]): string {
   return rootNode?.color ?? ROOT_COLORS[0];
 }
 
-interface KnowledgeGraphInnerProps {
-  nodes: KnowledgeNode[];
+function collectDescendants(nodeId: string, nodes: KnowledgeNode[], acc: Set<string>) {
+  for (const n of nodes) {
+    if (n.parent_id === nodeId) {
+      acc.add(n.id);
+      collectDescendants(n.id, nodes, acc);
+    }
+  }
 }
 
-function KnowledgeGraphInner({ nodes: initialNodes }: KnowledgeGraphInnerProps) {
+interface KnowledgeGraphInnerProps {
+  initialNodes: KnowledgeNode[];
+  initialLinks: KnowledgeLink[];
+}
+
+function KnowledgeGraphInner({ initialNodes, initialLinks }: KnowledgeGraphInnerProps) {
   const { fitView, zoomIn, zoomOut } = useReactFlow();
   const [knowledgeNodes, setKnowledgeNodes] = useState<KnowledgeNode[]>(initialNodes);
+  const [knowledgeLinks, setKnowledgeLinks] = useState<KnowledgeLink[]>(initialLinks);
+  const [collapsedIds, setCollapsedIds] = useState<Set<string>>(new Set());
   const [rfNodes, setRfNodes] = useState<Node[]>([]);
   const [rfEdges, setRfEdges] = useState<Edge[]>([]);
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
@@ -72,11 +102,43 @@ function KnowledgeGraphInner({ nodes: initialNodes }: KnowledgeGraphInnerProps) 
   // Track persisted positions for diffing
   const lastPersistedPositions = useRef<Map<string, { x: number; y: number }>>(new Map());
 
+  const onToggleCollapse = useCallback((nodeId: string) => {
+    setCollapsedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(nodeId)) {
+        next.delete(nodeId);
+      } else {
+        next.add(nodeId);
+      }
+      return next;
+    });
+  }, []);
+
   // Build React Flow nodes and edges from knowledge nodes
   const buildGraph = useCallback(
-    (kNodes: KnowledgeNode[]) => {
+    (kNodes: KnowledgeNode[], kLinks: KnowledgeLink[], collapsed: Set<string>) => {
       // Auto-layout: if position is 0,0 for a root, spread them horizontally
       const rootNodes = kNodes.filter((n) => n.depth === 0);
+
+      // Precompute child count and link count maps
+      const childCountMap = new Map<string, number>();
+      for (const n of kNodes) {
+        if (n.parent_id) {
+          childCountMap.set(n.parent_id, (childCountMap.get(n.parent_id) ?? 0) + 1);
+        }
+      }
+
+      const linkCountMap = new Map<string, number>();
+      for (const l of kLinks) {
+        linkCountMap.set(l.a_id, (linkCountMap.get(l.a_id) ?? 0) + 1);
+        linkCountMap.set(l.b_id, (linkCountMap.get(l.b_id) ?? 0) + 1);
+      }
+
+      // Compute hidden IDs from collapsed subtrees
+      const hiddenIds = new Set<string>();
+      Array.from(collapsed).forEach((collapsedId) => {
+        collectDescendants(collapsedId, kNodes, hiddenIds);
+      });
 
       const newRfNodes: Node[] = kNodes.map((node) => {
         const rootColor = getRootColor(node, kNodes);
@@ -96,6 +158,7 @@ function KnowledgeGraphInner({ nodes: initialNodes }: KnowledgeGraphInnerProps) 
           id: node.id,
           type: "knowledgeNode",
           position: { x, y },
+          hidden: hiddenIds.has(node.id),
           data: {
             node,
             rootColor,
@@ -107,16 +170,24 @@ function KnowledgeGraphInner({ nodes: initialNodes }: KnowledgeGraphInnerProps) 
               (node.user_notes !== null && node.user_notes !== "") ||
               (node.user_facts?.length ?? 0) > 0 ||
               (node.resources?.length ?? 0) > 0,
+            nodeType: node.node_type ?? 'topic',
+            masteryStatus: node.mastery_status ?? 'not_started',
+            childCount: childCountMap.get(node.id) ?? 0,
+            isCollapsed: collapsed.has(node.id),
+            linkCount: linkCountMap.get(node.id) ?? 0,
+            onToggleCollapse,
           } satisfies KnowledgeNodeData,
         };
       });
 
-      const newEdges: Edge[] = kNodes
+      // Parent edges
+      const parentEdges: Edge[] = kNodes
         .filter((n) => n.parent_id)
         .map((n) => ({
           id: `e-${n.parent_id}-${n.id}`,
           source: n.parent_id!,
           target: n.id,
+          hidden: hiddenIds.has(n.id) || hiddenIds.has(n.parent_id!),
           style: {
             stroke: getRootColor(n, kNodes),
             strokeWidth: 1.5,
@@ -125,15 +196,24 @@ function KnowledgeGraphInner({ nodes: initialNodes }: KnowledgeGraphInnerProps) 
           animated: false,
         }));
 
-      return { newRfNodes, newEdges };
+      // Cross-link edges
+      const linkEdges: Edge[] = kLinks.map((l) => ({
+        id: `l-${l.id}`,
+        source: l.a_id,
+        target: l.b_id,
+        type: "crossLink",
+        hidden: hiddenIds.has(l.a_id) || hiddenIds.has(l.b_id),
+      }));
+
+      return { newRfNodes, newEdges: [...parentEdges, ...linkEdges] };
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    []
+    [onToggleCollapse]
   );
 
-  // Rebuild graph when knowledge nodes change
+  // Rebuild graph when knowledge nodes, links, or collapsed state changes
   useEffect(() => {
-    const { newRfNodes, newEdges } = buildGraph(knowledgeNodes);
+    const { newRfNodes, newEdges } = buildGraph(knowledgeNodes, knowledgeLinks, collapsedIds);
 
     setRfNodes((prev) => {
       // Preserve current drag positions for existing nodes
@@ -144,7 +224,7 @@ function KnowledgeGraphInner({ nodes: initialNodes }: KnowledgeGraphInnerProps) 
       }));
     });
     setRfEdges(newEdges);
-  }, [knowledgeNodes, buildGraph]);
+  }, [knowledgeNodes, knowledgeLinks, collapsedIds, buildGraph]);
 
   // Update selected state on rfNodes
   useEffect(() => {
@@ -250,6 +330,10 @@ function KnowledgeGraphInner({ nodes: initialNodes }: KnowledgeGraphInnerProps) 
     }
     const deletedSet = new Set(result.deleted_ids);
     setKnowledgeNodes((prev) => prev.filter((n) => !deletedSet.has(n.id)));
+    // Clean up any links involving deleted nodes
+    setKnowledgeLinks((prev) =>
+      prev.filter((l) => !deletedSet.has(l.a_id) && !deletedSet.has(l.b_id))
+    );
     if (selectedNodeId && deletedSet.has(selectedNodeId)) {
       setSelectedNodeId(null);
     }
@@ -314,6 +398,28 @@ function KnowledgeGraphInner({ nodes: initialNodes }: KnowledgeGraphInnerProps) 
     );
   }
 
+  function handleMasteryChange(nodeId: string, mastery_status: KnowledgeNode['mastery_status'], confidence_score: number | null, last_reviewed_at: string | null) {
+    setKnowledgeNodes((prev) =>
+      prev.map((n) =>
+        n.id === nodeId ? { ...n, mastery_status, confidence_score, last_reviewed_at } : n
+      )
+    );
+  }
+
+  function handleNodeTypeChange(nodeId: string, node_type: KnowledgeNode['node_type']) {
+    setKnowledgeNodes((prev) =>
+      prev.map((n) => (n.id === nodeId ? { ...n, node_type } : n))
+    );
+  }
+
+  function handleLinkAdd(link: KnowledgeLink) {
+    setKnowledgeLinks((prev) => [...prev, link]);
+  }
+
+  function handleLinkDelete(linkId: string) {
+    setKnowledgeLinks((prev) => prev.filter((l) => l.id !== linkId));
+  }
+
   const selectedNode = knowledgeNodes.find((n) => n.id === selectedNodeId) ?? null;
   const expandNode = knowledgeNodes.find((n) => n.id === expandNodeId) ?? null;
   const selectedRootColor = selectedNode
@@ -327,6 +433,14 @@ function KnowledgeGraphInner({ nodes: initialNodes }: KnowledgeGraphInnerProps) 
       .map((n) => n.title);
   }, [expandNodeId, knowledgeNodes]);
 
+  // Links relevant to the selected node
+  const selectedNodeLinks = useMemo(() => {
+    if (!selectedNodeId) return [];
+    return knowledgeLinks.filter(
+      (l) => l.a_id === selectedNodeId || l.b_id === selectedNodeId
+    );
+  }, [selectedNodeId, knowledgeLinks]);
+
   const isEmpty = knowledgeNodes.length === 0;
 
   return (
@@ -335,6 +449,7 @@ function KnowledgeGraphInner({ nodes: initialNodes }: KnowledgeGraphInnerProps) 
         nodes={rfNodes}
         edges={rfEdges}
         nodeTypes={NODE_TYPES}
+        edgeTypes={EDGE_TYPES}
         onNodesChange={onNodesChange}
         onEdgesChange={onEdgesChange}
         onNodeDragStop={onNodeDragStop}
@@ -418,12 +533,18 @@ function KnowledgeGraphInner({ nodes: initialNodes }: KnowledgeGraphInnerProps) 
       <NodeDetailPanel
         node={selectedNode}
         nodes={knowledgeNodes}
+        allNodes={knowledgeNodes}
+        nodeLinks={selectedNodeLinks}
         onClose={() => setSelectedNodeId(null)}
         onJumpToNode={handleJumpToNode}
         rootColor={selectedRootColor}
         onNotesChange={handleNotesChange}
         onResourcesChange={handleResourcesChange}
         onUserFactsChange={handleUserFactsChange}
+        onMasteryChange={handleMasteryChange}
+        onNodeTypeChange={handleNodeTypeChange}
+        onLinkAdd={handleLinkAdd}
+        onLinkDelete={handleLinkDelete}
       />
 
       {/* Add root dialog */}
@@ -501,10 +622,16 @@ function KnowledgeGraphInner({ nodes: initialNodes }: KnowledgeGraphInnerProps) 
   );
 }
 
-export function KnowledgeGraph({ nodes }: { nodes: KnowledgeNode[] }) {
+export function KnowledgeGraph({
+  initialNodes,
+  initialLinks,
+}: {
+  initialNodes: KnowledgeNode[];
+  initialLinks: KnowledgeLink[];
+}) {
   return (
     <ReactFlowProvider>
-      <KnowledgeGraphInner nodes={nodes} />
+      <KnowledgeGraphInner initialNodes={initialNodes} initialLinks={initialLinks} />
     </ReactFlowProvider>
   );
 }

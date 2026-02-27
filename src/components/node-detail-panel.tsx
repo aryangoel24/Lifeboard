@@ -1,26 +1,70 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
-import { getNodeDetail, saveUserNotes, saveResources, saveUserFacts } from "@/lib/actions/knowledge";
-import type { KnowledgeNode, NodeResource } from "@/types/database";
+import { useEffect, useState, useCallback, useRef } from "react";
+import {
+  getNodeDetail,
+  saveUserNotes,
+  saveResources,
+  saveUserFacts,
+  updateNodeType,
+  updateMastery,
+  addKnowledgeLink,
+  deleteKnowledgeLink,
+} from "@/lib/actions/knowledge";
+import type { KnowledgeNode, KnowledgeLink, NodeResource, NodeType, MasteryStatus } from "@/types/database";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { Input } from "@/components/ui/input";
-import { X, ChevronRight, Loader2, Sparkles, BookOpen, Trash2, Plus } from "lucide-react";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
+import {
+  Command,
+  CommandEmpty,
+  CommandGroup,
+  CommandInput,
+  CommandItem,
+  CommandList,
+} from "@/components/ui/command";
+import {
+  X,
+  ChevronRight,
+  Loader2,
+  Sparkles,
+  BookOpen,
+  Trash2,
+  Plus,
+  Star,
+  Lightbulb,
+  User,
+  Book,
+  Zap,
+  FolderOpen,
+  HelpCircle,
+} from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
+import type { LucideIcon } from "lucide-react";
 
 interface NodeDetailPanelProps {
   node: KnowledgeNode | null;
   nodes: KnowledgeNode[];
+  allNodes: KnowledgeNode[];
+  nodeLinks: KnowledgeLink[];
   onClose: () => void;
   onJumpToNode: (nodeId: string) => void;
   rootColor: string;
   onNotesChange: (nodeId: string, notes: string | null) => void;
   onResourcesChange: (nodeId: string, resources: NodeResource[]) => void;
   onUserFactsChange: (nodeId: string, facts: string[]) => void;
+  onMasteryChange: (nodeId: string, mastery_status: MasteryStatus, confidence_score: number | null, last_reviewed_at: string | null) => void;
+  onNodeTypeChange: (nodeId: string, node_type: NodeType) => void;
+  onLinkAdd: (link: KnowledgeLink) => void;
+  onLinkDelete: (linkId: string) => void;
 }
 
 interface DetailState {
@@ -28,15 +72,51 @@ interface DetailState {
   key_facts: string[];
 }
 
+const NODE_TYPE_OPTIONS: { type: NodeType; label: string; icon: LucideIcon | null }[] = [
+  { type: 'topic', label: 'Topic', icon: BookOpen },
+  { type: 'concept', label: 'Concept', icon: Lightbulb },
+  { type: 'person', label: 'Person', icon: User },
+  { type: 'book', label: 'Book', icon: Book },
+  { type: 'skill', label: 'Skill', icon: Zap },
+  { type: 'project', label: 'Project', icon: FolderOpen },
+  { type: 'question', label: 'Question', icon: HelpCircle },
+  { type: 'insight', label: 'Insight', icon: Sparkles },
+];
+
+const MASTERY_OPTIONS: { status: MasteryStatus; label: string; color: string }[] = [
+  { status: 'not_started', label: 'Not started', color: '#94a3b8' },
+  { status: 'learning', label: 'Learning', color: '#3b82f6' },
+  { status: 'practicing', label: 'Practicing', color: '#f97316' },
+  { status: 'mastered', label: 'Mastered', color: '#22c55e' },
+];
+
+function formatRelativeTime(isoString: string): string {
+  const diff = Date.now() - new Date(isoString).getTime();
+  const minutes = Math.floor(diff / 60000);
+  if (minutes < 1) return 'just now';
+  if (minutes < 60) return `${minutes}m ago`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours}h ago`;
+  const days = Math.floor(hours / 24);
+  if (days < 30) return `${days}d ago`;
+  return `${Math.floor(days / 30)}mo ago`;
+}
+
 export function NodeDetailPanel({
   node,
   nodes,
+  allNodes,
+  nodeLinks,
   onClose,
   onJumpToNode,
   rootColor,
   onNotesChange,
   onResourcesChange,
   onUserFactsChange,
+  onMasteryChange,
+  onNodeTypeChange,
+  onLinkAdd,
+  onLinkDelete,
 }: NodeDetailPanelProps) {
   const [detail, setDetail] = useState<DetailState | null>(null);
   const [isGenerating, setIsGenerating] = useState(false);
@@ -53,6 +133,21 @@ export function NodeDetailPanel({
   const [addUrl, setAddUrl] = useState("");
   const [addLabel, setAddLabel] = useState("");
   const [addFact, setAddFact] = useState("");
+
+  // Mastery local state
+  const [localStatus, setLocalStatus] = useState<MasteryStatus>(node?.mastery_status ?? 'not_started');
+  const [localConfidence, setLocalConfidence] = useState<number | null>(node?.confidence_score ?? null);
+  const [masterySaving, setMasterySaving] = useState(false);
+  const prevStatusRef = useRef<MasteryStatus>(node?.mastery_status ?? 'not_started');
+
+  // Node type local state
+  const [localNodeType, setLocalNodeType] = useState<NodeType>(node?.node_type ?? 'topic');
+  const [nodeTypeSaving, setNodeTypeSaving] = useState(false);
+
+  // Connections state
+  const [linkPickerOpen, setLinkPickerOpen] = useState(false);
+  const [linkSaving, setLinkSaving] = useState(false);
+  const [deletingLinkId, setDeletingLinkId] = useState<string | null>(null);
 
   const fetchDetail = useCallback(
     async (nodeId: string) => {
@@ -92,13 +187,17 @@ export function NodeDetailPanel({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [node?.id, fetchDetail]);
 
-  // Reset local user content when selected node changes
+  // Reset local state when selected node changes
   useEffect(() => {
     if (!node) return;
     setLocalNotes(node.user_notes ?? "");
     setLocalResources(node.resources ?? []);
     setLocalUserFacts(node.user_facts ?? []);
     setNotesDirty(false);
+    setLocalStatus(node.mastery_status ?? 'not_started');
+    setLocalConfidence(node.confidence_score ?? null);
+    prevStatusRef.current = node.mastery_status ?? 'not_started';
+    setLocalNodeType(node.node_type ?? 'topic');
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [node?.id]);
 
@@ -183,10 +282,91 @@ export function NodeDetailPanel({
     onUserFactsChange(node.id, result.user_facts);
   }
 
+  async function handleNodeTypeSelect(type: NodeType) {
+    if (!node || type === localNodeType) return;
+    setLocalNodeType(type);
+    setNodeTypeSaving(true);
+    const result = await updateNodeType(node.id, type);
+    setNodeTypeSaving(false);
+    if ("error" in result) {
+      toast.error(result.error);
+      setLocalNodeType(localNodeType);
+      return;
+    }
+    onNodeTypeChange(node.id, result.node_type);
+  }
+
+  async function handleStatusChange(status: MasteryStatus) {
+    if (!node) return;
+    const prev = prevStatusRef.current;
+    setLocalStatus(status);
+    setMasterySaving(true);
+    const result = await updateMastery(node.id, status, localConfidence, prev);
+    setMasterySaving(false);
+    if ("error" in result) {
+      toast.error(result.error);
+      setLocalStatus(prev);
+      return;
+    }
+    prevStatusRef.current = result.mastery_status;
+    onMasteryChange(node.id, result.mastery_status, result.confidence_score, result.last_reviewed_at);
+  }
+
+  async function handleConfidenceChange(score: number) {
+    if (!node) return;
+    const newScore = localConfidence === score ? null : score;
+    setLocalConfidence(newScore);
+    setMasterySaving(true);
+    // Pass same status as previous to avoid updating last_reviewed_at
+    const result = await updateMastery(node.id, localStatus, newScore, localStatus);
+    setMasterySaving(false);
+    if ("error" in result) {
+      toast.error(result.error);
+      return;
+    }
+    onMasteryChange(node.id, result.mastery_status, result.confidence_score, result.last_reviewed_at);
+  }
+
+  async function handleAddLink(targetNodeId: string) {
+    if (!node) return;
+    setLinkPickerOpen(false);
+    setLinkSaving(true);
+    const result = await addKnowledgeLink(node.id, targetNodeId);
+    setLinkSaving(false);
+    if ("error" in result) {
+      toast.error(result.error);
+      return;
+    }
+    onLinkAdd(result.link);
+  }
+
+  async function handleDeleteLink(linkId: string) {
+    setDeletingLinkId(linkId);
+    const result = await deleteKnowledgeLink(linkId);
+    setDeletingLinkId(null);
+    if ("error" in result) {
+      toast.error(result.error);
+      return;
+    }
+    onLinkDelete(linkId);
+  }
+
   // Build breadcrumb
   const breadcrumb = buildBreadcrumb(node, nodes);
 
   if (!node) return null;
+
+  // Compute IDs already linked to this node
+  const linkedNodeIds = new Set(
+    nodeLinks.map((l) => (l.a_id === node.id ? l.b_id : l.a_id))
+  );
+
+  // Nodes available to link (exclude self and already linked)
+  const linkableNodes = allNodes.filter(
+    (n) => n.id !== node.id && !linkedNodeIds.has(n.id)
+  );
+
+  const lastReviewed = node.last_reviewed_at;
 
   return (
     <div
@@ -236,6 +416,95 @@ export function NodeDetailPanel({
 
         {/* My Learning tab */}
         <TabsContent value="my" className="flex-1 overflow-y-auto p-4 space-y-4 m-0">
+
+          {/* Node Type */}
+          <div className="space-y-2">
+            <span className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
+              Node Type
+            </span>
+            <div className="flex flex-wrap gap-1">
+              {NODE_TYPE_OPTIONS.map(({ type, label, icon: Icon }) => {
+                const isActive = localNodeType === type;
+                return (
+                  <button
+                    key={type}
+                    onClick={() => handleNodeTypeSelect(type)}
+                    disabled={nodeTypeSaving}
+                    className={cn(
+                      "flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-medium border transition-colors",
+                      isActive
+                        ? "text-white border-transparent"
+                        : "text-muted-foreground border-border hover:border-foreground/30 hover:text-foreground"
+                    )}
+                    style={isActive ? { backgroundColor: rootColor, borderColor: rootColor } : undefined}
+                  >
+                    {Icon && <Icon className="h-2.5 w-2.5" />}
+                    {label}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* Mastery */}
+          <div className="space-y-2">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
+                Mastery
+              </span>
+              {masterySaving && <Loader2 className="h-3 w-3 animate-spin text-muted-foreground" />}
+            </div>
+
+            {/* Status segments */}
+            <div className="flex rounded-md overflow-hidden border text-[10px] font-medium">
+              {MASTERY_OPTIONS.map(({ status, label, color }) => {
+                const isActive = localStatus === status;
+                return (
+                  <button
+                    key={status}
+                    onClick={() => handleStatusChange(status)}
+                    disabled={masterySaving}
+                    className={cn(
+                      "flex-1 py-1 px-0.5 text-center transition-colors",
+                      isActive ? "text-white" : "text-muted-foreground hover:text-foreground"
+                    )}
+                    style={isActive ? { backgroundColor: color } : undefined}
+                  >
+                    {label}
+                  </button>
+                );
+              })}
+            </div>
+
+            {/* Confidence stars */}
+            <div className="flex items-center gap-1">
+              <span className="text-[10px] text-muted-foreground mr-1">Confidence:</span>
+              {[1, 2, 3, 4, 5].map((star) => (
+                <button
+                  key={star}
+                  onClick={() => handleConfidenceChange(star)}
+                  disabled={masterySaving}
+                  className="transition-colors hover:scale-110"
+                  title={`${star} star${star > 1 ? 's' : ''}`}
+                >
+                  <Star
+                    className="h-3.5 w-3.5"
+                    style={{
+                      fill: (localConfidence ?? 0) >= star ? rootColor : 'none',
+                      stroke: (localConfidence ?? 0) >= star ? rootColor : '#94a3b8',
+                    }}
+                  />
+                </button>
+              ))}
+            </div>
+
+            {lastReviewed && (
+              <p className="text-[10px] text-muted-foreground">
+                Last reviewed: {formatRelativeTime(lastReviewed)}
+              </p>
+            )}
+          </div>
+
           {/* My Notes */}
           <div className="space-y-2">
             <span className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
@@ -245,7 +514,7 @@ export function NodeDetailPanel({
               placeholder="What I learned about this topic…"
               value={localNotes}
               onChange={(e) => { setLocalNotes(e.target.value); setNotesDirty(true); }}
-              className="min-h-[120px] resize-none text-sm"
+              className="min-h-[100px] resize-none text-sm"
             />
             {notesDirty && (
               <Button size="sm" className="w-full" onClick={handleSaveNotes} disabled={notesSaving}>
@@ -358,6 +627,96 @@ export function NodeDetailPanel({
                 Add Resource
               </Button>
             </div>
+          </div>
+
+          {/* Connections */}
+          <div className="space-y-2">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
+                Connections
+              </span>
+              {linkSaving && <Loader2 className="h-3 w-3 animate-spin text-muted-foreground" />}
+            </div>
+
+            {nodeLinks.length > 0 && (
+              <ul className="space-y-1.5">
+                {nodeLinks.map((link) => {
+                  const linkedId = link.a_id === node.id ? link.b_id : link.a_id;
+                  const linkedNode = allNodes.find((n) => n.id === linkedId);
+                  if (!linkedNode) return null;
+                  const crumb = buildBreadcrumb(linkedNode, allNodes);
+                  const crumbText = crumb.map((c) => c.title).join(' › ');
+                  return (
+                    <li key={link.id} className="flex items-start gap-2 group">
+                      <div className="flex-1 min-w-0">
+                        <button
+                          className="text-xs font-medium hover:underline text-left truncate w-full"
+                          onClick={() => onJumpToNode(linkedId)}
+                        >
+                          {linkedNode.title}
+                        </button>
+                        {crumbText && (
+                          <p className="text-[10px] text-muted-foreground truncate">{crumbText}</p>
+                        )}
+                      </div>
+                      <button
+                        onClick={() => handleDeleteLink(link.id)}
+                        disabled={deletingLinkId === link.id}
+                        className="opacity-0 group-hover:opacity-100 transition-opacity p-0.5 rounded hover:bg-red-100 dark:hover:bg-red-900/30 shrink-0 mt-0.5"
+                      >
+                        {deletingLinkId === link.id
+                          ? <Loader2 className="h-3 w-3 animate-spin text-muted-foreground" />
+                          : <X className="h-3 w-3 text-red-500" />
+                        }
+                      </button>
+                    </li>
+                  );
+                })}
+              </ul>
+            )}
+
+            <Popover open={linkPickerOpen} onOpenChange={setLinkPickerOpen}>
+              <PopoverTrigger asChild>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="w-full h-7 text-xs"
+                  disabled={linkSaving || linkableNodes.length === 0}
+                >
+                  <Plus className="h-3 w-3 mr-1.5" />
+                  Add connection
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent className="w-64 p-0" side="top" align="start">
+                <Command>
+                  <CommandInput placeholder="Search nodes…" className="h-8 text-xs" />
+                  <CommandList className="max-h-48">
+                    <CommandEmpty className="text-xs py-3 text-center text-muted-foreground">
+                      No nodes found
+                    </CommandEmpty>
+                    <CommandGroup>
+                      {linkableNodes.map((n) => {
+                        const crumb = buildBreadcrumb(n, allNodes);
+                        const crumbText = crumb.map((c) => c.title).join(' › ');
+                        return (
+                          <CommandItem
+                            key={n.id}
+                            value={n.title}
+                            onSelect={() => handleAddLink(n.id)}
+                            className="flex flex-col items-start gap-0 py-1.5 cursor-pointer"
+                          >
+                            <span className="text-xs font-medium">{n.title}</span>
+                            {crumbText && (
+                              <span className="text-[10px] text-muted-foreground">{crumbText}</span>
+                            )}
+                          </CommandItem>
+                        );
+                      })}
+                    </CommandGroup>
+                  </CommandList>
+                </Command>
+              </PopoverContent>
+            </Popover>
           </div>
         </TabsContent>
 

@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
-import type { KnowledgeNode, NodeResource } from "@/types/database";
+import type { KnowledgeNode, KnowledgeLink, NodeResource, NodeType, MasteryStatus } from "@/types/database";
 import {
   generateSubtopics,
   generateNodeDetail,
@@ -11,20 +11,26 @@ import {
 
 const DETAIL_MODEL = "gpt-4o-mini";
 
-export async function getKnowledgeGraph(): Promise<KnowledgeNode[]> {
+export async function getKnowledgeGraph(): Promise<{ nodes: KnowledgeNode[]; links: KnowledgeLink[] }> {
   const supabase = createClient();
   const {
     data: { user },
   } = await supabase.auth.getUser();
-  if (!user) return [];
+  if (!user) return { nodes: [], links: [] };
 
-  const { data } = await supabase
-    .from("knowledge_nodes")
-    .select("*")
-    .eq("user_id", user.id)
-    .order("created_at", { ascending: true });
+  const [{ data: nodes }, { data: links }] = await Promise.all([
+    supabase
+      .from("knowledge_nodes")
+      .select("*")
+      .eq("user_id", user.id)
+      .order("created_at", { ascending: true }),
+    supabase
+      .from("knowledge_node_links")
+      .select("*")
+      .eq("user_id", user.id),
+  ]);
 
-  return (data as KnowledgeNode[]) || [];
+  return { nodes: (nodes as KnowledgeNode[]) ?? [], links: (links as KnowledgeLink[]) ?? [] };
 }
 
 export async function addRootNode(
@@ -345,6 +351,115 @@ export async function saveUserFacts(
   if (error) return { error: error.message };
 
   return { user_facts: facts };
+}
+
+export async function addKnowledgeLink(
+  nodeIdA: string,
+  nodeIdB: string
+): Promise<{ link: KnowledgeLink } | { error: string }> {
+  const supabase = createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return { error: "Unauthorized" };
+
+  // Enforce canonical order
+  const a_id = nodeIdA < nodeIdB ? nodeIdA : nodeIdB;
+  const b_id = nodeIdA < nodeIdB ? nodeIdB : nodeIdA;
+
+  const { data, error } = await supabase
+    .from("knowledge_node_links")
+    .insert({ user_id: user.id, a_id, b_id })
+    .select()
+    .single();
+
+  if (error || !data) return { error: error?.message ?? "Insert failed" };
+
+  revalidatePath("/learn/hub");
+  return { link: data as KnowledgeLink };
+}
+
+export async function deleteKnowledgeLink(
+  linkId: string
+): Promise<Record<string, never> | { error: string }> {
+  const supabase = createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return { error: "Unauthorized" };
+
+  const { error } = await supabase
+    .from("knowledge_node_links")
+    .delete()
+    .eq("id", linkId)
+    .eq("user_id", user.id);
+
+  if (error) return { error: error.message };
+
+  revalidatePath("/learn/hub");
+  return {};
+}
+
+export async function updateNodeType(
+  nodeId: string,
+  nodeType: NodeType
+): Promise<{ node_type: NodeType } | { error: string }> {
+  const supabase = createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return { error: "Unauthorized" };
+
+  const { error } = await supabase
+    .from("knowledge_nodes")
+    .update({ node_type: nodeType, updated_at: new Date().toISOString() })
+    .eq("id", nodeId)
+    .eq("user_id", user.id);
+
+  if (error) return { error: error.message };
+
+  return { node_type: nodeType };
+}
+
+export async function updateMastery(
+  nodeId: string,
+  newStatus: MasteryStatus,
+  newConfidence: number | null,
+  previousStatus: MasteryStatus
+): Promise<{ mastery_status: MasteryStatus; confidence_score: number | null; last_reviewed_at: string | null } | { error: string }> {
+  const supabase = createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return { error: "Unauthorized" };
+
+  const statusChanged = newStatus !== previousStatus;
+  const last_reviewed_at = statusChanged ? new Date().toISOString() : undefined;
+
+  const update: Record<string, unknown> = {
+    mastery_status: newStatus,
+    confidence_score: newConfidence,
+    updated_at: new Date().toISOString(),
+  };
+  if (statusChanged) {
+    update.last_reviewed_at = last_reviewed_at;
+  }
+
+  const { data, error } = await supabase
+    .from("knowledge_nodes")
+    .update(update)
+    .eq("id", nodeId)
+    .eq("user_id", user.id)
+    .select("mastery_status, confidence_score, last_reviewed_at")
+    .single();
+
+  if (error || !data) return { error: error?.message ?? "Update failed" };
+
+  return {
+    mastery_status: data.mastery_status as MasteryStatus,
+    confidence_score: data.confidence_score as number | null,
+    last_reviewed_at: data.last_reviewed_at as string | null,
+  };
 }
 
 export async function suggestSubtopics(
