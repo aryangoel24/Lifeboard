@@ -412,7 +412,7 @@ function KnowledgeGraphInner({ initialNodes, initialLinks }: KnowledgeGraphInner
     if (synthesisModeRef.current) {
       setSynthesisSelectedIds((prev) => {
         const next = new Set(prev);
-        next.has(node.id) ? next.delete(node.id) : next.add(node.id);
+        if (next.has(node.id)) { next.delete(node.id); } else { next.add(node.id); }
         return next;
       });
       return;
