@@ -72,48 +72,116 @@ const EDGE_TYPES = { crossLink: CrossLinkEdge };
 
 const TEMPLATE_TOPICS = ["History", "Science", "Anime"];
 
-const X_SPACING = 220;
-const Y_SPACING = 180;
-const TREE_GAP = 350;
+const X_SPACING = 200;
+const Y_SPACING = 170;
+const TREE_GAP = 300;
+// Tuneable: max children placed in a single horizontal row before wrapping.
+// Increase for wider monitors, decrease for more compact/vertical layouts.
+const MAX_CHILDREN_PER_ROW = 5;
+
+function chunkArray<T>(arr: T[], size: number): T[][] {
+  const rows: T[][] = [];
+  for (let i = 0; i < arr.length; i += size) rows.push(arr.slice(i, i + size));
+  return rows;
+}
+
+// Sort children deterministically by created_at then id to prevent layout shuffling
+function buildChildrenMap(nodes: KnowledgeNode[]): Map<string, string[]> {
+  const map = new Map<string, string[]>();
+  const ids = new Set(nodes.map(n => n.id));
+  for (const n of nodes) map.set(n.id, []);
+  const sorted = [...nodes].sort((a, b) =>
+    a.created_at.localeCompare(b.created_at)
+  );
+  for (const n of sorted) {
+    if (n.parent_id && ids.has(n.parent_id)) {
+      map.get(n.parent_id)!.push(n.id);
+    }
+  }
+  return map;
+}
+
+// Width in column units: max width across all rows of children
+function subtreeWidth(id: string, cm: Map<string, string[]>): number {
+  const ch = cm.get(id) ?? [];
+  if (ch.length === 0) return 1;
+  const rows = chunkArray(ch, MAX_CHILDREN_PER_ROW);
+  return Math.max(...rows.map(row => row.reduce((s, c) => s + subtreeWidth(c, cm), 0)));
+}
+
+// Height in row units (1 = leaf).
+function subtreeHeight(id: string, cm: Map<string, string[]>): number {
+  const ch = cm.get(id) ?? [];
+  if (ch.length === 0) return 1;
+  const rows = chunkArray(ch, MAX_CHILDREN_PER_ROW);
+  let h = 1;
+  for (const row of rows) {
+    h += Math.max(...row.map(c => subtreeHeight(c, cm)));
+  }
+  return h;
+}
+
+function assignPositions(
+  id: string,
+  leftX: number,
+  y: number,
+  cm: Map<string, string[]>,
+  result: Map<string, { x: number; y: number }>
+) {
+  const ch = cm.get(id) ?? [];
+  const w = subtreeWidth(id, cm);
+  result.set(id, { x: leftX + ((w - 1) / 2) * X_SPACING, y });
+  if (ch.length === 0) return;
+
+  const rows = chunkArray(ch, MAX_CHILDREN_PER_ROW);
+  let currentY = y + Y_SPACING;
+
+  for (const row of rows) {
+    const rowW = row.reduce((s, c) => s + subtreeWidth(c, cm), 0);
+    // Center each row within the parent's bounding box
+    let childLeft = leftX + ((w - rowW) / 2) * X_SPACING;
+    for (const child of row) {
+      assignPositions(child, childLeft, currentY, cm, result);
+      childLeft += subtreeWidth(child, cm) * X_SPACING;
+    }
+    // Advance Y by max subtree height in this row to prevent overlap with next row
+    const maxChildH = Math.max(...row.map(c => subtreeHeight(c, cm)));
+    currentY += maxChildH * Y_SPACING;
+  }
+}
 
 function computeAutoLayout(nodes: KnowledgeNode[]): Map<string, { x: number; y: number }> {
-  const childrenMap = new Map<string, string[]>();
-  for (const n of nodes) {
-    if (n.parent_id) {
-      const arr = childrenMap.get(n.parent_id) ?? [];
-      arr.push(n.id);
-      childrenMap.set(n.parent_id, arr);
-    }
-  }
-
-  const widthCache = new Map<string, number>();
-  function subtreeWidth(id: string): number {
-    if (widthCache.has(id)) return widthCache.get(id)!;
-    const children = childrenMap.get(id) ?? [];
-    const w = children.length === 0 ? 1 : children.reduce((s, c) => s + subtreeWidth(c), 0);
-    widthCache.set(id, w);
-    return w;
-  }
-
+  const cm = buildChildrenMap(nodes);
   const result = new Map<string, { x: number; y: number }>();
-  function assign(id: string, leftX: number, y: number) {
-    const width = subtreeWidth(id);
-    result.set(id, { x: leftX + ((width - 1) / 2) * X_SPACING, y });
-    const children = childrenMap.get(id) ?? [];
-    let childLeft = leftX;
-    for (const c of children) {
-      assign(c, childLeft, y + Y_SPACING);
-      childLeft += subtreeWidth(c) * X_SPACING;
-    }
-  }
-
-  const roots = nodes.filter((n) => n.depth === 0);
+  const roots = nodes.filter(n => n.depth === 0);
   let rootX = 0;
   for (const root of roots) {
-    assign(root.id, rootX, 0);
-    rootX += subtreeWidth(root.id) * X_SPACING + TREE_GAP;
+    assignPositions(root.id, rootX, 0, cm, result);
+    rootX += subtreeWidth(root.id, cm) * X_SPACING + TREE_GAP;
   }
+  return result;
+}
 
+function computeSubtreeLayout(
+  rootNodeId: string,
+  anchorX: number,
+  anchorY: number,
+  nodes: KnowledgeNode[]
+): Map<string, { x: number; y: number }> {
+  const fullCm = buildChildrenMap(nodes);
+  const ids = new Set<string>();
+  function collect(id: string) {
+    ids.add(id);
+    for (const child of (fullCm.get(id) ?? [])) collect(child);
+  }
+  collect(rootNodeId);
+
+  const subNodes = nodes.filter(n => ids.has(n.id));
+  const cm = buildChildrenMap(subNodes);
+  const result = new Map<string, { x: number; y: number }>();
+  const w = subtreeWidth(rootNodeId, cm);
+  const leftX = anchorX - ((w - 1) / 2) * X_SPACING;
+  assignPositions(rootNodeId, leftX, anchorY, cm, result);
   return result;
 }
 
@@ -207,6 +275,11 @@ function KnowledgeGraphInner({ initialNodes, initialLinks }: KnowledgeGraphInner
   const isLayoutModeRef = useRef(false);
   // Subtree bounds cache
   const subtreeCacheRef = useRef<Map<string, Set<string>>>(new Map());
+  // Wrapper ref for context menu positioning
+  const wrapperRef = useRef<HTMLDivElement>(null);
+  const [contextMenu, setContextMenu] = useState<{ nodeId: string; x: number; y: number } | null>(null);
+  // Ref mirror for focus mode (for stable callbacks)
+  const isFocusModeRef = useRef(false);
 
   const onToggleCollapse = useCallback((nodeId: string) => {
     setCollapsedIds((prev) => {
@@ -356,6 +429,11 @@ function KnowledgeGraphInner({ initialNodes, initialLinks }: KnowledgeGraphInner
     isLayoutModeRef.current = isLayoutMode;
   }, [isLayoutMode]);
 
+  // Sync focus mode ref
+  useEffect(() => {
+    isFocusModeRef.current = focusEnabled;
+  }, [focusEnabled]);
+
   // Clear subtree bounds cache when nodes change
   useEffect(() => { subtreeCacheRef.current.clear(); }, [knowledgeNodes]);
 
@@ -474,12 +552,14 @@ function KnowledgeGraphInner({ initialNodes, initialLinks }: KnowledgeGraphInner
 
   function enterSynthesisMode() {
     exitLayoutMode();
+    setContextMenu(null);
     setSynthesisModeActive(true);
     setSelectedNodeId(null);
     setFocusEnabled(false);
   }
 
   function exitSynthesisMode() {
+    setContextMenu(null);
     setSynthesisModeActive(false);
     setSynthesisSelectedIds(new Set());
     setSynthesisResult(null);
@@ -488,6 +568,7 @@ function KnowledgeGraphInner({ initialNodes, initialLinks }: KnowledgeGraphInner
   }
 
   function exitLayoutMode() {
+    setContextMenu(null);
     setIsLayoutMode(false);
     setRfSelectedCount(0);
     setRfNodes(prev => prev.map(n => n.selected ? { ...n, selected: false } : n));
@@ -678,15 +759,54 @@ function KnowledgeGraphInner({ initialNodes, initialLinks }: KnowledgeGraphInner
     );
   }
 
-  function handleNodeMoved(updatedNodes: KnowledgeNode[]) {
-    const updateMap = new Map(updatedNodes.map((n) => [n.id, n]));
-    setKnowledgeNodes((prev) =>
-      prev.map((n) => updateMap.get(n.id) ?? n)
-    );
+  async function handleNodeMoved(nodes: KnowledgeNode[]) {
+    const movedNode = nodes.find(n => n.id === selectedNodeId);
+
+    if (movedNode?.parent_id) {
+      const parentRfNode = rfNodes.find(n => n.id === movedNode.parent_id);
+      if (parentRfNode) {
+        const SLOT_RADIUS = X_SPACING * 0.7;
+        const isFree = (x: number, y: number): boolean =>
+          !rfNodes.some(n =>
+            n.id !== selectedNodeId &&
+            Math.abs(n.position.x - x) < SLOT_RADIUS &&
+            Math.abs(n.position.y - y) < SLOT_RADIUS
+          );
+
+        const px = parentRfNode.position.x;
+        const py = parentRfNode.position.y;
+        let newPos = { x: px, y: py + Y_SPACING };
+
+        outer:
+        for (let row = 1; row <= 3; row++) {
+          const candidateY = py + row * Y_SPACING;
+          for (let offset = 0; offset <= 4; offset++) {
+            const offsets = offset === 0 ? [0] : [offset * X_SPACING, -offset * X_SPACING];
+            for (const dx of offsets) {
+              if (isFree(px + dx, candidateY)) {
+                newPos = { x: px + dx, y: candidateY };
+                break outer;
+              }
+            }
+          }
+        }
+
+        setRfNodes(prev => prev.map(n =>
+          n.id === selectedNodeId ? { ...n, position: newPos } : n
+        ));
+        lastPersistedPositions.current.set(selectedNodeId!, newPos);
+        await updateNodePositions([{ id: selectedNodeId!, x: newPos.x, y: newPos.y }]);
+      }
+    }
+
+    const updateMap = new Map(nodes.map(n => [n.id, n]));
+    setKnowledgeNodes(prev => prev.map(n => updateMap.get(n.id) ?? n));
   }
 
   async function handleAutoLayout() {
     setAutoLayoutPending(true);
+    setContextMenu(null);
+    if (focusEnabled) setFocusEnabled(false);
     const layoutMap = computeAutoLayout(knowledgeNodes);
     const updates: { id: string; x: number; y: number }[] = [];
     layoutMap.forEach((pos, id) => {
@@ -699,6 +819,40 @@ function KnowledgeGraphInner({ initialNodes, initialLinks }: KnowledgeGraphInner
         return pos ? { ...n, position: pos } : n;
       })
     );
+    await updateNodePositions(updates);
+    setAutoLayoutPending(false);
+    setTimeout(() => fitView({ duration: 500 }), 50);
+  }
+
+  const onNodeContextMenu = useCallback((event: React.MouseEvent, node: Node) => {
+    event.preventDefault();
+    // Block context menu in synthesis/focus mode — layout actions not available there
+    if (synthesisModeRef.current || isFocusModeRef.current) return;
+    const rect = wrapperRef.current?.getBoundingClientRect();
+    setContextMenu({
+      nodeId: node.id,
+      x: event.clientX - (rect?.left ?? 0),
+      y: event.clientY - (rect?.top ?? 0),
+    });
+  }, []);
+
+  async function handleLayoutSubtree(nodeId: string) {
+    setContextMenu(null);
+    setAutoLayoutPending(true);
+    if (focusEnabled) setFocusEnabled(false);
+    const anchorRfNode = rfNodes.find(n => n.id === nodeId);
+    const anchorX = anchorRfNode?.position.x ?? 0;
+    const anchorY = anchorRfNode?.position.y ?? 0;
+    const layoutMap = computeSubtreeLayout(nodeId, anchorX, anchorY, knowledgeNodes);
+    const updates: { id: string; x: number; y: number }[] = [];
+    layoutMap.forEach((pos, id) => {
+      updates.push({ id, x: pos.x, y: pos.y });
+      lastPersistedPositions.current.set(id, pos);
+    });
+    setRfNodes(prev => prev.map(n => {
+      const pos = layoutMap.get(n.id);
+      return pos ? { ...n, position: pos } : n;
+    }));
     await updateNodePositions(updates);
     setAutoLayoutPending(false);
     setTimeout(() => fitView({ duration: 500 }), 50);
@@ -830,11 +984,31 @@ function KnowledgeGraphInner({ initialNodes, initialLinks }: KnowledgeGraphInner
     : [];
 
   return (
-    <div className="relative h-full w-full">
+    <div ref={wrapperRef} className="relative h-full w-full">
       {/* Synthesis mode banner */}
       {synthesisModeActive && (
         <div className="absolute top-0 left-0 right-0 bg-blue-500/10 border-b border-blue-500/20 px-4 py-2 text-center text-sm text-blue-600 dark:text-blue-400 z-20 pointer-events-none">
           Click nodes to select for synthesis — {synthesisSelectedIds.size} selected
+        </div>
+      )}
+
+      {/* Layout mode banner */}
+      {isLayoutMode && (
+        <div className="absolute top-0 left-0 right-0 flex flex-col items-center gap-1.5 pt-2 z-20 pointer-events-none">
+          <div className="text-xs bg-background/80 border rounded-md px-2.5 py-1 text-muted-foreground pointer-events-none">
+            Layout mode: drag to lasso · Shift+click to add · Esc to exit
+          </div>
+          {rfSelectedCount > 1 && (
+            <div className="flex items-center gap-3 bg-background/90 border rounded-md px-3 py-1.5 shadow-sm pointer-events-auto">
+              <span className="text-xs text-muted-foreground">{rfSelectedCount} nodes selected</span>
+              <button
+                className="text-xs text-muted-foreground hover:text-foreground transition-colors"
+                onClick={exitLayoutMode}
+              >
+                Clear
+              </button>
+            </div>
+          )}
         </div>
       )}
       <ReactFlow
@@ -847,7 +1021,8 @@ function KnowledgeGraphInner({ initialNodes, initialLinks }: KnowledgeGraphInner
         onNodeDragStart={onNodeDragStart}
         onNodeDragStop={onNodeDragStop}
         onNodeClick={onNodeClick}
-        onPaneClick={() => { setSelectedNodeId(null); setFocusEnabled(false); }}
+        onNodeContextMenu={onNodeContextMenu}
+        onPaneClick={() => { setSelectedNodeId(null); setFocusEnabled(false); setContextMenu(null); }}
         fitView={!isEmpty}
         minZoom={0.2}
         maxZoom={2}
@@ -870,27 +1045,6 @@ function KnowledgeGraphInner({ initialNodes, initialLinks }: KnowledgeGraphInner
           />
         )}
 
-        {/* Layout mode banner + selection count bar */}
-        {isLayoutMode && (
-          <Panel position="top-center">
-            <div className="flex flex-col items-center gap-1.5 mt-2">
-              <div className="text-xs bg-background/80 border rounded-md px-2.5 py-1 text-muted-foreground">
-                Layout mode: drag to lasso · Shift+click to add · Esc to exit
-              </div>
-              {rfSelectedCount > 1 && (
-                <div className="flex items-center gap-3 bg-background/90 border rounded-md px-3 py-1.5 shadow-sm">
-                  <span className="text-xs text-muted-foreground">{rfSelectedCount} nodes selected</span>
-                  <button
-                    className="text-xs text-muted-foreground hover:text-foreground transition-colors"
-                    onClick={exitLayoutMode}
-                  >
-                    Clear
-                  </button>
-                </div>
-              )}
-            </div>
-          </Panel>
-        )}
 
         {/* Root topic legend */}
         {showLegend && legendRoots.length > 0 && (
@@ -913,6 +1067,35 @@ function KnowledgeGraphInner({ initialNodes, initialLinks }: KnowledgeGraphInner
           </Panel>
         )}
       </ReactFlow>
+
+      {/* Right-click context menu */}
+      {contextMenu && (
+        <div
+          style={{ position: 'absolute', left: contextMenu.x, top: contextMenu.y, zIndex: 50 }}
+          className="bg-background border rounded-md shadow-lg py-1 min-w-[190px]"
+          onMouseLeave={() => setContextMenu(null)}
+        >
+          <button
+            className="flex items-center w-full px-3 py-1.5 text-sm hover:bg-accent text-left"
+            onClick={() => handleLayoutSubtree(contextMenu.nodeId)}
+          >
+            <LayoutGrid className="h-3.5 w-3.5 mr-2 text-muted-foreground" />
+            Layout subtree from here
+          </button>
+          <button
+            className="flex items-center w-full px-3 py-1.5 text-sm hover:bg-accent text-left"
+            onClick={() => {
+              setSelectedNodeId(contextMenu.nodeId);
+              setContextMenu(null);
+              const node = rfNodes.find(n => n.id === contextMenu.nodeId);
+              if (node) fitView({ nodes: [node], duration: 400, padding: 0.3 });
+            }}
+          >
+            <Maximize2 className="h-3.5 w-3.5 mr-2 text-muted-foreground" />
+            Recenter on this node
+          </button>
+        </div>
+      )}
 
       {/* Empty state */}
       {isEmpty && (
