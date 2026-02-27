@@ -10,7 +10,10 @@ import {
   updateMastery,
   addKnowledgeLink,
   deleteKnowledgeLink,
+  addChildNodes,
+  findGaps,
 } from "@/lib/actions/knowledge";
+import type { GapAnalysis } from "@/lib/knowledge-utils";
 import type { KnowledgeNode, KnowledgeLink, NodeResource, NodeType, MasteryStatus } from "@/types/database";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -45,6 +48,8 @@ import {
   Zap,
   FolderOpen,
   HelpCircle,
+  Check,
+  ScanSearch,
 } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
@@ -65,6 +70,7 @@ interface NodeDetailPanelProps {
   onNodeTypeChange: (nodeId: string, node_type: NodeType) => void;
   onLinkAdd: (link: KnowledgeLink) => void;
   onLinkDelete: (linkId: string) => void;
+  onChildAdded?: (newNodes: KnowledgeNode[]) => void;
 }
 
 interface DetailState {
@@ -117,6 +123,7 @@ export function NodeDetailPanel({
   onNodeTypeChange,
   onLinkAdd,
   onLinkDelete,
+  onChildAdded,
 }: NodeDetailPanelProps) {
   const [detail, setDetail] = useState<DetailState | null>(null);
   const [isGenerating, setIsGenerating] = useState(false);
@@ -148,6 +155,16 @@ export function NodeDetailPanel({
   const [linkPickerOpen, setLinkPickerOpen] = useState(false);
   const [linkSaving, setLinkSaving] = useState(false);
   const [deletingLinkId, setDeletingLinkId] = useState<string | null>(null);
+
+  // Child-add state
+  const [showChildInput, setShowChildInput] = useState(false);
+  const [childInput, setChildInput] = useState("");
+  const [addingChild, setAddingChild] = useState(false);
+
+  // Find Gaps state
+  const [gapResult, setGapResult] = useState<GapAnalysis | null>(null);
+  const [gapLoading, setGapLoading] = useState(false);
+  const [addedGapItems, setAddedGapItems] = useState<Set<string>>(new Set());
 
   const fetchDetail = useCallback(
     async (nodeId: string) => {
@@ -198,6 +215,11 @@ export function NodeDetailPanel({
     setLocalConfidence(node.confidence_score ?? null);
     prevStatusRef.current = node.mastery_status ?? 'not_started';
     setLocalNodeType(node.node_type ?? 'topic');
+    setShowChildInput(false);
+    setChildInput("");
+    setGapResult(null);
+    setGapLoading(false);
+    setAddedGapItems(new Set());
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [node?.id]);
 
@@ -351,10 +373,74 @@ export function NodeDetailPanel({
     onLinkDelete(linkId);
   }
 
+  async function handleAddChild() {
+    if (!node || !childInput.trim()) return;
+    setAddingChild(true);
+    const result = await addChildNodes(node.id, [childInput.trim()], false);
+    setAddingChild(false);
+    if ("error" in result) {
+      toast.error(result.error);
+      return;
+    }
+    onChildAdded?.(result.nodes);
+    setChildInput("");
+    setShowChildInput(false);
+    toast.success("Child node added");
+  }
+
+  function dedupeAndCap(items: string[], max: number): string[] {
+    const seen = new Set<string>();
+    return items
+      .map((s) => s.trim().replace(/\s+/g, " "))
+      .filter((s) => {
+        const k = s.toLowerCase();
+        if (seen.has(k)) return false;
+        seen.add(k);
+        return true;
+      })
+      .slice(0, max);
+  }
+
+  function normalizeGapItem(s: string) {
+    return s.trim().replace(/\s+/g, " ").toLowerCase();
+  }
+
+  async function handleFindGaps() {
+    if (!node) return;
+    setGapLoading(true);
+    setGapResult(null);
+    const result = await findGaps(node.id);
+    setGapLoading(false);
+    if ("error" in result) {
+      toast.error(result.error);
+      return;
+    }
+    setGapResult({
+      foundational: dedupeAndCap(result.foundational, 4),
+      advanced: dedupeAndCap(result.advanced, 3),
+      learning_path: dedupeAndCap(result.learning_path, 5),
+    });
+  }
+
+  async function handleAddGapItem(item: string) {
+    if (!node) return;
+    const key = normalizeGapItem(item);
+    if (addedGapItems.has(key)) return;
+    const result = await addChildNodes(node.id, [item], false);
+    if ("error" in result) {
+      toast.error(result.error);
+      return;
+    }
+    setAddedGapItems((prev) => new Set([...prev, key]));
+    onChildAdded?.(result.nodes);
+  }
+
   // Build breadcrumb
   const breadcrumb = buildBreadcrumb(node, nodes);
 
   if (!node) return null;
+
+  const childCount = nodes.filter((n) => n.parent_id === node.id).length;
 
   // Compute IDs already linked to this node
   const linkedNodeIds = new Set(
@@ -629,6 +715,47 @@ export function NodeDetailPanel({
             </div>
           </div>
 
+          {/* Children */}
+          <div className="space-y-2">
+            <span className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
+              Children
+            </span>
+            {showChildInput ? (
+              <div className="flex gap-1.5">
+                <Input
+                  placeholder="Child node title…"
+                  value={childInput}
+                  onChange={(e) => setChildInput(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") handleAddChild();
+                    if (e.key === "Escape") { setShowChildInput(false); setChildInput(""); }
+                  }}
+                  className="h-7 text-xs flex-1"
+                  autoFocus
+                />
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="h-7 px-2"
+                  onClick={handleAddChild}
+                  disabled={addingChild || !childInput.trim()}
+                >
+                  {addingChild ? <Loader2 className="h-3 w-3 animate-spin" /> : <Plus className="h-3 w-3" />}
+                </Button>
+              </div>
+            ) : (
+              <button
+                className="text-xs text-muted-foreground hover:text-foreground flex items-center gap-1 transition-colors"
+                onClick={() => setShowChildInput(true)}
+              >
+                <Plus className="h-3 w-3" />
+                Add child
+              </button>
+            )}
+          </div>
+
+          <div className="border-t" />
+
           {/* Connections */}
           <div className="space-y-2">
             <div className="flex items-center justify-between">
@@ -775,6 +902,134 @@ export function NodeDetailPanel({
               )}
             </>
           )}
+
+          <div className="border-t" />
+
+          {/* Find Gaps */}
+          <div className="space-y-3">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-1.5">
+                <ScanSearch className="h-3.5 w-3.5" style={{ color: rootColor }} />
+                <span className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
+                  {childCount === 0 ? "Suggested Subtopics" : "Find Gaps"}
+                </span>
+              </div>
+              <Button
+                size="sm"
+                variant="outline"
+                className="h-6 text-xs px-2"
+                onClick={handleFindGaps}
+                disabled={gapLoading}
+              >
+                {gapLoading ? (
+                  <Loader2 className="h-3 w-3 animate-spin" />
+                ) : childCount === 0 ? (
+                  "Suggest"
+                ) : (
+                  "Analyze"
+                )}
+              </Button>
+            </div>
+
+            {gapLoading && (
+              <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                <Loader2 className="h-3 w-3 animate-spin" />
+                Analyzing coverage…
+              </div>
+            )}
+
+            {gapResult && (
+              <div className="space-y-3">
+                {gapResult.foundational.length > 0 && (
+                  <div>
+                    <p className="text-[10px] font-medium text-muted-foreground uppercase mb-1.5">
+                      Foundational
+                    </p>
+                    <ul className="space-y-1.5">
+                      {gapResult.foundational.map((item, i) => {
+                        const key = normalizeGapItem(item);
+                        const added = addedGapItems.has(key);
+                        return (
+                          <li key={i} className="flex items-center justify-between gap-2">
+                            <span className="text-xs flex-1">{item}</span>
+                            <button
+                              onClick={() => handleAddGapItem(item)}
+                              disabled={added}
+                              className={cn(
+                                "shrink-0 h-5 w-5 rounded flex items-center justify-center transition-colors",
+                                added
+                                  ? "text-green-500"
+                                  : "text-muted-foreground hover:text-foreground hover:bg-muted"
+                              )}
+                              title={added ? "Added" : "Add to graph"}
+                            >
+                              {added ? (
+                                <Check className="h-3 w-3" />
+                              ) : (
+                                <Plus className="h-3 w-3" />
+                              )}
+                            </button>
+                          </li>
+                        );
+                      })}
+                    </ul>
+                  </div>
+                )}
+
+                {gapResult.advanced.length > 0 && (
+                  <div>
+                    <p className="text-[10px] font-medium text-muted-foreground uppercase mb-1.5">
+                      Advanced
+                    </p>
+                    <ul className="space-y-1.5">
+                      {gapResult.advanced.map((item, i) => {
+                        const key = normalizeGapItem(item);
+                        const added = addedGapItems.has(key);
+                        return (
+                          <li key={i} className="flex items-center justify-between gap-2">
+                            <span className="text-xs flex-1">{item}</span>
+                            <button
+                              onClick={() => handleAddGapItem(item)}
+                              disabled={added}
+                              className={cn(
+                                "shrink-0 h-5 w-5 rounded flex items-center justify-center transition-colors",
+                                added
+                                  ? "text-green-500"
+                                  : "text-muted-foreground hover:text-foreground hover:bg-muted"
+                              )}
+                              title={added ? "Added" : "Add to graph"}
+                            >
+                              {added ? (
+                                <Check className="h-3 w-3" />
+                              ) : (
+                                <Plus className="h-3 w-3" />
+                              )}
+                            </button>
+                          </li>
+                        );
+                      })}
+                    </ul>
+                  </div>
+                )}
+
+                {gapResult.learning_path.length > 0 && (
+                  <div>
+                    <p className="text-[10px] font-medium text-muted-foreground uppercase mb-1.5">
+                      Learning Path
+                    </p>
+                    <ol className="space-y-1.5">
+                      {gapResult.learning_path.map((step, i) => (
+                        <li key={i} className="flex gap-2 text-xs">
+                          <span className="text-muted-foreground shrink-0 font-mono">{i + 1}.</span>
+                          <span>{step}</span>
+                        </li>
+                      ))}
+                    </ol>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
         </TabsContent>
       </Tabs>
     </div>

@@ -6,7 +6,11 @@ import type { KnowledgeNode, KnowledgeLink, NodeResource, NodeType, MasteryStatu
 import {
   generateSubtopics,
   generateNodeDetail,
+  generateGapAnalysis,
+  generateSynthesis,
   pickRootColor,
+  type GapAnalysis,
+  type SynthesisResult,
 } from "@/lib/knowledge-utils";
 
 const DETAIL_MODEL = "gpt-4o-mini";
@@ -104,8 +108,20 @@ export async function addChildNodes(
 
   if (!parent) return { error: "Parent not found" };
 
-  const filtered = titles.map((t) => t.trim()).filter(Boolean);
-  if (filtered.length === 0) return { error: "No titles provided" };
+  const trimmedTitles = titles.map((t) => t.trim()).filter(Boolean);
+  if (trimmedTitles.length === 0) return { error: "No titles provided" };
+
+  // Dedup against existing children (case-insensitive) to prevent double-inserts
+  const { data: existingChildren } = await supabase
+    .from("knowledge_nodes")
+    .select("title")
+    .eq("parent_id", parentId)
+    .eq("user_id", user.id);
+  const existingTitlesLower = new Set(
+    (existingChildren ?? []).map((c: { title: string }) => c.title.toLowerCase())
+  );
+  const filtered = trimmedTitles.filter((t) => !existingTitlesLower.has(t.toLowerCase()));
+  if (filtered.length === 0) return { nodes: [] };
 
   const rows = filtered.map((title) => ({
     user_id: user.id,
@@ -502,4 +518,115 @@ export async function suggestSubtopics(
 
   const suggestions = await generateSubtopics(node.title, ancestorChain);
   return { suggestions };
+}
+
+export async function findGaps(
+  nodeId: string
+): Promise<GapAnalysis | { error: string }> {
+  const supabase = createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return { error: "Unauthorized" };
+
+  const { data: node } = await supabase
+    .from("knowledge_nodes")
+    .select("id, title, parent_id, user_notes, user_facts")
+    .eq("id", nodeId)
+    .eq("user_id", user.id)
+    .single();
+
+  if (!node) return { error: "Node not found" };
+
+  const [{ data: children }, { data: allNodes }] = await Promise.all([
+    supabase
+      .from("knowledge_nodes")
+      .select("title")
+      .eq("parent_id", nodeId)
+      .eq("user_id", user.id),
+    supabase
+      .from("knowledge_nodes")
+      .select("id, parent_id, title")
+      .eq("user_id", user.id),
+  ]);
+
+  const childTitles = (children ?? []).map((c: { title: string }) => c.title);
+
+  const nodeById = new Map<string, { parent_id: string | null; title: string }>();
+  for (const n of allNodes ?? []) {
+    nodeById.set(n.id, { parent_id: n.parent_id, title: n.title });
+  }
+
+  const ancestorChain: string[] = [];
+  let cur = nodeById.get(nodeId);
+  while (cur?.parent_id) {
+    const parent = nodeById.get(cur.parent_id);
+    if (!parent) break;
+    ancestorChain.unshift(parent.title);
+    cur = parent;
+  }
+
+  const result = await generateGapAnalysis(
+    node.title,
+    childTitles,
+    ancestorChain,
+    node.user_notes ?? null,
+    (node.user_facts as string[]) ?? []
+  );
+
+  if (!result) return { error: "AI generation failed" };
+
+  function dedupeAndCap(items: string[], max: number): string[] {
+    const seen = new Set<string>();
+    return items
+      .map((s) => s.trim().replace(/\s+/g, " "))
+      .filter((s) => {
+        const k = s.toLowerCase();
+        if (seen.has(k)) return false;
+        seen.add(k);
+        return true;
+      })
+      .slice(0, max);
+  }
+
+  return {
+    foundational: dedupeAndCap(result.foundational, 4),
+    advanced: dedupeAndCap(result.advanced, 3),
+    learning_path: dedupeAndCap(result.learning_path, 5),
+  };
+}
+
+export async function synthesizeNodes(
+  nodeIds: string[]
+): Promise<SynthesisResult | { error: string }> {
+  if (nodeIds.length < 2 || nodeIds.length > 10) {
+    return { error: "Please select 2–10 nodes to synthesize" };
+  }
+
+  const supabase = createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return { error: "Unauthorized" };
+
+  const { data: nodes } = await supabase
+    .from("knowledge_nodes")
+    .select("id, title, description, user_notes, user_facts")
+    .in("id", nodeIds)
+    .eq("user_id", user.id);
+
+  if (!nodes || nodes.length < 2) return { error: "Nodes not found" };
+
+  const result = await generateSynthesis(
+    nodes as {
+      title: string;
+      description?: string | null;
+      user_notes?: string | null;
+      user_facts?: string[] | null;
+    }[]
+  );
+
+  if (!result) return { error: "AI synthesis failed" };
+
+  return result;
 }

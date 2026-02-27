@@ -127,6 +127,172 @@ export async function generateNodeDetail(
   }
 }
 
+export interface GapAnalysis {
+  foundational: string[];
+  advanced: string[];
+  learning_path: string[];
+}
+
+export async function generateGapAnalysis(
+  title: string,
+  childTitles: string[],
+  ancestorChain: string[],
+  userNotes: string | null,
+  userFacts: string[]
+): Promise<GapAnalysis | null> {
+  const openai = getOpenAIClient();
+  if (!openai) return null;
+
+  const ancestorContext =
+    ancestorChain.length > 0
+      ? `This topic is a subtopic of: ${ancestorChain.join(" → ")}`
+      : "This is a top-level topic.";
+
+  const prompt = `Topic: "${title}"
+${ancestorContext}
+
+${userNotes ? `User's notes: "${userNotes.slice(0, 300)}"` : ""}
+${userFacts.length ? `User's key takeaways:\n${userFacts.map((f) => `- ${f}`).join("\n")}` : ""}
+
+Existing subtopics already mapped:
+${childTitles.length ? childTitles.map((t) => `- ${t}`).join("\n") : "(none yet)"}
+
+Identify what to learn next. Do NOT repeat or paraphrase any existing subtopic titles.
+Foundational and advanced items must be noun phrases (3–7 words). No verbs like "learn", "understand", "study".
+Learning_path items may be short imperative action steps.
+Do not repeat across sections. Avoid generic umbrella terms unless essential.
+Return plain strings only — no punctuation at end, no numbering, no duplicates after casefolding.
+Return JSON:
+{
+  "foundational": ["missing concept A", ...],
+  "advanced": ["extension B", ...],
+  "learning_path": ["step 1", "step 2", ...]
+}`;
+
+  try {
+    const response = await openai.chat.completions.create({
+      model: "gpt-4o-mini",
+      messages: [{ role: "user", content: prompt }],
+      response_format: { type: "json_object" },
+      temperature: 0.4,
+      max_tokens: 600,
+    });
+    const content = response.choices[0]?.message?.content;
+    if (!content) return null;
+    const parsed = JSON.parse(content) as {
+      foundational?: unknown;
+      advanced?: unknown;
+      learning_path?: unknown;
+    };
+    if (
+      !Array.isArray(parsed.foundational) ||
+      !Array.isArray(parsed.advanced) ||
+      !Array.isArray(parsed.learning_path)
+    )
+      return null;
+    return {
+      foundational: (parsed.foundational as unknown[]).filter((s) => typeof s === "string") as string[],
+      advanced: (parsed.advanced as unknown[]).filter((s) => typeof s === "string") as string[],
+      learning_path: (parsed.learning_path as unknown[]).filter((s) => typeof s === "string") as string[],
+    };
+  } catch (err) {
+    console.error("Gap analysis generation error:", err);
+    return null;
+  }
+}
+
+export interface SynthesisResult {
+  connections: string[];
+  contradictions: string[];
+  applications: string[];
+  insights: string[];
+  suggested_links: { from: string; to: string; why: string }[];
+}
+
+export async function generateSynthesis(
+  nodes: {
+    title: string;
+    description?: string | null;
+    user_notes?: string | null;
+    user_facts?: string[] | null;
+  }[]
+): Promise<SynthesisResult | null> {
+  const openai = getOpenAIClient();
+  if (!openai) return null;
+
+  const nodeContext = nodes
+    .map(
+      (n) =>
+        `**${n.title}**` +
+        (n.description ? `\nSummary: ${n.description}` : "") +
+        (n.user_notes?.trim() ? `\nUser notes: ${n.user_notes.trim().slice(0, 200)}` : "") +
+        (n.user_facts?.length ? `\nUser takeaways: ${n.user_facts.slice(0, 3).join("; ")}` : "")
+    )
+    .join("\n\n");
+
+  const prompt = `You are synthesizing insights across multiple knowledge nodes.
+
+Topics:
+${nodeContext}
+
+Return JSON:
+{
+  "connections": ["how these relate...", ...],
+  "contradictions": ["tension or paradox...", ...],
+  "applications": ["real-world use...", ...],
+  "insights": ["emergent insight only visible together", ...],
+  "suggested_links": [
+    {"from": "exact node title A", "to": "exact node title B", "why": "one sentence"}
+  ]
+}
+
+Use exact titles from the list above. Do not invent new titles in suggested_links.`;
+
+  try {
+    const response = await openai.chat.completions.create({
+      model: "gpt-4o-mini",
+      messages: [{ role: "user", content: prompt }],
+      response_format: { type: "json_object" },
+      temperature: 0.6,
+      max_tokens: 900,
+    });
+    const content = response.choices[0]?.message?.content;
+    if (!content) return null;
+    const parsed = JSON.parse(content) as {
+      connections?: unknown;
+      contradictions?: unknown;
+      applications?: unknown;
+      insights?: unknown;
+      suggested_links?: unknown;
+    };
+    return {
+      connections: Array.isArray(parsed.connections)
+        ? (parsed.connections as string[])
+        : [],
+      contradictions: Array.isArray(parsed.contradictions)
+        ? (parsed.contradictions as string[])
+        : [],
+      applications: Array.isArray(parsed.applications)
+        ? (parsed.applications as string[])
+        : [],
+      insights: Array.isArray(parsed.insights)
+        ? (parsed.insights as string[])
+        : [],
+      suggested_links: Array.isArray(parsed.suggested_links)
+        ? (parsed.suggested_links as { from: string; to: string; why: string }[]).filter(
+            (l) =>
+              typeof l.from === "string" &&
+              typeof l.to === "string" &&
+              typeof l.why === "string"
+          )
+        : [],
+    };
+  } catch (err) {
+    console.error("Synthesis generation error:", err);
+    return null;
+  }
+}
+
 export const ROOT_COLORS = [
   "#6366f1", // indigo
   "#f59e0b", // amber

@@ -4,6 +4,7 @@ import { useCallback, useMemo, useRef, useState, useEffect } from "react";
 import {
   ReactFlow,
   Background,
+  MiniMap,
   BaseEdge,
   getBezierPath,
   type Node,
@@ -24,13 +25,14 @@ import {
   deleteNode,
   updateNodePositions,
   suggestSubtopics,
-  addKnowledgeLink,
-  deleteKnowledgeLink,
+  synthesizeNodes,
 } from "@/lib/actions/knowledge";
 import type { KnowledgeNode, KnowledgeLink, NodeResource } from "@/types/database";
+import type { SynthesisResult } from "@/lib/knowledge-utils";
 import { KnowledgeNodeCard, type KnowledgeNodeData } from "@/components/knowledge-node-card";
 import { NodeDetailPanel } from "@/components/node-detail-panel";
 import { SubtopicSuggestionSheet } from "@/components/subtopic-suggestion-sheet";
+import { SynthesisPanel } from "@/components/synthesis-panel";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -40,7 +42,15 @@ import {
   DialogFooter,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
-import { Plus, Maximize2, Loader2, Brain, ZoomIn, ZoomOut } from "lucide-react";
+import {
+  CommandDialog,
+  CommandEmpty,
+  CommandGroup,
+  CommandInput,
+  CommandItem,
+  CommandList,
+} from "@/components/ui/command";
+import { Plus, Maximize2, Loader2, Brain, ZoomIn, ZoomOut, Focus, Map as MapIcon, Sparkles } from "lucide-react";
 import { ROOT_COLORS } from "@/lib/knowledge-utils";
 
 // Custom dashed cross-link edge (defined at module level, outside component)
@@ -76,6 +86,28 @@ function collectDescendants(nodeId: string, nodes: KnowledgeNode[], acc: Set<str
   }
 }
 
+function collectFocusDescendants(rootId: string, childrenMap: Map<string, string[]>, acc: Set<string>) {
+  const stack: string[] = [rootId];
+  while (stack.length) {
+    const cur = stack.pop()!;
+    for (const k of (childrenMap.get(cur) ?? [])) {
+      if (acc.has(k)) continue;
+      acc.add(k);
+      stack.push(k);
+    }
+  }
+}
+
+function collectFocusAncestors(id: string, parentMap: Map<string, string | null>, acc: Set<string>) {
+  let cur: string = id;
+  while (true) {
+    const p: string | null = parentMap.get(cur) ?? null;
+    if (!p || acc.has(p)) break;
+    acc.add(p);
+    cur = p;
+  }
+}
+
 interface KnowledgeGraphInnerProps {
   initialNodes: KnowledgeNode[];
   initialLinks: KnowledgeLink[];
@@ -98,9 +130,23 @@ function KnowledgeGraphInner({ initialNodes, initialLinks }: KnowledgeGraphInner
   const [suggestions, setSuggestions] = useState<string[]>([]);
   const [suggestionsLoading, setSuggestionsLoading] = useState(false);
   const [sheetOpen, setSheetOpen] = useState(false);
+  const [focusEnabled, setFocusEnabled] = useState(false);
+  const [minimapVisible, setMinimapVisible] = useState(false);
+  const [spotlightOpen, setSpotlightOpen] = useState(false);
+
+  // Synthesis mode state
+  const [synthesisModeActive, setSynthesisModeActive] = useState(false);
+  const [synthesisSelectedIds, setSynthesisSelectedIds] = useState<Set<string>>(new Set());
+  const [synthesisResult, setSynthesisResult] = useState<SynthesisResult | null>(null);
+  const [synthesisLoading, setSynthesisLoading] = useState(false);
+  const [synthesisDialogOpen, setSynthesisDialogOpen] = useState(false);
 
   // Track persisted positions for diffing
   const lastPersistedPositions = useRef<Map<string, { x: number; y: number }>>(new Map());
+  // Drag-click guard for synthesis mode
+  const isDraggingRef = useRef(false);
+  // Ref mirror for synthesis mode (for stable callbacks)
+  const synthesisModeRef = useRef(false);
 
   const onToggleCollapse = useCallback((nodeId: string) => {
     setCollapsedIds((prev) => {
@@ -164,7 +210,6 @@ function KnowledgeGraphInner({ initialNodes, initialLinks }: KnowledgeGraphInner
             rootColor,
             onExpand: handleExpand,
             onDelete: (nodeId: string) => setDeleteConfirmId(nodeId),
-            onSelect: setSelectedNodeId,
             selected: false,
             hasUserContent:
               (node.user_notes !== null && node.user_notes !== "") ||
@@ -176,6 +221,7 @@ function KnowledgeGraphInner({ initialNodes, initialLinks }: KnowledgeGraphInner
             isCollapsed: collapsed.has(node.id),
             linkCount: linkCountMap.get(node.id) ?? 0,
             onToggleCollapse,
+            isSynthesisSelected: false,
           } satisfies KnowledgeNodeData,
         };
       });
@@ -239,6 +285,24 @@ function KnowledgeGraphInner({ initialNodes, initialLinks }: KnowledgeGraphInner
     );
   }, [selectedNodeId]);
 
+  // Sync synthesis mode ref
+  useEffect(() => {
+    synthesisModeRef.current = synthesisModeActive;
+  }, [synthesisModeActive]);
+
+  // Update synthesis selection highlight on rfNodes
+  useEffect(() => {
+    setRfNodes((prev) =>
+      prev.map((n) => ({
+        ...n,
+        data: {
+          ...(n.data as unknown as KnowledgeNodeData),
+          isSynthesisSelected: synthesisSelectedIds.has(n.id),
+        } as unknown as Record<string, unknown>,
+      }))
+    );
+  }, [synthesisSelectedIds]);
+
   const onNodesChange = useCallback((changes: NodeChange[]) => {
     setRfNodes((nds) => applyNodeChanges(changes, nds));
   }, []);
@@ -247,8 +311,13 @@ function KnowledgeGraphInner({ initialNodes, initialLinks }: KnowledgeGraphInner
     setRfEdges((eds) => applyEdgeChanges(changes, eds));
   }, []);
 
+  const onNodeDragStart: OnNodeDrag = useCallback(() => {
+    isDraggingRef.current = true;
+  }, []);
+
   const onNodeDragStop: OnNodeDrag = useCallback(
     async (_, __, nodes) => {
+      setTimeout(() => { isDraggingRef.current = false; }, 50);
       const changed: { id: string; x: number; y: number }[] = [];
       for (const n of nodes) {
         const last = lastPersistedPositions.current.get(n.id);
@@ -267,6 +336,19 @@ function KnowledgeGraphInner({ initialNodes, initialLinks }: KnowledgeGraphInner
     []
   );
 
+  const onNodeClick = useCallback((_evt: unknown, node: Node) => {
+    if (isDraggingRef.current) return;
+    if (synthesisModeRef.current) {
+      setSynthesisSelectedIds((prev) => {
+        const next = new Set(prev);
+        next.has(node.id) ? next.delete(node.id) : next.add(node.id);
+        return next;
+      });
+      return;
+    }
+    setSelectedNodeId(node.id);
+  }, []);
+
   // Keyboard handlers
   useEffect(() => {
     function onKeyDown(e: KeyboardEvent) {
@@ -280,6 +362,63 @@ function KnowledgeGraphInner({ initialNodes, initialLinks }: KnowledgeGraphInner
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [selectedNodeId]);
+
+  // Cmd+K spotlight
+  useEffect(() => {
+    function onKeyDown(e: KeyboardEvent) {
+      if ((e.metaKey || e.ctrlKey) && e.key === "k") {
+        e.preventDefault();
+        setSpotlightOpen((prev) => !prev);
+      }
+    }
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, []);
+
+  // Synthesis mode keyboard shortcuts
+  useEffect(() => {
+    function onKeyDown(e: KeyboardEvent) {
+      if (!synthesisModeActive || synthesisDialogOpen) return;
+      if (e.key === "Escape") {
+        e.preventDefault();
+        exitSynthesisMode();
+      }
+      if (e.key === "Enter" && synthesisSelectedIds.size >= 2 && !synthesisLoading) {
+        e.preventDefault();
+        handleSynthesize();
+      }
+    }
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [synthesisModeActive, synthesisDialogOpen, synthesisSelectedIds, synthesisLoading]);
+
+  function enterSynthesisMode() {
+    setSynthesisModeActive(true);
+    setSelectedNodeId(null);
+    setFocusEnabled(false);
+  }
+
+  function exitSynthesisMode() {
+    setSynthesisModeActive(false);
+    setSynthesisSelectedIds(new Set());
+    setSynthesisResult(null);
+    setSynthesisLoading(false);
+    setSynthesisDialogOpen(false);
+  }
+
+  async function handleSynthesize() {
+    const ids = Array.from(synthesisSelectedIds);
+    setSynthesisLoading(true);
+    const result = await synthesizeNodes(ids);
+    setSynthesisLoading(false);
+    if ("error" in result) {
+      toast.error(result.error);
+      return;
+    }
+    setSynthesisResult(result);
+    setSynthesisDialogOpen(true);
+  }
 
   async function handleExpand(nodeId: string) {
     setExpandNodeId(nodeId);
@@ -352,9 +491,14 @@ function KnowledgeGraphInner({ initialNodes, initialLinks }: KnowledgeGraphInner
     const CHILD_SPACING = 180;
     const CHILD_Y_OFFSET = 180;
 
+    // Count existing children from canonical list so sequential quick-adds spread out
+    const existingChildCount = knowledgeNodes.filter(
+      (n) => n.parent_id === parentId && !newNodes.some((nn) => nn.id === n.id)
+    ).length;
+
     const patchedNodes = newNodes.map((node, i) => ({
       ...node,
-      position_x: parentX + (i - (N - 1) / 2) * CHILD_SPACING,
+      position_x: parentX + (existingChildCount + i - (N - 1) / 2) * CHILD_SPACING,
       position_y: parentY + CHILD_Y_OFFSET,
     }));
 
@@ -378,6 +522,23 @@ function KnowledgeGraphInner({ initialNodes, initialLinks }: KnowledgeGraphInner
 
   function handleJumpToNode(nodeId: string) {
     fitView({ nodes: [{ id: nodeId }], duration: 500, padding: 0.5 });
+  }
+
+  function handleSpotlightSelect(nodeId: string) {
+    setSelectedNodeId(nodeId);
+    fitView({ nodes: [{ id: nodeId }], duration: 400, padding: 0.5 });
+    setSpotlightOpen(false);
+  }
+
+  function getNodePath(node: KnowledgeNode): string {
+    const nodeById = new Map(knowledgeNodes.map((n) => [n.id, n]));
+    const chain: string[] = [];
+    let cur = node.parent_id ? nodeById.get(node.parent_id) : undefined;
+    while (cur) {
+      chain.unshift(cur.title);
+      cur = cur.parent_id ? nodeById.get(cur.parent_id) : undefined;
+    }
+    return chain.join(" › ");
   }
 
   function handleNotesChange(nodeId: string, notes: string | null) {
@@ -441,19 +602,82 @@ function KnowledgeGraphInner({ initialNodes, initialLinks }: KnowledgeGraphInner
     );
   }, [selectedNodeId, knowledgeLinks]);
 
+  // Focus mode — precompute traversal maps
+  const childrenMap = useMemo(() => {
+    const m = new Map<string, string[]>();
+    for (const n of knowledgeNodes) {
+      if (!n.parent_id) continue;
+      const arr = m.get(n.parent_id) ?? [];
+      arr.push(n.id);
+      m.set(n.parent_id, arr);
+    }
+    return m;
+  }, [knowledgeNodes]);
+
+  const parentMap = useMemo(() => {
+    const m = new Map<string, string | null>();
+    for (const n of knowledgeNodes) m.set(n.id, n.parent_id ?? null);
+    return m;
+  }, [knowledgeNodes]);
+
+  const neighborsMap = useMemo(() => {
+    const m = new Map<string, Set<string>>();
+    const add = (a: string, b: string) => {
+      if (!m.has(a)) m.set(a, new Set());
+      m.get(a)!.add(b);
+    };
+    for (const l of knowledgeLinks) { add(l.a_id, l.b_id); add(l.b_id, l.a_id); }
+    return m;
+  }, [knowledgeLinks]);
+
+  // focusSet: nodes that should remain fully visible
+  const focusSet = useMemo((): Set<string> | null => {
+    if (!focusEnabled || !selectedNodeId) return null;
+    const acc = new Set<string>([selectedNodeId]);
+    collectFocusAncestors(selectedNodeId, parentMap, acc);
+    collectFocusDescendants(selectedNodeId, childrenMap, acc);
+    neighborsMap.get(selectedNodeId)?.forEach(x => acc.add(x));
+    return acc;
+  }, [focusEnabled, selectedNodeId, parentMap, childrenMap, neighborsMap]);
+
+  // Presentation layer — apply focus fading without mutating state
+  const displayNodes = useMemo(() =>
+    rfNodes.map(n => {
+      if (!focusSet || focusSet.has(n.id)) return n;
+      return { ...n, style: { ...(n.style ?? {}), opacity: 0.15, pointerEvents: "none" as const } };
+    }), [rfNodes, focusSet]);
+
+  const displayEdges = useMemo(() =>
+    rfEdges.map(e => {
+      if (!focusSet || (focusSet.has(e.source) && focusSet.has(e.target))) return e;
+      return { ...e, style: { ...(e.style ?? {}), opacity: 0.08 } };
+    }), [rfEdges, focusSet]);
+
   const isEmpty = knowledgeNodes.length === 0;
+
+  const selectedSynthesisNodes = synthesisResult
+    ? knowledgeNodes.filter((n) => synthesisSelectedIds.has(n.id))
+    : [];
 
   return (
     <div className="relative h-full w-full">
+      {/* Synthesis mode banner */}
+      {synthesisModeActive && (
+        <div className="absolute top-0 left-0 right-0 bg-blue-500/10 border-b border-blue-500/20 px-4 py-2 text-center text-sm text-blue-600 dark:text-blue-400 z-20 pointer-events-none">
+          Click nodes to select for synthesis — {synthesisSelectedIds.size} selected
+        </div>
+      )}
       <ReactFlow
-        nodes={rfNodes}
-        edges={rfEdges}
+        nodes={displayNodes}
+        edges={displayEdges}
         nodeTypes={NODE_TYPES}
         edgeTypes={EDGE_TYPES}
         onNodesChange={onNodesChange}
         onEdgesChange={onEdgesChange}
+        onNodeDragStart={onNodeDragStart}
         onNodeDragStop={onNodeDragStop}
-        onPaneClick={() => setSelectedNodeId(null)}
+        onNodeClick={onNodeClick}
+        onPaneClick={() => { setSelectedNodeId(null); setFocusEnabled(false); }}
         fitView={!isEmpty}
         minZoom={0.2}
         maxZoom={2}
@@ -461,6 +685,14 @@ function KnowledgeGraphInner({ initialNodes, initialLinks }: KnowledgeGraphInner
         proOptions={{ hideAttribution: true }}
       >
         <Background gap={20} size={1} className="opacity-30" />
+        {minimapVisible && (
+          <MiniMap
+            nodeColor={(n) => (n.data as unknown as KnowledgeNodeData).rootColor ?? "#94a3b8"}
+            nodeBorderRadius={4}
+            maskColor="rgba(0,0,0,0.15)"
+            className="rounded-lg border border-border"
+          />
+        )}
       </ReactFlow>
 
       {/* Empty state */}
@@ -515,6 +747,41 @@ function KnowledgeGraphInner({ initialNodes, initialLinks }: KnowledgeGraphInner
         <Button
           variant="outline"
           size="sm"
+          onClick={() => setSpotlightOpen(true)}
+          title="Search nodes (⌘K)"
+          className="font-mono text-xs px-2.5"
+        >
+          ⌘K
+        </Button>
+        <Button
+          variant={minimapVisible ? "default" : "outline"}
+          size="sm"
+          onClick={() => setMinimapVisible(m => !m)}
+          title="Toggle minimap"
+        >
+          <MapIcon className="h-4 w-4" />
+        </Button>
+        <Button
+          variant={focusEnabled ? "default" : "outline"}
+          size="sm"
+          onClick={() => setFocusEnabled(f => !f)}
+          title="Focus on selected node"
+        >
+          <Focus className="h-4 w-4 mr-1.5" />
+          Focus
+        </Button>
+        <Button
+          variant={synthesisModeActive ? "default" : "outline"}
+          size="sm"
+          onClick={() => synthesisModeActive ? exitSynthesisMode() : enterSynthesisMode()}
+          title="Synthesis mode"
+        >
+          <Sparkles className="h-4 w-4 mr-1.5" />
+          Synthesize
+        </Button>
+        <Button
+          variant="outline"
+          size="sm"
           onClick={() => fitView({ duration: 500 })}
         >
           <Maximize2 className="h-4 w-4 mr-1.5" />
@@ -528,6 +795,30 @@ function KnowledgeGraphInner({ initialNodes, initialLinks }: KnowledgeGraphInner
           Add Topic
         </Button>
       </div>
+
+      {/* Synthesis floating action bar */}
+      {synthesisModeActive && (
+        <div className="absolute bottom-6 left-1/2 -translate-x-1/2 flex items-center gap-3 bg-background border rounded-full px-4 py-2 shadow-lg z-50">
+          <span className="text-sm text-muted-foreground">
+            {synthesisSelectedIds.size} node{synthesisSelectedIds.size !== 1 ? "s" : ""} selected
+          </span>
+          <Button
+            size="sm"
+            disabled={synthesisSelectedIds.size < 2 || synthesisLoading}
+            onClick={handleSynthesize}
+          >
+            {synthesisLoading ? (
+              <Loader2 className="h-3.5 w-3.5 animate-spin mr-1.5" />
+            ) : (
+              <Sparkles className="h-3.5 w-3.5 mr-1.5" />
+            )}
+            Synthesize
+          </Button>
+          <Button size="sm" variant="ghost" onClick={exitSynthesisMode}>
+            Cancel
+          </Button>
+        </div>
+      )}
 
       {/* Detail panel */}
       <NodeDetailPanel
@@ -545,6 +836,7 @@ function KnowledgeGraphInner({ initialNodes, initialLinks }: KnowledgeGraphInner
         onNodeTypeChange={handleNodeTypeChange}
         onLinkAdd={handleLinkAdd}
         onLinkDelete={handleLinkDelete}
+        onChildAdded={handleSubtopicsAdded}
       />
 
       {/* Add root dialog */}
@@ -618,6 +910,42 @@ function KnowledgeGraphInner({ initialNodes, initialLinks }: KnowledgeGraphInner
         existingChildTitles={existingChildTitles}
         onAdded={handleSubtopicsAdded}
       />
+
+      {/* Synthesis result dialog */}
+      {synthesisResult && (
+        <SynthesisPanel
+          open={synthesisDialogOpen}
+          result={synthesisResult}
+          selectedNodes={selectedSynthesisNodes}
+          onClose={exitSynthesisMode}
+        />
+      )}
+
+      {/* Spotlight search */}
+      <CommandDialog open={spotlightOpen} onOpenChange={setSpotlightOpen}>
+        <CommandInput placeholder="Jump to node…" />
+        <CommandList>
+          <CommandEmpty>No nodes found.</CommandEmpty>
+          <CommandGroup>
+            {knowledgeNodes.map((n) => {
+              const path = getNodePath(n);
+              return (
+                <CommandItem
+                  key={n.id}
+                  value={path ? `${n.title} ${path}` : n.title}
+                  onSelect={() => handleSpotlightSelect(n.id)}
+                  className="flex flex-col items-start gap-0 py-2 cursor-pointer"
+                >
+                  <span className="text-sm font-medium">{n.title}</span>
+                  {path && (
+                    <span className="text-xs text-muted-foreground">{path}</span>
+                  )}
+                </CommandItem>
+              );
+            })}
+          </CommandGroup>
+        </CommandList>
+      </CommandDialog>
     </div>
   );
 }

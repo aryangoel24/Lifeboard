@@ -24,7 +24,6 @@ export interface KnowledgeNodeData {
   rootColor: string;
   onExpand: (nodeId: string) => void;
   onDelete: (nodeId: string) => void;
-  onSelect: (nodeId: string) => void;
   selected: boolean;
   hasUserContent: boolean;
   nodeType: NodeType;
@@ -33,6 +32,7 @@ export interface KnowledgeNodeData {
   isCollapsed: boolean;
   linkCount: number;
   onToggleCollapse: (nodeId: string) => void;
+  isSynthesisSelected?: boolean;
 }
 
 const NODE_TYPE_ICONS: Partial<Record<NodeType, LucideIcon>> = {
@@ -70,7 +70,6 @@ export const KnowledgeNodeCard = memo(function KnowledgeNodeCard({
     rootColor,
     onExpand,
     onDelete,
-    onSelect,
     selected,
     hasUserContent,
     nodeType,
@@ -79,6 +78,7 @@ export const KnowledgeNodeCard = memo(function KnowledgeNodeCard({
     isCollapsed,
     linkCount,
     onToggleCollapse,
+    isSynthesisSelected,
   } = data;
   const [showActions, setShowActions] = useState(false);
   const isRoot = node.depth === 0;
@@ -96,17 +96,25 @@ export const KnowledgeNodeCard = memo(function KnowledgeNodeCard({
       className={cn(
         "relative rounded-lg border-2 cursor-pointer group transition-all duration-200 select-none",
         isRoot ? "w-52 min-h-[80px]" : "w-40 min-h-[60px]",
-        selected ? "shadow-lg ring-2 ring-offset-1" : "shadow-sm hover:shadow-md"
+        selected ? "shadow-lg ring-2 ring-offset-1" : "shadow-sm hover:shadow-md",
+        isSynthesisSelected && "ring-2 ring-blue-500 ring-offset-1"
       )}
       style={{
-        borderColor: rootColor,
+        borderColor: isSynthesisSelected ? "#3b82f6" : rootColor,
         backgroundColor: bgTint,
         boxShadow: selected ? `0 0 0 2px ${rootColor}` : undefined,
       }}
-      onClick={() => onSelect(node.id)}
       onMouseEnter={() => setShowActions(true)}
       onMouseLeave={() => setShowActions(false)}
     >
+      {/* Synthesis check badge */}
+      {isSynthesisSelected && (
+        <span className="absolute -top-1.5 -right-1.5 h-4 w-4 rounded-full bg-blue-500 flex items-center justify-center z-10">
+          <svg viewBox="0 0 12 12" className="h-2.5 w-2.5 text-white fill-none stroke-current stroke-2">
+            <polyline points="2,6 5,9 10,3" />
+          </svg>
+        </span>
+      )}
       {/* Left color bar */}
       <div
         className="absolute left-0 top-0 bottom-0 w-1 rounded-l-md"
