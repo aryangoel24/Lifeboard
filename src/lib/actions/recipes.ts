@@ -2,7 +2,8 @@
 
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
-import { getDefaultMealCategory } from "@/lib/utils";
+import { getDefaultMealCategory, calcIngredientTotals } from "@/lib/utils";
+import { getNow } from "@/lib/timezone";
 import type { Recipe, RecipeIngredient } from "@/types/database";
 
 export async function getRecipes(): Promise<Recipe[]> {
@@ -53,7 +54,7 @@ export async function getRecipesWithIngredients(): Promise<
     const recipeIds = recipes.map((r: Recipe) => r.id);
     const { data: allIngredients } = await supabase
         .from("recipe_ingredients")
-        .select("*")
+        .select("id, recipe_id, name, amount, unit, calories, protein, carbs, fat, pantry_item_id")
         .in("recipe_id", recipeIds);
 
     const ingredientsByRecipe = (allIngredients || []).reduce(
@@ -81,7 +82,7 @@ export async function getRecipe(id: string): Promise<{ recipe: Recipe | null; in
 
     const [recipeResult, ingredientsResult] = await Promise.all([
         supabase.from("recipes").select("*").eq("id", id).eq("user_id", user.id).single(),
-        supabase.from("recipe_ingredients").select("*").eq("recipe_id", id),
+        supabase.from("recipe_ingredients").select("id, recipe_id, name, amount, unit, calories, protein, carbs, fat, pantry_item_id").eq("recipe_id", id),
     ]);
 
     return {
@@ -111,15 +112,7 @@ export async function createRecipe(formData: FormData) {
     }> = ingredientsJson ? JSON.parse(ingredientsJson) : [];
 
     // Calculate totals from ingredients
-    const totals = ingredients.reduce(
-        (acc, ing) => ({
-            calories: acc.calories + (ing.calories || 0),
-            protein: acc.protein + (ing.protein || 0),
-            carbs: acc.carbs + (ing.carbs || 0),
-            fat: acc.fat + (ing.fat || 0),
-        }),
-        { calories: 0, protein: 0, carbs: 0, fat: 0 }
-    );
+    const totals = calcIngredientTotals(ingredients);
 
     const tagsRaw = formData.get("tags") as string;
     const tags = tagsRaw ? tagsRaw.split(",").map((t) => t.trim()).filter(Boolean) : [];
@@ -184,15 +177,7 @@ export async function updateRecipe(id: string, formData: FormData) {
         pantryItemId?: string | null;
     }> = ingredientsJson ? JSON.parse(ingredientsJson) : [];
 
-    const totals = ingredients.reduce(
-        (acc, ing) => ({
-            calories: acc.calories + (ing.calories || 0),
-            protein: acc.protein + (ing.protein || 0),
-            carbs: acc.carbs + (ing.carbs || 0),
-            fat: acc.fat + (ing.fat || 0),
-        }),
-        { calories: 0, protein: 0, carbs: 0, fat: 0 }
-    );
+    const totals = calcIngredientTotals(ingredients);
 
     const tagsRaw = formData.get("tags") as string;
     const tags = tagsRaw ? tagsRaw.split(",").map((t) => t.trim()).filter(Boolean) : [];
@@ -263,7 +248,7 @@ export async function logFromRecipe(recipeId: string, servings: number, date: st
         protein: Math.round(recipe.total_protein * perServingMultiplier),
         carbs: Math.round(recipe.total_carbs * perServingMultiplier),
         fat: Math.round(recipe.total_fat * perServingMultiplier),
-        meal_category: getDefaultMealCategory(),
+        meal_category: getDefaultMealCategory(getNow().getHours()),
         meal_source: "homemade",
         logged_at: new Date(date + "T12:00:00").toISOString(),
     };

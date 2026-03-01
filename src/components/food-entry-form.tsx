@@ -15,7 +15,7 @@ import {
 } from "@/components/ui/select";
 import { PhotoUpload } from "@/components/photo-upload";
 import { toast } from "sonner";
-import { getDefaultMealCategory } from "@/lib/utils";
+import { getDefaultMealCategory, clientNowHour } from "@/lib/utils";
 import { Sparkles, Loader2 } from "lucide-react";
 import type { FoodEntry, MealCategory, MealSource } from "@/types/database";
 
@@ -36,7 +36,7 @@ export function FoodEntryForm({
     entry?.photo_url ?? null
   );
   const [mealCategory, setMealCategory] = useState<MealCategory>(
-    entry?.meal_category ?? getDefaultMealCategory()
+    entry?.meal_category ?? getDefaultMealCategory(clientNowHour())
   );
   const [mealSource, setMealSource] = useState<MealSource | "">(
     entry?.meal_source ?? ""

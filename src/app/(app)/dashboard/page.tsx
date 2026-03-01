@@ -6,7 +6,7 @@ import { getMealTemplates } from "@/lib/actions/meal-templates";
 import { getWeightEntries } from "@/lib/actions/weight";
 import { getTodayHabits, getHabitEntries } from "@/lib/actions/habits";
 import { getCustomHabits, getTodayCustomHabitEntries, getCustomHabitEntries } from "@/lib/actions/custom-habits";
-import { getToday } from "@/lib/timezone";
+import { getToday, getNow } from "@/lib/timezone";
 import { FoodEntryList } from "@/components/food-entry-list";
 import { DailySummary } from "@/components/daily-summary";
 import { AddEntryDialog } from "@/components/add-entry-dialog";
@@ -68,6 +68,7 @@ export default async function DashboardPage({
           entries={entries}
           profile={profile}
           showMealGaps={date === getToday()}
+          currentHour={getNow().getHours()}
         />
       )}
 

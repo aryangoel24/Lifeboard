@@ -3,7 +3,6 @@
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import type { DigestPayload, NodeType } from "@/types/database";
-import { addChildNodes } from "@/lib/actions/knowledge";
 import {
   selectCandidateNodes,
   buildBreadcrumb,
@@ -229,16 +228,74 @@ export async function applyDigestUpdates(
     );
   }
 
-  // Create new nodes (sequential to handle node_type update after creation)
-  for (const n of newNodes) {
-    const result = await addChildNodes(n.parentId, [n.title], true);
-    if ("nodes" in result && result.nodes.length > 0 && n.nodeType !== "topic") {
-      const createdId = result.nodes[0].id;
-      await supabase
+  // True batch insert: 2 reads + 1 insert + K parallel type updates
+  if (newNodes.length > 0) {
+    const parentIds = Array.from(new Set(newNodes.map((n) => n.parentId)));
+
+    // Step 1+2: parent metadata + existing children in parallel
+    const [{ data: parents }, { data: existingChildren }] = await Promise.all([
+      supabase
         .from("knowledge_nodes")
-        .update({ node_type: n.nodeType, updated_at: new Date().toISOString() })
-        .eq("id", createdId)
-        .eq("user_id", user.id);
+        .select("id, root_id, depth")
+        .in("id", parentIds)
+        .eq("user_id", user.id),
+      supabase
+        .from("knowledge_nodes")
+        .select("title, parent_id")
+        .in("parent_id", parentIds)
+        .eq("user_id", user.id),
+    ]);
+
+    const parentMap = new Map((parents ?? []).map((p) => [p.id, p]));
+    const existingByParent = new Map<string, Set<string>>();
+    for (const c of existingChildren ?? []) {
+      if (!existingByParent.has(c.parent_id)) existingByParent.set(c.parent_id, new Set());
+      existingByParent.get(c.parent_id)!.add(c.title.toLowerCase());
+    }
+
+    // Step 3: build rows, filter duplicates
+    const rows = newNodes
+      .filter((n) => {
+        const parent = parentMap.get(n.parentId);
+        if (!parent) return false;
+        return !(existingByParent.get(n.parentId) ?? new Set()).has(n.title.toLowerCase());
+      })
+      .map((n) => ({
+        user_id: user.id,
+        parent_id: n.parentId,
+        root_id: parentMap.get(n.parentId)!.root_id,
+        title: n.title,
+        position_x: 0,
+        position_y: 0,
+        depth: parentMap.get(n.parentId)!.depth + 1,
+        ai_generated: true,
+      }));
+
+    if (rows.length > 0) {
+      // Step 4: single batch insert
+      const { data: createdNodes } = await supabase
+        .from("knowledge_nodes")
+        .insert(rows)
+        .select("id, parent_id, title");
+
+      // Step 5: parallel type updates for non-default types
+      const typeUpdates = (createdNodes ?? []).flatMap((cn) => {
+        const original = newNodes.find(
+          (n) => n.parentId === cn.parent_id && n.title === cn.title
+        );
+        if (!original || original.nodeType === "topic") return [];
+        return [
+          supabase
+            .from("knowledge_nodes")
+            .update({ node_type: original.nodeType, updated_at: new Date().toISOString() })
+            .eq("id", cn.id)
+            .eq("user_id", user.id),
+        ];
+      });
+
+      if (typeUpdates.length > 0) {
+        await Promise.all(typeUpdates);
+      }
     }
   }
 

@@ -15,6 +15,22 @@ import {
 
 const DETAIL_MODEL = "gpt-4o-mini";
 
+function buildAncestorChain(
+  nodeId: string,
+  nodeById: Map<string, { parent_id: string | null; title: string }>
+): string[] {
+  const chain: string[] = [];
+  let cur = nodeById.get(nodeId);
+  while (cur?.parent_id) {
+    const parent = nodeById.get(cur.parent_id);
+    if (!parent) break;
+    chain.push(parent.title);
+    cur = parent;
+  }
+  chain.reverse();
+  return chain;
+}
+
 export async function getKnowledgeGraph(): Promise<{ nodes: KnowledgeNode[]; links: KnowledgeLink[] }> {
   const supabase = createClient();
   const {
@@ -270,14 +286,7 @@ export async function getNodeDetail(nodeId: string): Promise<
     nodeById.set(n.id, { parent_id: n.parent_id, title: n.title });
   }
 
-  const ancestorChain: string[] = [];
-  let cur = nodeById.get(nodeId);
-  while (cur?.parent_id) {
-    const parent = nodeById.get(cur.parent_id);
-    if (!parent) break;
-    ancestorChain.unshift(parent.title);
-    cur = parent;
-  }
+  const ancestorChain = buildAncestorChain(nodeId, nodeById);
 
   const detail = await generateNodeDetail(node.title, ancestorChain);
 
@@ -507,14 +516,7 @@ export async function suggestSubtopics(
     nodeById.set(n.id, { parent_id: n.parent_id, title: n.title });
   }
 
-  const ancestorChain: string[] = [];
-  let cur = nodeById.get(nodeId);
-  while (cur?.parent_id) {
-    const parent = nodeById.get(cur.parent_id);
-    if (!parent) break;
-    ancestorChain.unshift(parent.title);
-    cur = parent;
-  }
+  const ancestorChain = buildAncestorChain(nodeId, nodeById);
 
   const suggestions = await generateSubtopics(node.title, ancestorChain);
   return { suggestions };
@@ -557,14 +559,7 @@ export async function findGaps(
     nodeById.set(n.id, { parent_id: n.parent_id, title: n.title });
   }
 
-  const ancestorChain: string[] = [];
-  let cur = nodeById.get(nodeId);
-  while (cur?.parent_id) {
-    const parent = nodeById.get(cur.parent_id);
-    if (!parent) break;
-    ancestorChain.unshift(parent.title);
-    cur = parent;
-  }
+  const ancestorChain = buildAncestorChain(nodeId, nodeById);
 
   const result = await generateGapAnalysis(
     node.title,

@@ -200,7 +200,7 @@ export type ExpenseEntry = {
   amount: number;
   description: string | null;
   expense_date: string;
-  source: "receipt" | "manual";
+  source: "receipt" | "manual" | "plaid";
   raw_text: string | null;
   category: string | null;
   merchant_name: string | null;

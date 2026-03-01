@@ -5,9 +5,10 @@ interface DailySummaryProps {
   entries: FoodEntry[];
   profile: Profile;
   showMealGaps?: boolean;
+  currentHour?: number;
 }
 
-export function DailySummary({ entries, profile, showMealGaps = false }: DailySummaryProps) {
+export function DailySummary({ entries, profile, showMealGaps = false, currentHour = 12 }: DailySummaryProps) {
   const totals = entries.reduce(
     (acc, entry) => ({
       calories: acc.calories + (entry.calories || 0),
@@ -20,7 +21,7 @@ export function DailySummary({ entries, profile, showMealGaps = false }: DailySu
 
   // Meal gap detection: check which meals are missing based on current time
   const loggedMeals = new Set(entries.map((e) => e.meal_category));
-  const hour = new Date().getHours();
+  const hour = currentHour;
   const missingMeals: string[] = [];
 
   if (showMealGaps) {

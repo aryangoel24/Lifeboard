@@ -35,11 +35,10 @@ export async function setBudgetGoal(formData: FormData) {
 
     // Empty amount means remove this budget goal
     if (!amountRaw || amountRaw.trim() === "") {
-        const query = supabase.from("budget_goals").delete().eq("user_id", user.id);
         if (category) {
-            await query.eq("category", category);
+            await supabase.from("budget_goals").delete().eq("user_id", user.id).eq("category", category);
         } else {
-            await query.is("category", null);
+            await supabase.from("budget_goals").delete().eq("user_id", user.id).is("category", null);
         }
         revalidatePath("/budget");
         return { success: true };

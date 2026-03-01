@@ -160,7 +160,8 @@ async function handleTextMessage(chatId: string, text: string): Promise<void> {
       protein: perServing.protein,
       carbs: perServing.carbs,
       fat: perServing.fat,
-      meal_category: getDefaultMealCategory(),
+      // Use server UTC time: no user session/cookie available in bot context
+      meal_category: getDefaultMealCategory(new Date().getHours()),
       original_text: text,
     });
 

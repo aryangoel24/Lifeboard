@@ -38,7 +38,7 @@ import { toast } from "sonner";
 import { Plus, Search, Trash2, Pencil, Package, UtensilsCrossed, MoreHorizontal, ChevronDown, ChevronRight } from "lucide-react";
 import { deletePantryItem, logFromPantry } from "@/lib/actions/pantry";
 import { PANTRY_CATEGORIES, CATEGORY_COLORS, scaleNutrition } from "@/lib/pantry-utils";
-import { getDefaultMealCategory } from "@/lib/utils";
+import { getDefaultMealCategory, clientNowHour } from "@/lib/utils";
 import { PantryItemForm } from "@/components/pantry-item-form";
 import type { PantryItem, PantryCategory, MealCategory } from "@/types/database";
 
@@ -53,7 +53,7 @@ export function PantryClient({ items }: PantryClientProps) {
     const [editItem, setEditItem] = useState<PantryItem | null>(null);
     const [logItem, setLogItem] = useState<PantryItem | null>(null);
     const [logAmount, setLogAmount] = useState("");
-    const [logMealCategory, setLogMealCategory] = useState<MealCategory>(getDefaultMealCategory());
+    const [logMealCategory, setLogMealCategory] = useState<MealCategory>(getDefaultMealCategory(clientNowHour()));
     const [logLoading, setLogLoading] = useState(false);
     const [collapsedCategories, setCollapsedCategories] = useState<Set<PantryCategory>>(new Set());
 
@@ -109,7 +109,7 @@ export function PantryClient({ items }: PantryClientProps) {
     function openLogDialog(item: PantryItem) {
         setLogItem(item);
         setLogAmount(String(item.base_amount));
-        setLogMealCategory(getDefaultMealCategory());
+        setLogMealCategory(getDefaultMealCategory(clientNowHour()));
     }
 
     async function handleLog() {

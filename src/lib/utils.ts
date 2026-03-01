@@ -25,8 +25,26 @@ export function getDayRange(date: Date | string) {
   };
 }
 
-export function getDefaultMealCategory(): MealCategory {
-  const hour = new Date().getHours();
+export function calcIngredientTotals(
+  ingredients: Array<{ calories?: number; protein?: number; carbs?: number; fat?: number }>
+): { calories: number; protein: number; carbs: number; fat: number } {
+  return ingredients.reduce(
+    (acc: { calories: number; protein: number; carbs: number; fat: number }, ing) => ({
+      calories: acc.calories + (ing.calories || 0),
+      protein: acc.protein + (ing.protein || 0),
+      carbs: acc.carbs + (ing.carbs || 0),
+      fat: acc.fat + (ing.fat || 0),
+    }),
+    { calories: 0, protein: 0, carbs: 0, fat: 0 }
+  );
+}
+
+/** Returns the current hour in browser-local time. Use in client components only. */
+export function clientNowHour(): number {
+  return new Date().getHours();
+}
+
+export function getDefaultMealCategory(hour: number): MealCategory {
   if (hour < 10) return "breakfast";
   if (hour < 14) return "lunch";
   if (hour < 17) return "snack";

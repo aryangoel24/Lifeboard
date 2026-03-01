@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo } from "react";
+import { useState, useMemo, useCallback } from "react";
 import { toast } from "sonner";
 import { Loader2, ChevronDown, ChevronRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -232,23 +232,23 @@ export function DigestClient({ recentDigests: initialDigests }: DigestClientProp
     setDigestId(null);
   }
 
-  function toggleTakeaway(key: string) {
+  const toggleTakeaway = useCallback((key: string) => {
     setApprovedTakeaways((prev) => {
       const next = new Set(prev);
       if (next.has(key)) next.delete(key);
       else next.add(key);
       return next;
     });
-  }
+  }, []);
 
-  function toggleNewNode(tempId: string) {
+  const toggleNewNode = useCallback((tempId: string) => {
     setApprovedNewNodes((prev) => {
       const next = new Set(prev);
       if (next.has(tempId)) next.delete(tempId);
       else next.add(tempId);
       return next;
     });
-  }
+  }, []);
 
   // ── Entry UI ──────────────────────────────────────────────────────────────
   if (uiState === "entry") {

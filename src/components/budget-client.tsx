@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useState, useTransition, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import {
     Card,
@@ -108,17 +108,17 @@ export function BudgetClient({
     const [filterCategory, setFilterCategory] = useState<string | null>(null);
 
     // Period navigation
-    function navigate(newOffset: number) {
+    const navigate = useCallback((newOffset: number) => {
         startNavTransition(() => {
             router.push(`/budget?view=${view}&offset=${newOffset}`);
         });
-    }
+    }, [router, view, startNavTransition]);
 
-    function switchView(newView: "weekly" | "monthly") {
+    const switchView = useCallback((newView: "weekly" | "monthly") => {
         startNavTransition(() => {
             router.push(`/budget?view=${newView}&offset=0`);
         });
-    }
+    }, [router, startNavTransition]);
 
     const overallGoal = budgetGoals.find((g) => g.category === null) || null;
 
@@ -126,17 +126,6 @@ export function BudgetClient({
     const categoryGoalMap: Record<string, BudgetGoal> = {};
     for (const g of budgetGoals) {
         if (g.category) categoryGoalMap[g.category] = g;
-    }
-
-    // Categories to show: those with spending OR a budget goal
-    const activeCategoryIds = new Set<string>([
-        ...SPENDING_CATEGORIES.map((c) => c.id),
-    ]);
-    if (summary) {
-        for (const cat of Object.keys(summary.byCategory)) activeCategoryIds.add(cat);
-    }
-    for (const g of budgetGoals) {
-        if (g.category) activeCategoryIds.add(g.category);
     }
 
     const visibleCategories = SPENDING_CATEGORIES.filter((c) => {

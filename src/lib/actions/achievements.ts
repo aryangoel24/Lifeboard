@@ -59,14 +59,15 @@ export async function updateStreaks() {
 
     if (!todayEntries || todayEntries.length === 0) return;
 
-    // Update logging streak
-    await updateSingleStreak(supabase, user.id, "logging", today);
-
-    // Update cooking streak (if any homemade meals today)
+    // Update logging streak and cooking streak in parallel
     const hasHomemade = todayEntries.some((e) => e.meal_source === "homemade");
+    const streakUpdates: Promise<void>[] = [
+        updateSingleStreak(supabase, user.id, "logging", today),
+    ];
     if (hasHomemade) {
-        await updateSingleStreak(supabase, user.id, "cooking", today);
+        streakUpdates.push(updateSingleStreak(supabase, user.id, "cooking", today));
     }
+    await Promise.all(streakUpdates);
 }
 
 async function updateSingleStreak(

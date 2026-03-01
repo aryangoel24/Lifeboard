@@ -60,9 +60,8 @@ export async function createFoodEntry(formData: FormData) {
     return { error: error.message };
   }
 
-  // Update streaks and check achievements (fire-and-forget)
-  updateStreaks().catch(console.error);
-  checkAndUnlockAchievements().catch(console.error);
+  // Update streaks and check achievements in parallel (fire-and-forget)
+  Promise.all([updateStreaks(), checkAndUnlockAchievements()]).catch(console.error);
 
   revalidatePath("/dashboard");
   return { success: true };
