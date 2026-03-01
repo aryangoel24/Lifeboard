@@ -9,6 +9,7 @@ import {
   generateDigestAnalysis,
   type CandidateNodeRef,
 } from "@/lib/digest-utils";
+import { getOrCreateInboxNode } from "@/lib/actions/knowledge";
 
 type ApprovedUpdate =
   | { type: "node_update"; nodeId: string; takeaways: string[] }
@@ -21,45 +22,6 @@ export type DigestHistoryItem = {
   suggestion_status: string | null;
 };
 
-async function getOrCreateInboxNode(
-  userId: string,
-  supabase: ReturnType<typeof createClient>
-): Promise<string> {
-  const { data: existing } = await supabase
-    .from("knowledge_nodes")
-    .select("id")
-    .eq("user_id", userId)
-    .eq("title", "Inbox")
-    .is("parent_id", null)
-    .maybeSingle();
-
-  if (existing) return existing.id;
-
-  const { data: inserted } = await supabase
-    .from("knowledge_nodes")
-    .insert({
-      user_id: userId,
-      parent_id: null,
-      root_id: "00000000-0000-0000-0000-000000000000",
-      title: "Inbox",
-      color: "#6b7280",
-      position_x: 0,
-      position_y: 0,
-      depth: 0,
-      ai_generated: false,
-    })
-    .select("id")
-    .single();
-
-  if (!inserted) throw new Error("Failed to create Inbox node");
-
-  await supabase
-    .from("knowledge_nodes")
-    .update({ root_id: inserted.id })
-    .eq("id", inserted.id);
-
-  return inserted.id;
-}
 
 export async function analyzeDigest(
   rawText: string,

@@ -12,8 +12,49 @@ import {
   type GapAnalysis,
   type SynthesisResult,
 } from "@/lib/knowledge-utils";
+import { SCAFFOLD_TEMPLATES } from "@/lib/scaffold-templates";
 
 const DETAIL_MODEL = "gpt-4o-mini";
+
+export async function getOrCreateInboxNode(
+  userId: string,
+  supabase: ReturnType<typeof createClient>
+): Promise<string> {
+  const { data: existing } = await supabase
+    .from("knowledge_nodes")
+    .select("id")
+    .eq("user_id", userId)
+    .eq("title", "Inbox")
+    .is("parent_id", null)
+    .maybeSingle();
+
+  if (existing) return existing.id;
+
+  const { data: inserted } = await supabase
+    .from("knowledge_nodes")
+    .insert({
+      user_id: userId,
+      parent_id: null,
+      root_id: "00000000-0000-0000-0000-000000000000",
+      title: "Inbox",
+      color: "#6b7280",
+      position_x: 0,
+      position_y: 0,
+      depth: 0,
+      ai_generated: false,
+    })
+    .select("id")
+    .single();
+
+  if (!inserted) throw new Error("Failed to create Inbox node");
+
+  await supabase
+    .from("knowledge_nodes")
+    .update({ root_id: inserted.id })
+    .eq("id", inserted.id);
+
+  return inserted.id;
+}
 
 function buildAncestorChain(
   nodeId: string,
@@ -782,4 +823,113 @@ export async function synthesizeNodes(
   if (!result) return { error: "AI synthesis failed" };
 
   return result;
+}
+
+export async function applyScaffold(
+  templateId: string,
+  scaffoldId: string
+): Promise<void | { error: string }> {
+  const supabase = createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return { error: "Unauthorized" };
+
+  const template = SCAFFOLD_TEMPLATES.find((t) => t.id === templateId);
+  if (!template) return { error: "Template not found" };
+
+  // Count existing root nodes to pick colors
+  const { count: existingRootCount } = await supabase
+    .from("knowledge_nodes")
+    .select("*", { count: "exact", head: true })
+    .eq("user_id", user.id)
+    .is("parent_id", null);
+
+  const rootRows = template.roots.map((root, i) => ({
+    user_id: user.id,
+    parent_id: null,
+    root_id: "00000000-0000-0000-0000-000000000000",
+    title: root.title,
+    node_type: root.node_type,
+    color: pickRootColor((existingRootCount ?? 0) + i),
+    position_x: 0,
+    position_y: 0,
+    depth: 0,
+    ai_generated: false,
+    source: "scaffold",
+    source_ref: scaffoldId,
+  }));
+
+  const { data: insertedRoots, error: rootError } = await supabase
+    .from("knowledge_nodes")
+    .insert(rootRows)
+    .select("id, title");
+
+  if (rootError || !insertedRoots) return { error: rootError?.message ?? "Failed to insert roots" };
+
+  // Fix root_id for each inserted root
+  await Promise.all(
+    insertedRoots.map((r) =>
+      supabase.from("knowledge_nodes").update({ root_id: r.id }).eq("id", r.id)
+    )
+  );
+
+  // Build child rows
+  const childRows: Record<string, unknown>[] = [];
+  for (const root of template.roots) {
+    const inserted = insertedRoots.find((r) => r.title === root.title);
+    if (!inserted) continue;
+    for (const child of root.children) {
+      childRows.push({
+        user_id: user.id,
+        parent_id: inserted.id,
+        root_id: inserted.id,
+        title: child.title,
+        node_type: child.node_type,
+        position_x: 0,
+        position_y: 0,
+        depth: 1,
+        ai_generated: false,
+        source: "scaffold",
+        source_ref: scaffoldId,
+      });
+    }
+  }
+
+  if (childRows.length > 0) {
+    const { error: childError } = await supabase.from("knowledge_nodes").insert(childRows);
+    if (childError) return { error: childError.message };
+  }
+
+  revalidatePath("/learn/hub");
+}
+
+export async function resetScaffold(
+  scaffoldId: string
+): Promise<void | { error: string }> {
+  const supabase = createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return { error: "Unauthorized" };
+
+  // Get root scaffold nodes (parent_id is null), then delete them (cascade handles children)
+  const { data: roots } = await supabase
+    .from("knowledge_nodes")
+    .select("id")
+    .eq("user_id", user.id)
+    .eq("source", "scaffold")
+    .eq("source_ref", scaffoldId)
+    .is("parent_id", null);
+
+  if (roots && roots.length > 0) {
+    const { error } = await supabase
+      .from("knowledge_nodes")
+      .delete()
+      .in("id", roots.map((r) => r.id))
+      .eq("user_id", user.id);
+    if (error) return { error: error.message };
+  }
+
+  revalidatePath("/learn/hub");
 }

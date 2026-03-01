@@ -1,4 +1,5 @@
 import OpenAI from "openai";
+import type { ExtractionResult } from "@/types/database";
 
 function getOpenAIClient(): OpenAI | null {
   const apiKey = process.env.OPENAI_API_KEY;
@@ -289,6 +290,107 @@ Use exact titles from the list above. Do not invent new titles in suggested_link
     };
   } catch (err) {
     console.error("Synthesis generation error:", err);
+    return null;
+  }
+}
+
+export async function generateKnowledgeExtraction(
+  text: string,
+  existingNodes: { id: string; title: string }[]
+): Promise<ExtractionResult | null> {
+  const openai = getOpenAIClient();
+  if (!openai) return null;
+
+  const existingList =
+    existingNodes.length > 0
+      ? existingNodes.map((n) => `- ${n.title} (id: ${n.id})`).join("\n")
+      : "(none)";
+
+  const prompt = `You are helping a user populate their personal knowledge graph from freeform text.
+
+INPUT TEXT:
+${text.slice(0, 6000)}
+
+EXISTING NODES IN GRAPH:
+${existingList}
+
+TASK:
+1. Extract the major knowledge areas, skills, projects, people, books, and concepts from the text.
+2. Organize them into a 3-level hierarchy: roots → children → grandchildren.
+3. For each proposed node, check if it closely matches (case-insensitive fuzzy) an existing node — if yes, put it in "matches" instead of "roots".
+
+RULES:
+- Extract 4–6 root nodes maximum. Each root: up to 8 children. Each child: up to 4 grandchildren.
+- Titles: 2–6 word noun phrases. No generic umbrella terms. No dates. No punctuation.
+- For each node, include an "evidence" field: a short verbatim/near-verbatim snippet from the input (≤120 chars) that justifies this node.
+- Assign node_type meaningfully: "skill" for abilities, "person" for people, "book" for books/media, "project" for projects, "topic" for broad areas, "concept" for specific concepts, "question" for open questions, "insight" for epiphanies.
+- If a proposed node closely matches an existing node title, include it in "matches" with the matched_node_id, and optionally suggest facts to add via add_facts.
+- Write a 1–2 sentence "summary" of what you found in the text.
+
+Return JSON exactly:
+{
+  "summary": "...",
+  "roots": [
+    {
+      "temp_id": "root_1",
+      "title": "...",
+      "node_type": "topic|concept|person|book|skill|project|question|insight",
+      "evidence": "...",
+      "children": [
+        {
+          "temp_id": "child_1_1",
+          "title": "...",
+          "node_type": "...",
+          "evidence": "...",
+          "children": [
+            {
+              "temp_id": "grand_1_1_1",
+              "title": "...",
+              "node_type": "...",
+              "evidence": "..."
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "matches": [
+    {
+      "proposed_title": "...",
+      "matched_node_id": "...",
+      "matched_node_title": "...",
+      "confidence": 0.9,
+      "evidence": "...",
+      "add_facts": ["fact 1", "fact 2"]
+    }
+  ]
+}`;
+
+  try {
+    const response = await openai.chat.completions.create({
+      model: "gpt-4o-mini",
+      messages: [{ role: "user", content: prompt }],
+      response_format: { type: "json_object" },
+      temperature: 0.3,
+      max_tokens: 2500,
+    });
+    const content = response.choices[0]?.message?.content;
+    if (!content) return null;
+    const parsed = JSON.parse(content) as {
+      summary?: unknown;
+      roots?: unknown;
+      matches?: unknown;
+    };
+    if (typeof parsed.summary !== "string" || !Array.isArray(parsed.roots)) return null;
+    return {
+      summary: parsed.summary,
+      roots: parsed.roots as ExtractionResult["roots"],
+      matches: Array.isArray(parsed.matches)
+        ? (parsed.matches as ExtractionResult["matches"])
+        : [],
+    };
+  } catch (err) {
+    console.error("Knowledge extraction error:", err);
     return null;
   }
 }

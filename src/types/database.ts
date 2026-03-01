@@ -235,6 +235,9 @@ export type KnowledgeNode = {
   mastery_status: 'not_started' | 'learning' | 'practicing' | 'mastered';
   confidence_score: number | null;
   last_reviewed_at: string | null;
+  source?: 'manual' | 'digest' | 'extract' | 'scaffold';
+  source_ref?: string | null;
+  ai_evidence?: string | null;
   updated_at: string;
   created_at: string;
 };
@@ -249,6 +252,29 @@ export type KnowledgeLink = {
 
 export type NodeType = KnowledgeNode['node_type'];
 export type MasteryStatus = KnowledgeNode['mastery_status'];
+
+export type ExtractionNode = {
+  temp_id: string;
+  title: string;
+  node_type: NodeType;
+  evidence: string;
+  children?: ExtractionNode[];
+};
+
+export type ExtractionMatch = {
+  proposed_title: string;
+  matched_node_id: string;
+  matched_node_title: string;
+  confidence: number;
+  evidence: string;
+  add_facts?: string[];
+};
+
+export type ExtractionResult = {
+  summary: string;
+  roots: ExtractionNode[];
+  matches: ExtractionMatch[];
+};
 
 export type DigestNodeUpdate = {
   node_id: string;

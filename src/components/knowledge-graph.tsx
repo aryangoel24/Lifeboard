@@ -28,7 +28,10 @@ import {
   suggestSubtopics,
   synthesizeNodes,
   updateNodeTitle,
+  applyScaffold,
+  resetScaffold,
 } from "@/lib/actions/knowledge";
+import { SCAFFOLD_TEMPLATES } from "@/lib/scaffold-templates";
 import type { KnowledgeNode, KnowledgeLink, NodeResource } from "@/types/database";
 import type { SynthesisResult } from "@/lib/knowledge-utils";
 import { KnowledgeNodeCard, type KnowledgeNodeData } from "@/components/knowledge-node-card";
@@ -264,6 +267,13 @@ function KnowledgeGraphInner({ initialNodes, initialLinks }: KnowledgeGraphInner
 
   // Legend state
   const [showLegend, setShowLegend] = useState(true);
+
+  // Scaffold state
+  const [scaffoldPending, setScaffoldPending] = useState(false);
+  const [scaffoldDismissed, setScaffoldDismissed] = useState(false);
+  const [appliedScaffoldId, setAppliedScaffoldId] = useState<string | null>(null);
+  const [_scaffoldAppliedAt, setScaffoldAppliedAt] = useState<number | null>(null);
+  const [undoBannerVisible, setUndoBannerVisible] = useState(false);
 
   // Track persisted positions for diffing
   const lastPersistedPositions = useRef<Map<string, { x: number; y: number }>>(new Map());
@@ -983,8 +993,110 @@ function KnowledgeGraphInner({ initialNodes, initialLinks }: KnowledgeGraphInner
     ? knowledgeNodes.filter((n) => synthesisSelectedIds.has(n.id))
     : [];
 
+  // Hide scaffold overlay once nodes exist or dismissed
+  const showScaffoldOverlay = knowledgeNodes.length === 0 && !scaffoldDismissed && !scaffoldPending;
+
+  async function handleApplyScaffold(templateId: string) {
+    const scaffoldId = crypto.randomUUID();
+    setScaffoldPending(true);
+    const res = await applyScaffold(templateId, scaffoldId);
+    setScaffoldPending(false);
+    if (res && "error" in res) {
+      toast.error(res.error);
+      return;
+    }
+    setAppliedScaffoldId(scaffoldId);
+    setScaffoldAppliedAt(Date.now());
+    setUndoBannerVisible(true);
+    // Hide undo banner after 5 minutes
+    setTimeout(() => setUndoBannerVisible(false), 5 * 60 * 1000);
+    toast.success("Template applied — your graph is ready!");
+  }
+
+  async function handleResetScaffold() {
+    if (!appliedScaffoldId) return;
+    const res = await resetScaffold(appliedScaffoldId);
+    if (res && "error" in res) {
+      toast.error(res.error);
+      return;
+    }
+    setAppliedScaffoldId(null);
+    setScaffoldAppliedAt(null);
+    setUndoBannerVisible(false);
+    toast.success("Scaffold removed");
+  }
+
   return (
     <div ref={wrapperRef} className="relative h-full w-full">
+      {/* Empty-state scaffold overlay */}
+      {showScaffoldOverlay && (
+        <div className="absolute inset-0 z-30 flex items-center justify-center bg-background/80 backdrop-blur-sm">
+          <div className="max-w-2xl w-full mx-4 space-y-6">
+            <div className="text-center">
+              <h2 className="text-xl font-semibold">Start your knowledge graph</h2>
+              <p className="text-muted-foreground text-sm mt-1">
+                Choose a template to get started quickly, or start blank.
+              </p>
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+              {SCAFFOLD_TEMPLATES.map((template) => (
+                <button
+                  key={template.id}
+                  onClick={() => handleApplyScaffold(template.id)}
+                  disabled={scaffoldPending}
+                  className="rounded-lg border bg-card p-4 text-left hover:border-primary/50 hover:bg-accent transition-colors space-y-2 disabled:opacity-50"
+                >
+                  <div className="font-medium text-sm">{template.label}</div>
+                  <div className="text-xs text-muted-foreground">{template.description}</div>
+                  <div className="flex flex-wrap gap-1 mt-2">
+                    {template.roots.slice(0, 4).map((r) => (
+                      <span
+                        key={r.title}
+                        className="text-[10px] bg-muted rounded px-1.5 py-0.5"
+                      >
+                        {r.title}
+                      </span>
+                    ))}
+                    {template.roots.length > 4 && (
+                      <span className="text-[10px] text-muted-foreground">
+                        +{template.roots.length - 4} more
+                      </span>
+                    )}
+                  </div>
+                </button>
+              ))}
+            </div>
+            <div className="text-center">
+              <button
+                className="text-xs text-muted-foreground hover:text-foreground transition-colors"
+                onClick={() => setScaffoldDismissed(true)}
+              >
+                Start blank
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Scaffold undo banner */}
+      {undoBannerVisible && appliedScaffoldId && (
+        <div className="absolute top-2 left-1/2 -translate-x-1/2 z-30 flex items-center gap-2 bg-background border rounded-md px-3 py-2 shadow-md text-sm">
+          <span className="text-muted-foreground">Template applied</span>
+          <button
+            className="text-primary hover:underline font-medium"
+            onClick={handleResetScaffold}
+          >
+            Undo
+          </button>
+          <button
+            className="text-muted-foreground hover:text-foreground ml-1"
+            onClick={() => setUndoBannerVisible(false)}
+          >
+            ×
+          </button>
+        </div>
+      )}
+
       {/* Synthesis mode banner */}
       {synthesisModeActive && (
         <div className="absolute top-0 left-0 right-0 bg-blue-500/10 border-b border-blue-500/20 px-4 py-2 text-center text-sm text-blue-600 dark:text-blue-400 z-20 pointer-events-none">

@@ -18,6 +18,7 @@ import {
 import type { GapAnalysis } from "@/lib/knowledge-utils";
 import type { KnowledgeNode, KnowledgeLink, NodeResource, NodeType, MasteryStatus } from "@/types/database";
 import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
@@ -131,6 +132,52 @@ function formatRelativeTime(isoString: string): string {
   return `${Math.floor(days / 30)}mo ago`;
 }
 
+function ProvenanceBadge({
+  source,
+  aiEvidence,
+}: {
+  source: 'digest' | 'extract' | 'scaffold';
+  aiEvidence: string | null;
+}) {
+  const [expanded, setExpanded] = useState(false);
+
+  const label = source === 'extract' ? 'AI Extracted' : source === 'digest' ? 'From Digest' : 'Scaffolded';
+  const badgeClass =
+    source === 'extract'
+      ? 'bg-blue-500/10 text-blue-700 border-blue-300/50'
+      : source === 'digest'
+      ? 'bg-purple-500/10 text-purple-700 border-purple-300/50'
+      : 'bg-muted text-muted-foreground';
+
+  return (
+    <div className="space-y-1.5">
+      <div className="flex items-center gap-2">
+        <Badge variant="outline" className={cn('text-[10px] px-1.5 py-0 h-4', badgeClass)}>
+          {label}
+        </Badge>
+        {aiEvidence && (
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-4 px-1 text-[10px] text-muted-foreground"
+            onClick={() => setExpanded((v) => !v)}
+          >
+            {expanded ? 'Hide' : 'View'}
+          </Button>
+        )}
+      </div>
+      {aiEvidence && !expanded && (
+        <p className="text-[10px] text-muted-foreground italic truncate">{aiEvidence}</p>
+      )}
+      {aiEvidence && expanded && (
+        <div className="text-[10px] text-muted-foreground italic max-h-28 overflow-y-auto rounded border px-2 py-1.5 bg-muted/30">
+          {aiEvidence}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export function NodeDetailPanel({
   node,
   nodes,
@@ -204,6 +251,11 @@ export function NodeDetailPanel({
   const [showSiblingInput, setShowSiblingInput] = useState(false);
   const [siblingInput, setSiblingInput] = useState("");
   const [addingSibling, setAddingSibling] = useState(false);
+
+  // Batch child add state
+  const [batchInput, setBatchInput] = useState("");
+  const [addingBatch, setAddingBatch] = useState(false);
+  const [showBatchInput, setShowBatchInput] = useState(false);
 
   // Description edit state
   const [isEditingDescription, setIsEditingDescription] = useState(false);
@@ -478,6 +530,43 @@ export function NodeDetailPanel({
     setSiblingInput("");
     setShowSiblingInput(false);
     toast.success("Sibling node added");
+  }
+
+  async function handleBatchAdd() {
+    if (!node || !batchInput.trim()) return;
+    // Parse: split by newlines, then by commas; trim; deduplicate
+    const rawTokens = batchInput
+      .split("\n")
+      .flatMap((line) => line.split(","))
+      .map((t) => t.trim())
+      .filter(Boolean);
+    const seen = new Set<string>();
+    const titles: string[] = [];
+    for (const t of rawTokens) {
+      const key = t.toLowerCase();
+      if (!seen.has(key)) {
+        seen.add(key);
+        titles.push(t);
+      }
+    }
+    if (titles.length === 0) return;
+
+    setAddingBatch(true);
+    const result = await addChildNodes(node.id, titles, false);
+    setAddingBatch(false);
+    if ("error" in result) {
+      toast.error(result.error);
+      return;
+    }
+    const added = result.nodes.length;
+    const skipped = titles.length - added;
+    onChildAdded?.(result.nodes);
+    setBatchInput("");
+    setShowBatchInput(false);
+    toast.success(
+      `Added ${added} child${added !== 1 ? "ren" : ""}` +
+        (skipped > 0 ? `, skipped ${skipped} duplicate${skipped !== 1 ? "s" : ""}` : "")
+    );
   }
 
   async function handleSaveDescription() {
@@ -802,6 +891,11 @@ export function NodeDetailPanel({
             )}
           </div>
 
+          {/* Provenance */}
+          {node.source && node.source !== 'manual' && (
+            <ProvenanceBadge source={node.source} aiEvidence={node.ai_evidence ?? null} />
+          )}
+
           {/* My Notes */}
           <div className="space-y-2">
             <span className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
@@ -998,6 +1092,47 @@ export function NodeDetailPanel({
                   Add sibling
                 </button>
               )
+            )}
+            {/* Batch add */}
+            {showBatchInput ? (
+              <div className="space-y-1.5">
+                <Textarea
+                  placeholder={"Python, Data Structures\nAlgorithms\nSystem Design"}
+                  value={batchInput}
+                  onChange={(e) => setBatchInput(e.target.value)}
+                  rows={4}
+                  className="text-xs resize-none"
+                  autoFocus
+                />
+                <div className="flex gap-1.5">
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="h-7 px-2 text-xs flex-1"
+                    onClick={handleBatchAdd}
+                    disabled={addingBatch || !batchInput.trim()}
+                  >
+                    {addingBatch ? <Loader2 className="h-3 w-3 animate-spin mr-1" /> : <Plus className="h-3 w-3 mr-1" />}
+                    Add All
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    className="h-7 px-2 text-xs"
+                    onClick={() => { setShowBatchInput(false); setBatchInput(""); }}
+                  >
+                    Cancel
+                  </Button>
+                </div>
+              </div>
+            ) : (
+              <button
+                className="text-xs text-muted-foreground hover:text-foreground flex items-center gap-1 transition-colors"
+                onClick={() => setShowBatchInput(true)}
+              >
+                <Plus className="h-3 w-3" />
+                Batch add children
+              </button>
             )}
           </div>
 
