@@ -281,11 +281,11 @@ Use exact titles from the list above. Do not invent new titles in suggested_link
         : [],
       suggested_links: Array.isArray(parsed.suggested_links)
         ? (parsed.suggested_links as { from: string; to: string; why: string }[]).filter(
-            (l) =>
-              typeof l.from === "string" &&
-              typeof l.to === "string" &&
-              typeof l.why === "string"
-          )
+          (l) =>
+            typeof l.from === "string" &&
+            typeof l.to === "string" &&
+            typeof l.why === "string"
+        )
         : [],
     };
   } catch (err) {
@@ -294,37 +294,107 @@ Use exact titles from the list above. Do not invent new titles in suggested_link
   }
 }
 
+function normalize(s: string): string {
+  return s.toLowerCase().replace(/[^\w\s]/g, " ").replace(/\s+/g, " ").trim();
+}
+
+const ACRONYM_MAP: Record<string, string[]> = {
+  nlp: ["natural language processing", "natural language programming"],
+  ml: ["machine learning"],
+  ai: ["artificial intelligence"],
+  cv: ["computer vision"],
+  os: ["operating systems"],
+  db: ["database", "databases"],
+  cs: ["computer science"],
+  oop: ["object oriented programming"],
+  fp: ["functional programming"],
+  ui: ["user interface"],
+  ux: ["user experience"],
+};
+
+function selectTopCandidates(
+  text: string,
+  nodes: { id: string; title: string; breadcrumb?: string }[],
+  topK = 50
+): { id: string; title: string; breadcrumb?: string }[] {
+  const normText = normalize(text.slice(0, 4000));
+  const textWords = new Set(normText.split(" ").filter((w) => w.length > 2));
+
+  const scored = nodes.map((n) => {
+    const normTitle = normalize(n.title);
+
+    // Direct substring match → highest score
+    if (normText.includes(normTitle)) return { ...n, score: 1.0 };
+
+    // Token recall: fraction of title words found in text
+    const titleWords = normTitle.split(" ").filter((w) => w.length > 2);
+    const overlap = titleWords.filter((w) => textWords.has(w)).length;
+    let score = titleWords.length > 0 ? overlap / titleWords.length : 0;
+
+    // Acronym boost: if text contains acronym that expands to this node's title
+    for (const [acronym, expansions] of Object.entries(ACRONYM_MAP)) {
+      if (textWords.has(acronym)) {
+        for (const exp of expansions) {
+          if (normTitle.includes(exp) || exp.includes(normTitle)) {
+            score = Math.max(score, 0.8);
+          }
+        }
+      }
+    }
+
+    return { ...n, score };
+  });
+
+  return scored.sort((a, b) => b.score - a.score).slice(0, topK);
+}
+
 export async function generateKnowledgeExtraction(
   text: string,
-  existingNodes: { id: string; title: string }[]
+  existingNodes: { id: string; title: string; breadcrumb?: string }[]
 ): Promise<ExtractionResult | null> {
   const openai = getOpenAIClient();
   if (!openai) return null;
 
+  const candidates = selectTopCandidates(text, existingNodes);
   const existingList =
-    existingNodes.length > 0
-      ? existingNodes.map((n) => `- ${n.title} (id: ${n.id})`).join("\n")
+    candidates.length > 0
+      ? candidates.map((n) => {
+        const label = n.breadcrumb && n.breadcrumb !== n.title ? n.breadcrumb : n.title;
+        return `- ${label} (id: ${n.id})`;
+      }).join("\n")
       : "(none)";
 
-  const prompt = `You are helping a user populate their personal knowledge graph from freeform text.
+  const hasExistingNodes = candidates.length > 0;
+
+  const prompt = `You are helping a user ADD new information to their personal knowledge graph from freeform text.
 
 INPUT TEXT:
-${text.slice(0, 6000)}
+${text.slice(0, 10000)}
 
 EXISTING NODES IN GRAPH:
 ${existingList}
 
-TASK:
+TASK:${hasExistingNodes ? `
+1. FIRST, identify which existing nodes the input text relates to.
+2. Create a root in "roots" with ALL the new children/grandchildren extracted from the text.
+3. ALSO create a "matches" entry linking that root's temp_id to the existing node's id. This tells the system to merge the root's children under the existing node instead of creating a new top-level node.
+4. ONLY omit a match for a root if the topic genuinely has NO match in the existing graph.` : `
 1. Extract the major knowledge areas, skills, projects, people, books, and concepts from the text.
-2. Organize them into a 3-level hierarchy: roots → children → grandchildren.
-3. For each proposed node, check if it closely matches (case-insensitive fuzzy) an existing node — if yes, put it in "matches" instead of "roots".
+2. Organize them into a 3-level hierarchy: roots → children → grandchildren.`}
 
 RULES:
-- Extract 4–6 root nodes maximum. Each root: up to 8 children. Each child: up to 4 grandchildren.
+- Each root: up to 14 children. Each child: up to 14 grandchildren.
+- Prefer more nodes over fewer — do not collapse siblings into a parent.
+- NEVER truncate repeating structures. If the text lists 12 weeks, 10 chapters, 8 assignments, etc., include ALL of them as separate nodes — do not stop partway through.
+- Exhaustively cover the text: every distinct skill, course, concept, project, person, or book mentioned deserves its own node.
 - Titles: 2–6 word noun phrases. No generic umbrella terms. No dates. No punctuation.
 - For each node, include an "evidence" field: a short verbatim/near-verbatim snippet from the input (≤120 chars) that justifies this node.
-- Assign node_type meaningfully: "skill" for abilities, "person" for people, "book" for books/media, "project" for projects, "topic" for broad areas, "concept" for specific concepts, "question" for open questions, "insight" for epiphanies.
-- If a proposed node closely matches an existing node title, include it in "matches" with the matched_node_id, and optionally suggest facts to add via add_facts.
+- Assign node_type meaningfully: "skill" for abilities, "person" for people, "book" for books/media, "project" for projects, "topic" for broad areas, "concept" for specific concepts, "question" for open questions, "insight" for epiphanies.${hasExistingNodes ? `
+- IMPORTANT: Every root MUST appear in the "roots" array with its full children tree. A match entry ONLY links a root to an existing node — it does NOT replace the root. You must have BOTH a root (with children) AND a match pointing to it.
+- When the text is clearly about an existing topic (e.g. a course syllabus for "Deep Learning" when "Deep Learning" exists), create ONE root with all content as children, and add a match linking it to the existing node.
+- Treat common abbreviations as equivalent when matching (e.g., "NLP" ≈ "Natural Language Processing", "ML" ≈ "Machine Learning").
+- Prefer matching to an existing node over creating a new one. When in doubt, match.
+- add_facts in matches should be short string facts to append to the existing node, not child nodes.` : ``}
 - Write a 1–2 sentence "summary" of what you found in the text.
 
 Return JSON exactly:
@@ -356,6 +426,7 @@ Return JSON exactly:
   ],
   "matches": [
     {
+      "temp_id": "root_1",
       "proposed_title": "...",
       "matched_node_id": "...",
       "matched_node_title": "...",
@@ -368,11 +439,11 @@ Return JSON exactly:
 
   try {
     const response = await openai.chat.completions.create({
-      model: "gpt-4o-mini",
+      model: "gpt-4o",
       messages: [{ role: "user", content: prompt }],
       response_format: { type: "json_object" },
       temperature: 0.3,
-      max_tokens: 2500,
+      max_tokens: 8000,
     });
     const content = response.choices[0]?.message?.content;
     if (!content) return null;
@@ -382,12 +453,27 @@ Return JSON exactly:
       matches?: unknown;
     };
     if (typeof parsed.summary !== "string" || !Array.isArray(parsed.roots)) return null;
+
+    // Sanitize matches: ensure add_facts only contains strings
+    const rawMatches = Array.isArray(parsed.matches) ? parsed.matches as Record<string, unknown>[] : [];
+    const sanitizedMatches: ExtractionResult["matches"] = rawMatches
+      .filter((m) => typeof m.matched_node_id === "string" && typeof m.temp_id === "string")
+      .map((m) => ({
+        temp_id: m.temp_id as string,
+        proposed_title: (m.proposed_title as string) ?? "",
+        matched_node_id: m.matched_node_id as string,
+        matched_node_title: (m.matched_node_title as string) ?? "",
+        confidence: typeof m.confidence === "number" ? m.confidence : 0.8,
+        evidence: typeof m.evidence === "string" ? m.evidence : "",
+        add_facts: Array.isArray(m.add_facts)
+          ? (m.add_facts as unknown[]).filter((f): f is string => typeof f === "string")
+          : [],
+      }));
+
     return {
       summary: parsed.summary,
       roots: parsed.roots as ExtractionResult["roots"],
-      matches: Array.isArray(parsed.matches)
-        ? (parsed.matches as ExtractionResult["matches"])
-        : [],
+      matches: sanitizedMatches,
     };
   } catch (err) {
     console.error("Knowledge extraction error:", err);

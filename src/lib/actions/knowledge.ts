@@ -253,6 +253,76 @@ export async function deleteNode(
   return { deleted_ids };
 }
 
+export async function deleteNodes(
+  nodeIds: string[]
+): Promise<{ deleted_ids: string[] } | { error: string }> {
+  if (nodeIds.length === 0) return { deleted_ids: [] };
+  const supabase = createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return { error: "Unauthorized" };
+
+  // Fetch all user nodes to build parent map and compute roots/subtrees
+  const { data: allNodes } = await supabase
+    .from("knowledge_nodes")
+    .select("id, parent_id")
+    .eq("user_id", user.id);
+
+  const parentMap = new Map<string, string | null>(
+    (allNodes ?? []).map((n) => [n.id as string, n.parent_id as string | null])
+  );
+
+  // Reduce to top-level roots: keep only nodes whose ancestors are not also in the selected set
+  const selectedSet = new Set(nodeIds);
+
+  function isDescendantOfSelected(id: string): boolean {
+    let p = parentMap.get(id) ?? null;
+    while (p) {
+      if (selectedSet.has(p)) return true;
+      p = parentMap.get(p) ?? null;
+    }
+    return false;
+  }
+
+  const rootDeletes = nodeIds.filter((id) => !isDescendantOfSelected(id));
+
+  // Practical ownership check: only verify the roots we'll actually delete
+  const { data: owned } = await supabase
+    .from("knowledge_nodes")
+    .select("id")
+    .in("id", rootDeletes)
+    .eq("user_id", user.id);
+
+  if (!owned || owned.length !== rootDeletes.length) {
+    return { error: "One or more nodes not found" };
+  }
+
+  // Compute full deleted_ids (subtrees of each root) for UI cleanup
+  const childrenOf = new Map<string, string[]>();
+  for (const n of allNodes ?? []) {
+    if (n.parent_id) {
+      if (!childrenOf.has(n.parent_id)) childrenOf.set(n.parent_id, []);
+      childrenOf.get(n.parent_id)!.push(n.id as string);
+    }
+  }
+  function collectSubtree(id: string): string[] {
+    const children = childrenOf.get(id) ?? [];
+    return [id, ...children.flatMap(collectSubtree)];
+  }
+  const deletedSet = new Set(rootDeletes.flatMap(collectSubtree));
+
+  // Delete root nodes — DB CASCADE removes descendants
+  const { error } = await supabase
+    .from("knowledge_nodes")
+    .delete()
+    .in("id", rootDeletes)
+    .eq("user_id", user.id);
+
+  if (error) return { error: error.message };
+
+  revalidatePath("/learn/hub");
+  return { deleted_ids: Array.from(deletedSet) };
+}
+
 export async function updateNodePositions(
   updates: { id: string; x: number; y: number }[]
 ): Promise<{ error: string } | void> {
@@ -464,6 +534,23 @@ export async function deleteKnowledgeLink(
 
   revalidatePath("/learn/hub");
   return {};
+}
+
+export async function setNodeCollapsed(
+  nodeId: string,
+  collapsed: boolean
+): Promise<void | { error: string }> {
+  const supabase = createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return { error: "Unauthorized" };
+
+  const { error } = await supabase
+    .from("knowledge_nodes")
+    .update({ is_collapsed: collapsed, updated_at: new Date().toISOString() })
+    .eq("id", nodeId)
+    .eq("user_id", user.id);
+
+  if (error) return { error: error.message };
 }
 
 export async function updateNodeType(

@@ -24,12 +24,14 @@ import { toast } from "sonner";
 import {
   addRootNode,
   deleteNode,
+  deleteNodes,
   updateNodePositions,
   suggestSubtopics,
   synthesizeNodes,
   updateNodeTitle,
   applyScaffold,
   resetScaffold,
+  setNodeCollapsed,
 } from "@/lib/actions/knowledge";
 import { SCAFFOLD_TEMPLATES } from "@/lib/scaffold-templates";
 import type { KnowledgeNode, KnowledgeLink, NodeResource } from "@/types/database";
@@ -89,7 +91,7 @@ function chunkArray<T>(arr: T[], size: number): T[][] {
 }
 
 // Sort children deterministically by created_at then id to prevent layout shuffling
-function buildChildrenMap(nodes: KnowledgeNode[]): Map<string, string[]> {
+function buildChildrenMap(nodes: KnowledgeNode[], collapsedIds?: Set<string>): Map<string, string[]> {
   const map = new Map<string, string[]>();
   const ids = new Set(nodes.map(n => n.id));
   for (const n of nodes) map.set(n.id, []);
@@ -97,7 +99,7 @@ function buildChildrenMap(nodes: KnowledgeNode[]): Map<string, string[]> {
     a.created_at.localeCompare(b.created_at)
   );
   for (const n of sorted) {
-    if (n.parent_id && ids.has(n.parent_id)) {
+    if (n.parent_id && ids.has(n.parent_id) && !collapsedIds?.has(n.parent_id)) {
       map.get(n.parent_id)!.push(n.id);
     }
   }
@@ -153,8 +155,8 @@ function assignPositions(
   }
 }
 
-function computeAutoLayout(nodes: KnowledgeNode[]): Map<string, { x: number; y: number }> {
-  const cm = buildChildrenMap(nodes);
+function computeAutoLayout(nodes: KnowledgeNode[], collapsedIds?: Set<string>): Map<string, { x: number; y: number }> {
+  const cm = buildChildrenMap(nodes, collapsedIds);
   const result = new Map<string, { x: number; y: number }>();
   const roots = nodes.filter(n => n.depth === 0);
   let rootX = 0;
@@ -169,7 +171,8 @@ function computeSubtreeLayout(
   rootNodeId: string,
   anchorX: number,
   anchorY: number,
-  nodes: KnowledgeNode[]
+  nodes: KnowledgeNode[],
+  collapsedIds?: Set<string>
 ): Map<string, { x: number; y: number }> {
   const fullCm = buildChildrenMap(nodes);
   const ids = new Set<string>();
@@ -180,7 +183,7 @@ function computeSubtreeLayout(
   collect(rootNodeId);
 
   const subNodes = nodes.filter(n => ids.has(n.id));
-  const cm = buildChildrenMap(subNodes);
+  const cm = buildChildrenMap(subNodes, collapsedIds);
   const result = new Map<string, { x: number; y: number }>();
   const w = subtreeWidth(rootNodeId, cm);
   const leftX = anchorX - ((w - 1) / 2) * X_SPACING;
@@ -232,10 +235,12 @@ interface KnowledgeGraphInnerProps {
 }
 
 function KnowledgeGraphInner({ initialNodes, initialLinks }: KnowledgeGraphInnerProps) {
-  const { fitView, fitBounds, zoomIn, zoomOut } = useReactFlow();
+  const { fitView, fitBounds, zoomIn, zoomOut, getNodes } = useReactFlow();
   const [knowledgeNodes, setKnowledgeNodes] = useState<KnowledgeNode[]>(initialNodes);
   const [knowledgeLinks, setKnowledgeLinks] = useState<KnowledgeLink[]>(initialLinks);
-  const [collapsedIds, setCollapsedIds] = useState<Set<string>>(new Set());
+  const [collapsedIds, setCollapsedIds] = useState<Set<string>>(
+    () => new Set(initialNodes.filter((n) => n.is_collapsed).map((n) => n.id))
+  );
   const [rfNodes, setRfNodes] = useState<Node[]>([]);
   const [rfEdges, setRfEdges] = useState<Edge[]>([]);
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
@@ -244,6 +249,8 @@ function KnowledgeGraphInner({ initialNodes, initialLinks }: KnowledgeGraphInner
   const [addRootPending, setAddRootPending] = useState(false);
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
   const [deletePending, setDeletePending] = useState(false);
+  const [bulkDeleteConfirmIds, setBulkDeleteConfirmIds] = useState<string[] | null>(null);
+  const [bulkDeletePending, setBulkDeletePending] = useState(false);
   const [expandNodeId, setExpandNodeId] = useState<string | null>(null);
   const [suggestions, setSuggestions] = useState<string[]>([]);
   const [suggestionsLoading, setSuggestionsLoading] = useState(false);
@@ -290,8 +297,12 @@ function KnowledgeGraphInner({ initialNodes, initialLinks }: KnowledgeGraphInner
   const [contextMenu, setContextMenu] = useState<{ nodeId: string; x: number; y: number } | null>(null);
   // Ref mirror for focus mode (for stable callbacks)
   const isFocusModeRef = useRef(false);
+  // Ref mirror for collapsed ids (for stable toggle callback)
+  const collapsedIdsRef = useRef(collapsedIds);
+  collapsedIdsRef.current = collapsedIds;
 
   const onToggleCollapse = useCallback((nodeId: string) => {
+    const willBeCollapsed = !collapsedIdsRef.current.has(nodeId);
     setCollapsedIds((prev) => {
       const next = new Set(prev);
       if (next.has(nodeId)) {
@@ -301,6 +312,7 @@ function KnowledgeGraphInner({ initialNodes, initialLinks }: KnowledgeGraphInner
       }
       return next;
     });
+    setNodeCollapsed(nodeId, willBeCollapsed); // fire-and-forget
   }, []);
 
   // Build React Flow nodes and edges from knowledge nodes
@@ -511,16 +523,29 @@ function KnowledgeGraphInner({ initialNodes, initialLinks }: KnowledgeGraphInner
   // Keyboard handlers
   useEffect(() => {
     function onKeyDown(e: KeyboardEvent) {
-      if (!selectedNodeId) return;
-      if (e.key === "Delete" || e.key === "Backspace") {
-        const active = document.activeElement;
-        if (active instanceof HTMLInputElement || active instanceof HTMLTextAreaElement) return;
+      if (e.key !== "Delete" && e.key !== "Backspace") return;
+      if (e.metaKey || e.ctrlKey || e.altKey) return;
+      const active = document.activeElement;
+      if (
+        active instanceof HTMLInputElement ||
+        active instanceof HTMLTextAreaElement ||
+        (active instanceof HTMLElement && active.isContentEditable)
+      ) return;
+      // No-op if bulk dialog is already open
+      if (bulkDeleteConfirmIds !== null) return;
+
+      if (rfSelectedCount > 0) {
+        const ids = getNodes().filter((n) => n.selected).map((n) => n.id);
+        if (ids.length > 0) setBulkDeleteConfirmIds(ids);
+        return;
+      }
+      if (selectedNodeId) {
         setDeleteConfirmId(selectedNodeId);
       }
     }
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [selectedNodeId]);
+  }, [selectedNodeId, rfSelectedCount, bulkDeleteConfirmIds, getNodes]);
 
   // Cmd+K spotlight
   useEffect(() => {
@@ -654,6 +679,27 @@ function KnowledgeGraphInner({ initialNodes, initialLinks }: KnowledgeGraphInner
       setSelectedNodeId(null);
     }
     toast.success("Deleted");
+  }
+
+  async function handleBulkDelete() {
+    if (!bulkDeleteConfirmIds) return;
+    setBulkDeletePending(true);
+    const result = await deleteNodes(bulkDeleteConfirmIds);
+    setBulkDeletePending(false);
+    setBulkDeleteConfirmIds(null);
+    if ("error" in result) {
+      toast.error(result.error);
+      return;
+    }
+    const deletedSet = new Set(result.deleted_ids);
+    if (selectedNodeId && deletedSet.has(selectedNodeId)) setSelectedNodeId(null);
+    setKnowledgeNodes((prev) => prev.filter((n) => !deletedSet.has(n.id)));
+    setKnowledgeLinks((prev) =>
+      prev.filter((l) => !deletedSet.has(l.a_id) && !deletedSet.has(l.b_id))
+    );
+    setRfNodes((prev) => prev.map((n) => ({ ...n, selected: false })));
+    setRfSelectedCount(0);
+    toast.success(`Deleted ${result.deleted_ids.length} node${result.deleted_ids.length !== 1 ? "s" : ""}`);
   }
 
   async function handleSubtopicsAdded(newNodes: KnowledgeNode[]) {
@@ -817,7 +863,7 @@ function KnowledgeGraphInner({ initialNodes, initialLinks }: KnowledgeGraphInner
     setAutoLayoutPending(true);
     setContextMenu(null);
     if (focusEnabled) setFocusEnabled(false);
-    const layoutMap = computeAutoLayout(knowledgeNodes);
+    const layoutMap = computeAutoLayout(knowledgeNodes, collapsedIds);
     const updates: { id: string; x: number; y: number }[] = [];
     layoutMap.forEach((pos, id) => {
       updates.push({ id, x: pos.x, y: pos.y });
@@ -853,7 +899,7 @@ function KnowledgeGraphInner({ initialNodes, initialLinks }: KnowledgeGraphInner
     const anchorRfNode = rfNodes.find(n => n.id === nodeId);
     const anchorX = anchorRfNode?.position.x ?? 0;
     const anchorY = anchorRfNode?.position.y ?? 0;
-    const layoutMap = computeSubtreeLayout(nodeId, anchorX, anchorY, knowledgeNodes);
+    const layoutMap = computeSubtreeLayout(nodeId, anchorX, anchorY, knowledgeNodes, collapsedIds);
     const updates: { id: string; x: number; y: number }[] = [];
     layoutMap.forEach((pos, id) => {
       updates.push({ id, x: pos.x, y: pos.y });
@@ -1142,6 +1188,7 @@ function KnowledgeGraphInner({ initialNodes, initialLinks }: KnowledgeGraphInner
         proOptions={{ hideAttribution: true }}
         selectionOnDrag={isLayoutMode}
         panOnDrag={isLayoutMode ? [1, 2] : true}
+        deleteKeyCode={null}
         multiSelectionKeyCode="Shift"
         snapToGrid={isLayoutMode}
         snapGrid={[20, 20]}
@@ -1440,6 +1487,30 @@ function KnowledgeGraphInner({ initialNodes, initialLinks }: KnowledgeGraphInner
             </Button>
             <Button variant="destructive" onClick={handleDelete} disabled={deletePending}>
               {deletePending && <Loader2 className="h-4 w-4 animate-spin mr-2" />}
+              Delete
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Bulk delete confirm dialog */}
+      <Dialog
+        open={!!bulkDeleteConfirmIds}
+        onOpenChange={(open) => !open && setBulkDeleteConfirmIds(null)}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Delete {bulkDeleteConfirmIds?.length} selected node{bulkDeleteConfirmIds?.length !== 1 ? "s" : ""}?</DialogTitle>
+          </DialogHeader>
+          <p className="text-sm text-muted-foreground">
+            This will permanently delete all selected nodes and their subtopics.
+          </p>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setBulkDeleteConfirmIds(null)}>
+              Cancel
+            </Button>
+            <Button variant="destructive" onClick={handleBulkDelete} disabled={bulkDeletePending}>
+              {bulkDeletePending && <Loader2 className="h-4 w-4 animate-spin mr-2" />}
               Delete
             </Button>
           </DialogFooter>

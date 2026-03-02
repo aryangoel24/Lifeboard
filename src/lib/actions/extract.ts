@@ -23,27 +23,83 @@ export type RootRouting = Record<string, { mode: "new" } | { mode: "merge"; targ
 
 export async function extractKnowledge(
   text: string
-): Promise<{ result: ExtractionResult; rootNodes: { id: string; title: string }[] } | { error: string }> {
+): Promise<
+  | { result: ExtractionResult; allNodes: { id: string; title: string; breadcrumb: string }[] }
+  | { error: string }
+> {
   const supabase = createClient();
   const {
     data: { user },
   } = await supabase.auth.getUser();
   if (!user) return { error: "Unauthorized" };
 
-  const { data: allNodes } = await supabase
+  const { data: dbNodes } = await supabase
     .from("knowledge_nodes")
-    .select("id, title, depth")
+    .select("id, title, parent_id")
     .eq("user_id", user.id);
 
-  const existingNodes = (allNodes ?? []).map((n) => ({ id: n.id as string, title: n.title as string }));
-  const rootNodes = (allNodes ?? [])
-    .filter((n) => (n.depth as number) === 0)
-    .map((n) => ({ id: n.id as string, title: n.title as string }));
+  const nodeMap = new Map<string, { title: string; parent_id: string | null }>(
+    (dbNodes ?? []).map((n) => [
+      n.id as string,
+      { title: n.title as string, parent_id: n.parent_id as string | null },
+    ])
+  );
 
-  const result = await generateKnowledgeExtraction(text, existingNodes);
+  function buildBreadcrumb(id: string): string {
+    const parts: string[] = [];
+    let current: string | null = id;
+    const visited = new Set<string>();
+    while (current && !visited.has(current)) {
+      visited.add(current);
+      const node = nodeMap.get(current);
+      if (!node) break;
+      parts.unshift(node.title);
+      current = node.parent_id;
+    }
+    return parts.join(" → ");
+  }
+
+  const allNodes = (dbNodes ?? []).map((n) => ({
+    id: n.id as string,
+    title: n.title as string,
+    breadcrumb: buildBreadcrumb(n.id as string),
+  }));
+
+  const result = await generateKnowledgeExtraction(text, allNodes);
   if (!result) return { error: "AI extraction failed" };
 
-  return { result, rootNodes };
+  // Post-process: filter out proposed nodes that already exist in the user's graph
+  // Only remove a node if it's a duplicate AND has no remaining new children
+  const existingTitlesLower = new Set(
+    (dbNodes ?? []).map((n) => (n.title as string).toLowerCase())
+  );
+
+  function filterExistingNodes(
+    nodes: ExtractionResult["roots"]
+  ): ExtractionResult["roots"] {
+    return nodes
+      .map((node) => ({
+        ...node,
+        children: node.children
+          ? filterExistingNodes(node.children)
+          : undefined,
+      }))
+      .filter((node) => {
+        const isDuplicate = existingTitlesLower.has(node.title.toLowerCase());
+        const hasNewChildren = (node.children ?? []).length > 0;
+        // Keep the node if it's not a duplicate, OR if it still has new children
+        return !isDuplicate || hasNewChildren;
+      });
+  }
+
+  result.roots = result.roots.map((root) => ({
+    ...root,
+    children: root.children
+      ? filterExistingNodes(root.children)
+      : undefined,
+  }));
+
+  return { result, allNodes };
 }
 
 export async function applyExtraction(

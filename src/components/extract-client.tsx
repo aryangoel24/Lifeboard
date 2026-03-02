@@ -27,6 +27,8 @@ import type { LucideIcon } from "lucide-react";
 
 type UIState = "input" | "loading" | "review";
 
+const COURSE_EVIDENCE_KEYWORDS = ["syllabus", "assignment", "lecture", "readings", "course", "class", "module", "prerequisite"];
+
 const NODE_TYPE_OPTIONS: { type: NodeType; label: string; icon: LucideIcon }[] = [
   { type: "topic", label: "Topic", icon: BookOpen },
   { type: "concept", label: "Concept", icon: Lightbulb },
@@ -67,14 +69,16 @@ function flattenTree(roots: ExtractionNode[]): FlatNode[] {
   function visit(node: ExtractionNode, parentTempId: string | null, level: number) {
     result.push({
       temp_id: node.temp_id,
-      title: node.title,
-      node_type: node.node_type,
-      evidence: node.evidence,
+      title: typeof node.title === "string" ? node.title : String(node.title ?? ""),
+      node_type: typeof node.node_type === "string" ? node.node_type as NodeType : "topic",
+      evidence: typeof node.evidence === "string" ? node.evidence : "",
       parentTempId,
       level,
     });
     for (const child of node.children ?? []) {
-      visit(child, node.temp_id, level + 1);
+      if (child && typeof child === "object" && "temp_id" in child) {
+        visit(child, node.temp_id, level + 1);
+      }
     }
   }
 
@@ -104,8 +108,9 @@ export function ExtractClient() {
   const [checkedFacts, setCheckedFacts] = useState<Record<string, boolean>>({});
 
   // Root routing: "new" = create under Inbox; any other string = targetNodeId for merge
-  const [existingRootNodes, setExistingRootNodes] = useState<{ id: string; title: string }[]>([]);
+  const [allExistingNodes, setAllExistingNodes] = useState<{ id: string; title: string; breadcrumb: string }[]>([]);
   const [rootRouting, setRootRouting] = useState<Record<string, "new" | string>>({});
+  const [autoMatchedRoots, setAutoMatchedRoots] = useState<Set<string>>(new Set());
 
   const [applying, setApplying] = useState(false);
 
@@ -123,8 +128,26 @@ export function ExtractClient() {
     }
 
     setResult(res.result);
-    setExistingRootNodes(res.rootNodes);
-    setRootRouting({});
+    setAllExistingNodes(res.allNodes);
+
+    // Build routing: default everyone to "new", then override with high-confidence auto-matches
+    const autoRouting: Record<string, "new" | string> = {};
+    const autoIds = new Set<string>();
+    for (const r of res.result.roots) {
+      autoRouting[r.temp_id] = "new";
+    }
+    for (const m of res.result.matches) {
+      if (!m.temp_id) continue;
+      const hasStrongEvidence = COURSE_EVIDENCE_KEYWORDS.some((k) =>
+        (m.evidence ?? "").toLowerCase().includes(k)
+      );
+      if (m.confidence >= 0.85 || (m.confidence >= 0.8 && hasStrongEvidence)) {
+        autoRouting[m.temp_id] = m.matched_node_id;
+        autoIds.add(m.temp_id);
+      }
+    }
+    setRootRouting(autoRouting);
+    setAutoMatchedRoots(autoIds);
 
     // Pre-check all nodes by default
     const flat = flattenTree(res.result.roots);
@@ -198,10 +221,10 @@ export function ExtractClient() {
     const matchCount = approvedMatches.filter((m) => m.add_facts.length > 0).length;
     toast.success(
       `Applied ${nodeCount} node${nodeCount !== 1 ? "s" : ""}` +
-        (matchCount > 0 ? ` and updated ${matchCount} existing node${matchCount !== 1 ? "s" : ""}` : "")
+      (matchCount > 0 ? ` and updated ${matchCount} existing node${matchCount !== 1 ? "s" : ""}` : "")
     );
     router.push("/learn/hub");
-  }, [result, checkedNodes, nodeTypes, checkedMatches, checkedFacts, extractionId, router]);
+  }, [result, checkedNodes, nodeTypes, checkedMatches, checkedFacts, rootRouting, extractionId, router]);
 
   function toggleRootCollapse(tempId: string) {
     setCollapsedRoots((prev) => {
@@ -349,50 +372,77 @@ export function ExtractClient() {
                   )}
 
                   {/* Routing toggle */}
-                  {existingRootNodes.length > 0 && (
+                  {allExistingNodes.length > 0 && (
                     <div className="px-3 pb-2 flex items-center gap-2 flex-wrap">
                       <button
-                        className={`text-[10px] px-2 py-0.5 rounded-full border transition-colors ${
-                          !rootRouting[root.temp_id] || rootRouting[root.temp_id] === "new"
+                        className={`text-[10px] px-2 py-0.5 rounded-full border transition-colors ${rootRouting[root.temp_id] === "new"
                             ? "bg-primary text-primary-foreground border-primary"
                             : "text-muted-foreground border-border hover:border-foreground/30"
-                        }`}
-                        onClick={() => setRootRouting((prev) => ({ ...prev, [root.temp_id]: "new" }))}
+                          }`}
+                        onClick={() => {
+                          setRootRouting((prev) => ({ ...prev, [root.temp_id]: "new" }));
+                          setAutoMatchedRoots((prev) => {
+                            const next = new Set(prev);
+                            next.delete(root.temp_id);
+                            return next;
+                          });
+                        }}
                       >
                         New node
                       </button>
                       <button
-                        className={`text-[10px] px-2 py-0.5 rounded-full border transition-colors ${
-                          rootRouting[root.temp_id] && rootRouting[root.temp_id] !== "new"
+                        className={`text-[10px] px-2 py-0.5 rounded-full border transition-colors ${rootRouting[root.temp_id] !== "new"
                             ? "bg-primary text-primary-foreground border-primary"
                             : "text-muted-foreground border-border hover:border-foreground/30"
-                        }`}
+                          }`}
                         onClick={() => {
-                          if (!rootRouting[root.temp_id] || rootRouting[root.temp_id] === "new") {
+                          if (rootRouting[root.temp_id] === "new") {
                             setRootRouting((prev) => ({
                               ...prev,
-                              [root.temp_id]: existingRootNodes[0]?.id ?? "new",
+                              [root.temp_id]: allExistingNodes[0]?.id ?? "new",
                             }));
                           }
                         }}
                       >
                         Merge into →
                       </button>
-                      {rootRouting[root.temp_id] && rootRouting[root.temp_id] !== "new" && (
+                      {autoMatchedRoots.has(root.temp_id) && rootRouting[root.temp_id] !== "new" && (
+                        <span className="text-[10px] text-emerald-600 font-medium">Auto-matched</span>
+                      )}
+                      {rootRouting[root.temp_id] !== "new" && (
                         <select
-                          className="text-[10px] border rounded px-1 py-0.5 bg-background text-foreground"
+                          className="text-[10px] border rounded px-1 py-0.5 bg-background text-foreground max-w-[200px]"
                           value={rootRouting[root.temp_id]}
                           onChange={(e) =>
                             setRootRouting((prev) => ({ ...prev, [root.temp_id]: e.target.value }))
                           }
                         >
-                          {existingRootNodes.map((n) => (
+                          {allExistingNodes.map((n) => (
                             <option key={n.id} value={n.id}>
-                              {n.title}
+                              {n.breadcrumb}
                             </option>
                           ))}
                         </select>
                       )}
+                      {(() => {
+                        if (rootRouting[root.temp_id] !== "new") return null;
+                        const nearMatch = result.matches.find(
+                          (m) => m.temp_id === root.temp_id && m.confidence >= 0.75 && m.confidence < 0.85
+                        );
+                        if (!nearMatch) return null;
+                        const breadcrumb = allExistingNodes.find((n) => n.id === nearMatch.matched_node_id)?.breadcrumb;
+                        if (!breadcrumb) return null;
+                        return (
+                          <button
+                            className="text-[10px] text-blue-500 hover:text-blue-700 hover:underline transition-colors ml-1"
+                            onClick={() =>
+                              setRootRouting((prev) => ({ ...prev, [root.temp_id]: nearMatch.matched_node_id }))
+                            }
+                          >
+                            Possible match: {breadcrumb} ({Math.round(nearMatch.confidence * 100)}%)
+                          </button>
+                        );
+                      })()}
                     </div>
                   )}
 
@@ -467,6 +517,17 @@ export function ExtractClient() {
                         ...prev,
                         [match.matched_node_id]: !!v,
                       }));
+                      // Keep routing in sync: if this match targets a root node,
+                      // checking it should route that root to merge (not create under Inbox)
+                      if (match.temp_id) {
+                        const isRoot = result.roots.some((r) => r.temp_id === match.temp_id);
+                        if (isRoot) {
+                          setRootRouting((prev) => ({
+                            ...prev,
+                            [match.temp_id]: v ? match.matched_node_id : "new",
+                          }));
+                        }
+                      }
                     }}
                   />
                   <div className="flex-1 min-w-0">
@@ -476,13 +537,12 @@ export function ExtractClient() {
                       <span className="text-sm font-medium">{match.matched_node_title}</span>
                       <Badge
                         variant="outline"
-                        className={`text-[10px] px-1.5 py-0 h-4 ${
-                          match.confidence >= 0.8
+                        className={`text-[10px] px-1.5 py-0 h-4 ${match.confidence >= 0.8
                             ? "bg-emerald-500/10 text-emerald-700"
                             : match.confidence >= 0.65
-                            ? "bg-yellow-500/10 text-yellow-700"
-                            : "bg-muted text-muted-foreground"
-                        }`}
+                              ? "bg-yellow-500/10 text-yellow-700"
+                              : "bg-muted text-muted-foreground"
+                          }`}
                       >
                         {Math.round(match.confidence * 100)}% match
                       </Badge>

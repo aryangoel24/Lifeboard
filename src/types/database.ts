@@ -246,6 +246,7 @@ export type KnowledgeNode = {
   source?: 'manual' | 'digest' | 'extract' | 'scaffold';
   source_ref?: string | null;
   ai_evidence?: string | null;
+  is_collapsed: boolean;
   updated_at: string;
   created_at: string;
 };
@@ -270,6 +271,7 @@ export type ExtractionNode = {
 };
 
 export type ExtractionMatch = {
+  temp_id: string;
   proposed_title: string;
   matched_node_id: string;
   matched_node_title: string;
