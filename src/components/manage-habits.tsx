@@ -31,6 +31,7 @@ import {
   archiveCustomHabit,
   unarchiveCustomHabit,
 } from "@/lib/actions/custom-habits";
+import { updateCustomHabitNRSettings } from "@/lib/actions/habit-debt";
 import { Plus, Pencil, Archive, ArchiveRestore, Eye, EyeOff, Sparkles, Loader2 } from "lucide-react";
 import { generateHabitIcon } from "@/lib/actions/custom-habits";
 import type { CustomHabit } from "@/types/database";
@@ -67,6 +68,9 @@ function HabitFormDialog({
   const [trackingType, setTrackingType] = useState<string>(
     habit?.tracking_type || "checkbox"
   );
+  const [nrEnabled, setNrEnabled] = useState<boolean>(habit?.nr_enabled ?? false);
+  const [nrIsHard, setNrIsHard] = useState<boolean>(habit?.nr_is_hard ?? false);
+  const [savingNr, setSavingNr] = useState(false);
 
   const isEdit = !!habit;
 
@@ -85,10 +89,38 @@ function HabitFormDialog({
     if (result.error) {
       toast.error(result.error);
     } else {
+      // Save NR settings if editing existing habit
+      if (isEdit) {
+        await updateCustomHabitNRSettings(habit.id, nrEnabled, nrIsHard);
+      }
       toast.success(isEdit ? "Habit updated" : "Habit created");
       onOpenChange(false);
     }
     setSaving(false);
+  }
+
+  async function handleNrToggle(enabled: boolean) {
+    if (!habit?.id) return;
+    setSavingNr(true);
+    const result = await updateCustomHabitNRSettings(habit.id, enabled, nrIsHard);
+    if (result.error) {
+      toast.error(result.error);
+    } else {
+      setNrEnabled(enabled);
+    }
+    setSavingNr(false);
+  }
+
+  async function handleNrHardToggle(isHard: boolean) {
+    if (!habit?.id) return;
+    setSavingNr(true);
+    const result = await updateCustomHabitNRSettings(habit.id, nrEnabled, isHard);
+    if (result.error) {
+      toast.error(result.error);
+    } else {
+      setNrIsHard(isHard);
+    }
+    setSavingNr(false);
   }
 
   async function handleGenerateIcon() {
@@ -229,6 +261,58 @@ function HabitFormDialog({
               placeholder="e.g. Health, Mindfulness"
             />
           </div>
+
+          {isEdit && (
+            <div className="border rounded-lg p-3 space-y-3">
+              <p className="text-sm font-medium">Accountability</p>
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm">Negative Reinforcement</p>
+                  <p className="text-xs text-muted-foreground">Charge penalty on missed days</p>
+                </div>
+                <Button
+                  type="button"
+                  variant={nrEnabled ? "default" : "outline"}
+                  size="sm"
+                  disabled={savingNr}
+                  onClick={() => handleNrToggle(!nrEnabled)}
+                >
+                  {nrEnabled ? "On" : "Off"}
+                </Button>
+              </div>
+              {nrEnabled && (
+                <div className="space-y-2">
+                  <div className="flex items-center gap-2">
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant={!nrIsHard ? "default" : "outline"}
+                      disabled={savingNr}
+                      onClick={() => handleNrHardToggle(false)}
+                      className="flex-1"
+                    >
+                      Soft
+                    </Button>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant={nrIsHard ? "default" : "outline"}
+                      disabled={savingNr}
+                      onClick={() => handleNrHardToggle(true)}
+                      className="flex-1"
+                    >
+                      Hard
+                    </Button>
+                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    {nrIsHard
+                      ? "Hard: 1 completion = -1 debt, forgives $5/day"
+                      : "Soft: 2 completions = -1 debt, forgives $2.50 each"}
+                  </p>
+                </div>
+              )}
+            </div>
+          )}
 
           <Button type="submit" className="w-full" disabled={saving}>
             {saving ? "Saving..." : isEdit ? "Update Habit" : "Create Habit"}

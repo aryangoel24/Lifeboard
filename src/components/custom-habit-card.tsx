@@ -12,16 +12,18 @@ import { Input } from "@/components/ui/input";
 import { toast } from "sonner";
 import { logCustomHabit } from "@/lib/actions/custom-habits";
 import { Check, Minus, Plus } from "lucide-react";
-import type { CustomHabit, HabitEntry } from "@/types/database";
+import type { CustomHabit, HabitDebt, HabitEntry } from "@/types/database";
+import { formatCents } from "@/lib/habit-debt-utils";
 
 interface CustomHabitCardProps {
   habit: CustomHabit;
   entry: HabitEntry | undefined;
   date: string;
   isFallingBehind?: boolean;
+  debt?: HabitDebt;
 }
 
-export function CustomHabitCard({ habit, entry, date, isFallingBehind }: CustomHabitCardProps) {
+export function CustomHabitCard({ habit, entry, date, isFallingBehind, debt }: CustomHabitCardProps) {
   const [value, setValue] = useState(entry?.value ?? 0);
   const [saving, setSaving] = useState(false);
 
@@ -83,6 +85,11 @@ export function CustomHabitCard({ habit, entry, date, isFallingBehind }: CustomH
           <p className="text-xs text-muted-foreground mt-1">
             {value >= goal ? "Goal reached" : `${goal - value} remaining`}
           </p>
+          {debt && debt.lifetime_unpaid_cents > 0 && (
+            <div className="mt-1 text-xs text-red-600 dark:text-red-400 font-medium">
+              {formatCents(debt.lifetime_unpaid_cents)} owed · {debt.debt_count} debt
+            </div>
+          )}
         </CardContent>
       </Card>
     );
@@ -124,6 +131,11 @@ export function CustomHabitCard({ habit, entry, date, isFallingBehind }: CustomH
               <Check className="h-5 w-5 text-green-500" />
             )}
           </div>
+          {debt && debt.lifetime_unpaid_cents > 0 && (
+            <div className="mt-1 text-xs text-red-600 dark:text-red-400 font-medium">
+              {formatCents(debt.lifetime_unpaid_cents)} owed · {debt.debt_count} debt
+            </div>
+          )}
         </CardContent>
       </Card>
     );
@@ -158,6 +170,11 @@ export function CustomHabitCard({ habit, entry, date, isFallingBehind }: CustomH
             "Mark as done"
           )}
         </Button>
+        {debt && debt.lifetime_unpaid_cents > 0 && (
+          <div className="mt-2 text-xs text-red-600 dark:text-red-400 font-medium">
+            {formatCents(debt.lifetime_unpaid_cents)} owed · {debt.debt_count} debt
+          </div>
+        )}
       </CardContent>
     </Card>
   );

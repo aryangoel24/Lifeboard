@@ -11,6 +11,8 @@ import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
 import { logHabit } from "@/lib/actions/habits";
 import { Pill, Dumbbell, Check, Minus, Plus, Tablet } from "lucide-react";
+import type { HabitDebt } from "@/types/database";
+import { formatCents } from "@/lib/habit-debt-utils";
 type BuiltinHabitType = "creatine" | "magnesium" | "gym";
 
 interface HabitCardProps {
@@ -19,6 +21,7 @@ interface HabitCardProps {
   goal: number;
   date: string;
   isFallingBehind?: boolean;
+  debt?: HabitDebt;
 }
 
 const HABIT_CONFIG = {
@@ -42,7 +45,7 @@ const HABIT_CONFIG = {
   },
 } as const;
 
-export function HabitCard({ habitType, currentValue, goal, date, isFallingBehind }: HabitCardProps) {
+export function HabitCard({ habitType, currentValue, goal, date, isFallingBehind, debt }: HabitCardProps) {
   const [value, setValue] = useState(currentValue);
   const [saving, setSaving] = useState(false);
   const config = HABIT_CONFIG[habitType];
@@ -105,6 +108,23 @@ export function HabitCard({ habitType, currentValue, goal, date, isFallingBehind
           <p className="text-xs text-muted-foreground mt-1">
             {value >= goal ? "Goal reached" : `${goal - value} ${config.unit} remaining`}
           </p>
+          {debt && debt.lifetime_unpaid_cents > 0 && (
+            <div className="mt-2 space-y-1">
+              <div className="flex items-center justify-between text-xs">
+                <span className="text-red-600 dark:text-red-400 font-medium">
+                  {formatCents(debt.lifetime_unpaid_cents)} owed · {debt.debt_count} debt
+                </span>
+              </div>
+              {debt.completions_pending > 0 && (
+                <div className="w-full h-1 bg-muted rounded-full overflow-hidden">
+                  <div
+                    className="h-full bg-emerald-500 rounded-full transition-all"
+                    style={{ width: `${(debt.completions_pending / (debt.consecutive_miss_days > 0 ? 1 : 1)) * 100}%` }}
+                  />
+                </div>
+              )}
+            </div>
+          )}
         </CardContent>
       </Card>
     );
@@ -140,6 +160,11 @@ export function HabitCard({ habitType, currentValue, goal, date, isFallingBehind
             "Mark as done"
           )}
         </Button>
+        {debt && debt.lifetime_unpaid_cents > 0 && (
+          <div className="mt-2 text-xs text-red-600 dark:text-red-400 font-medium">
+            {formatCents(debt.lifetime_unpaid_cents)} owed · {debt.debt_count} debt
+          </div>
+        )}
       </CardContent>
     </Card>
   );

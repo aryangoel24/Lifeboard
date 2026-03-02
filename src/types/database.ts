@@ -10,6 +10,12 @@ export type Profile = {
   api_token_hash: string | null;
   api_enabled: boolean;
   timezone: string;
+  creatine_nr_enabled: boolean;
+  creatine_nr_is_hard: boolean;
+  magnesium_nr_enabled: boolean;
+  magnesium_nr_is_hard: boolean;
+  gym_nr_enabled: boolean;
+  gym_nr_is_hard: boolean;
   created_at: string;
   updated_at: string;
 };
@@ -158,6 +164,8 @@ export type CustomHabit = {
   category: string | null;
   sort_order: number;
   archived: boolean;
+  nr_enabled: boolean;
+  nr_is_hard: boolean;
   created_at: string;
   updated_at: string;
 };
@@ -318,5 +326,53 @@ export type DigestSuggestion = {
   user_id: string;
   status: 'pending' | 'applied' | 'dismissed';
   payload_json: DigestPayload;
+  created_at: string;
+};
+
+export type HabitDebt = {
+  id: string;
+  user_id: string;
+  habit_type: HabitType;
+  custom_habit_id: string | null;
+  nr_opted_in_at: string;
+  debt_count: number;
+  completions_pending: number;
+  scheduled_clean_streak: number;
+  consecutive_miss_days: number;
+  lifetime_unpaid_cents: number;
+  debt_computed_through: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export type HabitDebtMeta = {
+  user_id: string;
+  recovery_mode_active: boolean;
+  recovery_mode_start: string | null;
+  recovery_mode_deadline: string | null;
+  recovery_streak: number;
+  recovery_cooldown_until: string | null;
+  updated_at: string;
+};
+
+export type PenaltyMonth = {
+  id: string;
+  user_id: string;
+  month: string;
+  total_cents: number;
+  settled_at: string | null;
+  created_at: string;
+};
+
+export type PenaltyEventReason = 'miss' | 'cap_skipped' | 'forgiven' | 'recovery_paused';
+
+export type PenaltyEvent = {
+  id: string;
+  user_id: string;
+  habit_type: HabitType;
+  custom_habit_id: string | null;
+  event_date: string;
+  cents: number;
+  reason: PenaltyEventReason;
   created_at: string;
 };

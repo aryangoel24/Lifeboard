@@ -6,6 +6,7 @@ import { getMealTemplates } from "@/lib/actions/meal-templates";
 import { getWeightEntries } from "@/lib/actions/weight";
 import { getTodayHabits, getHabitEntries } from "@/lib/actions/habits";
 import { getCustomHabits, getTodayCustomHabitEntries, getCustomHabitEntries } from "@/lib/actions/custom-habits";
+import { computeAndUpdateDebt, getDebtState } from "@/lib/actions/habit-debt";
 import { getToday, getNow } from "@/lib/timezone";
 import { FoodEntryList } from "@/components/food-entry-list";
 import { DailySummary } from "@/components/daily-summary";
@@ -31,6 +32,11 @@ export default async function DashboardPage({
   if (!user) redirect("/login");
 
   const date = searchParams.date || getToday();
+  const today = getToday();
+
+  // Fire debt computation for yesterday (non-blocking for today's view)
+  // We don't await it here — it runs alongside other fetches
+  const debtComputePromise = computeAndUpdateDebt(today);
 
   const [entries, profileResult, streaks, templates, recentWeights, todayHabits, customHabits, customHabitEntries, weeklyHabitEntries, weeklyCustomHabitEntries] =
     await Promise.all([
@@ -45,6 +51,10 @@ export default async function DashboardPage({
       getHabitEntries(7),
       getCustomHabitEntries(7),
     ]);
+
+  // Wait for debt computation to complete, then fetch state
+  await debtComputePromise;
+  const debtState = await getDebtState();
 
   const todayWeight = recentWeights.find((w) => w.logged_at === date) ?? null;
 
@@ -84,12 +94,17 @@ export default async function DashboardPage({
       {profile && (
         <HabitsSection
           date={date}
+          today={today}
           profile={profile}
           todayHabits={todayHabits}
           customHabits={customHabits}
           customHabitEntries={customHabitEntries}
           weeklyHabitEntries={weeklyHabitEntries}
           weeklyCustomHabitEntries={weeklyCustomHabitEntries}
+          debts={debtState.debts}
+          meta={debtState.meta}
+          liveMonthChargedCents={debtState.liveMonthChargedCents}
+          liveMonthForgivenCents={debtState.liveMonthForgivenCents}
         />
       )}
 

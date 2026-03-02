@@ -5,6 +5,7 @@ import { createClient } from "@/lib/supabase/server";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { HabitEntry, HabitType } from "@/types/database";
 import { getToday, getNow } from "@/lib/timezone";
+import { applyHabitCompletion } from "@/lib/actions/habit-debt";
 
 export async function logHabit(
   habitType: HabitType,
@@ -45,6 +46,20 @@ export async function logHabit(
   }
 
   await updateHabitStreak(user.id, habitType, loggedAt, value, supabase);
+
+  // Apply NR forgiveness if this habit has NR enabled and value > 0
+  if (value > 0 && habitType !== "custom") {
+    const { data: profile } = await supabase
+      .from("profiles")
+      .select(`${habitType}_nr_enabled, ${habitType}_nr_is_hard`)
+      .eq("id", user.id)
+      .single();
+
+    if (profile && (profile as Record<string, boolean>)[`${habitType}_nr_enabled`]) {
+      const isHard = (profile as Record<string, boolean>)[`${habitType}_nr_is_hard`] ?? false;
+      await applyHabitCompletion(habitType, null, isHard, loggedAt);
+    }
+  }
 
   revalidatePath("/dashboard");
   revalidatePath("/analytics");

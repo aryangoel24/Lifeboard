@@ -5,27 +5,38 @@ import { ChevronDown, ChevronUp } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { HabitCard } from "@/components/habit-card";
 import { CustomHabitCard } from "@/components/custom-habit-card";
+import { DebtBanner } from "@/components/debt-banner";
 import { isHabitScheduledForDate, computeHabitFallingBehind } from "@/lib/habit-utils";
-import type { CustomHabit, HabitEntry, Profile } from "@/types/database";
+import type { CustomHabit, HabitDebt, HabitDebtMeta, HabitEntry, Profile } from "@/types/database";
 
 interface HabitsSectionProps {
   date: string;
+  today: string;
   profile: Profile;
   todayHabits: HabitEntry[];
   customHabits: CustomHabit[];
   customHabitEntries: HabitEntry[];
   weeklyHabitEntries: HabitEntry[];
   weeklyCustomHabitEntries: HabitEntry[];
+  debts: HabitDebt[];
+  meta: HabitDebtMeta | null;
+  liveMonthChargedCents: number;
+  liveMonthForgivenCents: number;
 }
 
 export function HabitsSection({
   date,
+  today,
   profile,
   todayHabits,
   customHabits,
   customHabitEntries,
   weeklyHabitEntries,
   weeklyCustomHabitEntries,
+  debts,
+  meta,
+  liveMonthChargedCents,
+  liveMonthForgivenCents,
 }: HabitsSectionProps) {
   const [expanded, setExpanded] = useState(true);
 
@@ -65,11 +76,32 @@ export function HabitsSection({
   const totalDone = hardcodedDone + customDone;
   const totalHabits = 3 + scheduledHabits.length;
 
+  // Build per-habit debt lookup
+  const getDebt = (habitType: string, customHabitId?: string): HabitDebt | undefined => {
+    return debts.find((d) =>
+      customHabitId
+        ? d.custom_habit_id === customHabitId
+        : d.habit_type === habitType && d.custom_habit_id === null
+    );
+  };
+
+  const hasActiveDebt = debts.some((d) => d.lifetime_unpaid_cents > 0 || meta?.recovery_mode_active);
+
   return (
-    <div>
+    <div className="space-y-3">
+      {hasActiveDebt && (
+        <DebtBanner
+          debts={debts}
+          meta={meta}
+          customHabits={customHabits}
+          liveMonthChargedCents={liveMonthChargedCents}
+          liveMonthForgivenCents={liveMonthForgivenCents}
+          today={today}
+        />
+      )}
       <button
         onClick={() => setExpanded(!expanded)}
-        className="flex items-center justify-between w-full text-left mb-3"
+        className="flex items-center justify-between w-full text-left"
       >
         <div className="flex items-center gap-2">
           <h2 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide">
@@ -100,6 +132,7 @@ export function HabitsSection({
             goal={profile.creatine_goal ?? 2}
             date={date}
             isFallingBehind={fallingBehindMap["creatine"]}
+            debt={getDebt("creatine")}
           />
           <HabitCard
             key={`magnesium-${date}`}
@@ -108,6 +141,7 @@ export function HabitsSection({
             goal={1}
             date={date}
             isFallingBehind={fallingBehindMap["magnesium"]}
+            debt={getDebt("magnesium")}
           />
           <HabitCard
             key={`gym-${date}`}
@@ -116,6 +150,7 @@ export function HabitsSection({
             goal={1}
             date={date}
             isFallingBehind={fallingBehindMap["gym"]}
+            debt={getDebt("gym")}
           />
           {scheduledHabits.map((habit) => (
             <CustomHabitCard
@@ -126,6 +161,7 @@ export function HabitsSection({
               )}
               date={date}
               isFallingBehind={fallingBehindMap[habit.id]}
+              debt={getDebt("custom", habit.id)}
             />
           ))}
         </div>
