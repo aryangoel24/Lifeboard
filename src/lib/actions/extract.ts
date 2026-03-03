@@ -21,10 +21,23 @@ export type ApprovedMatch = {
 
 export type RootRouting = Record<string, { mode: "new" } | { mode: "merge"; targetNodeId: string }>;
 
-export async function extractKnowledge(
-  text: string
+export type ExtractionSourcePayload =
+  | { kind: "text"; text: string }
+  | { kind: "url"; url: string }
+  | { kind: "pdf"; formData: FormData }
+  | { kind: "voice"; formData: FormData };
+
+// Generic user-agent to avoid simple scraping blocks
+const USER_AGENT = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36";
+
+export async function extractKnowledgeFromSource(
+  payload: ExtractionSourcePayload
 ): Promise<
-  | { result: ExtractionResult; allNodes: { id: string; title: string; breadcrumb: string }[] }
+  | {
+    result: ExtractionResult;
+    allNodes: { id: string; title: string; breadcrumb: string }[];
+    sourceMeta: { source: string; source_ref: string; title?: string; siteName?: string };
+  }
   | { error: string }
 > {
   const supabase = createClient();
@@ -32,6 +45,172 @@ export async function extractKnowledge(
     data: { user },
   } = await supabase.auth.getUser();
   if (!user) return { error: "Unauthorized" };
+
+  let textToExtract = "";
+  const sourceMeta: { source: string; source_ref: string; title?: string; siteName?: string } = {
+    source: payload.kind,
+    source_ref: "",
+  };
+
+  if (payload.kind === "text") {
+    textToExtract = payload.text;
+    sourceMeta.source_ref = "manual_text";
+  } else if (payload.kind === "url") {
+    sourceMeta.source_ref = payload.url;
+    try {
+      const urlObj = new URL(payload.url);
+      if (urlObj.protocol !== "http:" && urlObj.protocol !== "https:") {
+        return { error: "Only HTTP/HTTPS URLs are allowed." };
+      }
+      // Basic SSRF guard (can be expanded)
+      const hostname = urlObj.hostname.toLowerCase();
+      if (
+        hostname === "localhost" ||
+        hostname === "127.0.0.1" ||
+        hostname.startsWith("192.168.") ||
+        hostname.startsWith("10.") ||
+        hostname.match(/^172\.(1[6-9]|2[0-9]|3[0-1])\./) || // 172.16.x.x - 172.31.x.x
+        hostname.endsWith(".local")
+      ) {
+        return { error: "Private or local URLs are not allowed." };
+      }
+
+      // Fetch with timeout and size limit
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 10000); // 10s timeout
+
+      const res = await fetch(payload.url, {
+        headers: { "User-Agent": USER_AGENT },
+        signal: controller.signal,
+      });
+      clearTimeout(timeoutId);
+
+      if (!res.ok) {
+        return { error: `Failed to fetch URL: ${res.status} ${res.statusText}` };
+      }
+
+      const contentLength = res.headers.get("content-length");
+      if (contentLength && parseInt(contentLength, 10) > 5 * 1024 * 1024) {
+        return { error: "URL content is too large (max 5MB)." };
+      }
+
+      const html = await res.text();
+
+      const { JSDOM } = await import("jsdom");
+      const { Readability } = await import("@mozilla/readability");
+
+      const dom = new JSDOM(html, { url: payload.url });
+      const reader = new Readability(dom.window.document);
+      const article = reader.parse();
+
+      if (article && article.textContent && article.textContent.trim().length > 200) {
+        textToExtract = article.textContent;
+        sourceMeta.title = article.title || undefined;
+        sourceMeta.siteName = article.siteName || undefined;
+      } else {
+        // Fallback to basic innerText if Readability fails or returns tiny payload
+        textToExtract = dom.window.document.body.textContent || "";
+        textToExtract = textToExtract.replace(/\s+/g, " ").trim();
+        sourceMeta.title = dom.window.document.title || undefined;
+      }
+
+      if (!textToExtract || textToExtract.length < 50) {
+        return { error: "Could not extract sufficient text from this URL." };
+      }
+    } catch (err: unknown) {
+      console.error("URL extraction error:", err);
+      const errName = err instanceof Error ? err.name : "";
+      const errMsg = err instanceof Error ? err.message : String(err);
+      if (errName === "AbortError") return { error: "URL fetch timed out." };
+      return { error: "Failed to parse URL. " + errMsg };
+    }
+  } else if (payload.kind === "pdf") {
+    const file = payload.formData.get("file") as File | null;
+    if (!file) return { error: "No PDF file provided." };
+    if (file.size > 10 * 1024 * 1024) return { error: "PDF is too large (max 10MB)." };
+
+    sourceMeta.source_ref = file.name;
+    sourceMeta.title = file.name;
+
+    try {
+      const arrayBuffer = await file.arrayBuffer();
+      const buffer = Buffer.from(arrayBuffer);
+
+      textToExtract = await new Promise<string>((resolve, reject) => {
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
+        const PDFParser = require("pdf2json");
+        const pdfParser = new PDFParser(null, 1);
+
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        pdfParser.on("pdfParser_dataError", (errData: any) => reject(errData.parserError));
+        pdfParser.on("pdfParser_dataReady", () => {
+          resolve(pdfParser.getRawTextContent());
+        });
+
+        pdfParser.parseBuffer(buffer);
+      });
+
+      // Scanning detection heuristic: if text length is tiny compared to file size
+      // (e.g. < 500 chars for a 1MB file, it's probably almost entirely scanned images)
+      if (textToExtract.trim().length < 200) {
+        return { error: "This looks like a scanned PDF without embedded text. Try copying the text manually or using an OCR tool." };
+      }
+
+      // Chunking strategy: if it's massive (> 40k chars, approx 10k tokens)
+      const MAX_CHARS = 40000;
+      if (textToExtract.length > MAX_CHARS) {
+        // V1 simple strategy: just take the most dense chunks to avoid token limits
+        // We split loosely by pages (pdf-parse usually puts \n\n between pages)
+        const pages = textToExtract.split(/\n\n+/);
+        if (pages.length > 3) {
+          // Take first 2 pages for intro/context
+          const intro = pages.slice(0, 2).join("\n\n");
+          // Find the densest middle page
+          const remaining = pages.slice(2);
+          let densest = remaining[0];
+          for (const p of remaining) {
+            if (p.length > densest.length) densest = p;
+          }
+          textToExtract = intro + "\n\n...[content truncated]...\n\n" + densest;
+        } else {
+          textToExtract = textToExtract.slice(0, MAX_CHARS);
+        }
+      }
+    } catch (err: unknown) {
+      console.error("PDF parsing error:", err);
+      return { error: "Failed to parse PDF file." };
+    }
+  } else if (payload.kind === "voice") {
+    const file = payload.formData.get("file") as File | null;
+    if (!file) return { error: "No voice memo provided." };
+    if (file.size > 25 * 1024 * 1024) return { error: "Audio file is too large (max 25MB). Please keep recordings under 10 minutes." };
+
+    // Fallback name if none provided
+    sourceMeta.source_ref = file.name || `Voice Note ${new Date().toLocaleDateString()}`;
+    sourceMeta.title = sourceMeta.source_ref;
+
+    try {
+      const { getOpenAIClient } = await import("@/lib/knowledge-utils");
+      const openai = getOpenAIClient();
+      if (!openai) return { error: "AI client not configured." };
+
+      const response = await openai.audio.transcriptions.create({
+        file: file,
+        model: "whisper-1",
+        language: "en",
+      });
+
+      textToExtract = response.text;
+
+      if (!textToExtract || textToExtract.trim().length < 10) {
+        return { error: "Could not transcribe any words from this audio file." };
+      }
+    } catch (err: unknown) {
+      console.error("Voice transcription error:", err);
+      const errMsg = err instanceof Error ? err.message : String(err);
+      return { error: "Failed to transcribe audio file. " + errMsg };
+    }
+  }
 
   const { data: dbNodes } = await supabase
     .from("knowledge_nodes")
@@ -65,7 +244,7 @@ export async function extractKnowledge(
     breadcrumb: buildBreadcrumb(n.id as string),
   }));
 
-  const result = await generateKnowledgeExtraction(text, allNodes);
+  const result = await generateKnowledgeExtraction(textToExtract, allNodes);
   if (!result) return { error: "AI extraction failed" };
 
   // Post-process: filter out proposed nodes that already exist in the user's graph
@@ -99,7 +278,7 @@ export async function extractKnowledge(
       : undefined,
   }));
 
-  return { result, allNodes };
+  return { result, allNodes, sourceMeta };
 }
 
 export async function applyExtraction(

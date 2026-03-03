@@ -7,7 +7,7 @@ const securityHeaders = [
 
 const nextConfig = {
   experimental: {
-    serverComponentsExternalPackages: ["@supabase/ssr"],
+    serverComponentsExternalPackages: ["@supabase/ssr", "pdf-parse", "pdfjs-dist"],
   },
   images: {
     remotePatterns: [

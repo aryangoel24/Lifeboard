@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback } from "react";
+import { useState, useCallback, useRef, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import {
@@ -20,12 +20,16 @@ import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Badge } from "@/components/ui/badge";
-import { extractKnowledge, applyExtraction } from "@/lib/actions/extract";
+import { extractKnowledgeFromSource, applyExtraction } from "@/lib/actions/extract";
+import type { ExtractionSourcePayload } from "@/lib/actions/extract";
 import type { ExtractionResult, ExtractionNode, NodeType } from "@/types/database";
 import type { ApprovedExtractionNode, ApprovedMatch, RootRouting } from "@/lib/actions/extract";
 import type { LucideIcon } from "lucide-react";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Input } from "@/components/ui/input";
 
 type UIState = "input" | "loading" | "review";
+type InputTab = "text" | "link" | "pdf" | "voice";
 
 const COURSE_EVIDENCE_KEYWORDS = ["syllabus", "assignment", "lecture", "readings", "course", "class", "module", "prerequisite"];
 
@@ -91,8 +95,23 @@ function flattenTree(roots: ExtractionNode[]): FlatNode[] {
 export function ExtractClient() {
   const router = useRouter();
   const [uiState, setUiState] = useState<UIState>("input");
+
+  // Input states
+  const [activeTab, setActiveTab] = useState<InputTab>("text");
   const [text, setText] = useState("");
+  const [url, setUrl] = useState("");
+  const [pdfFile, setPdfFile] = useState<File | null>(null);
+
+  // Audio recording state
+  const [isRecording, setIsRecording] = useState(false);
+  const [recordingTime, setRecordingTime] = useState(0);
+  const [audioBlob, setAudioBlob] = useState<Blob | null>(null);
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const chunksRef = useRef<BlobPart[]>([]);
+  const timerRef = useRef<NodeJS.Timeout>();
+
   const [result, setResult] = useState<ExtractionResult | null>(null);
+  const [sourceMeta, setSourceMeta] = useState<{ source: string; source_ref: string; title?: string; siteName?: string } | null>(null);
   const [extractionId] = useState(() => crypto.randomUUID());
 
   // Per-node checked state: temp_id → boolean
@@ -114,13 +133,103 @@ export function ExtractClient() {
 
   const [applying, setApplying] = useState(false);
 
+  useEffect(() => {
+    return () => {
+      if (timerRef.current) clearInterval(timerRef.current);
+    };
+  }, []);
+
+  const startRecording = async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const mediaRecorder = new MediaRecorder(stream);
+      mediaRecorderRef.current = mediaRecorder;
+      chunksRef.current = [];
+
+      mediaRecorder.ondataavailable = (e) => {
+        if (e.data.size > 0) chunksRef.current.push(e.data);
+      };
+
+      mediaRecorder.onstop = () => {
+        const blob = new Blob(chunksRef.current, { type: "audio/webm" });
+        // Attach duration to the blob object for the UI to display after stopping
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        (blob as any).duration = recordingTime;
+        setAudioBlob(blob);
+        stream.getTracks().forEach((track) => track.stop());
+      };
+
+      mediaRecorder.start();
+      setIsRecording(true);
+      setRecordingTime(0);
+      setAudioBlob(null);
+
+      timerRef.current = setInterval(() => {
+        setRecordingTime((prev) => prev + 1);
+      }, 1000);
+    } catch (err) {
+      console.error("Error accessing microphone:", err);
+      toast.error("Could not access microphone. Please check permissions.");
+    }
+  };
+
+  const stopRecording = () => {
+    if (mediaRecorderRef.current && isRecording) {
+      mediaRecorderRef.current.stop();
+      setIsRecording(false);
+      if (timerRef.current) clearInterval(timerRef.current);
+    }
+  };
+
+  const formatTime = (seconds: number) => {
+    const m = Math.floor(seconds / 60);
+    const s = seconds % 60;
+    return `${m}:${s.toString().padStart(2, "0")}`;
+  };
+
   const handleExtract = useCallback(async () => {
-    if (!text.trim()) {
-      toast.error("Please paste some text first");
+    let payload: ExtractionSourcePayload;
+
+    if (activeTab === "text") {
+      if (!text.trim()) {
+        toast.error("Please paste some text first");
+        return;
+      }
+      payload = { kind: "text", text };
+    } else if (activeTab === "link") {
+      if (!url.trim() || !url.startsWith("http")) {
+        toast.error("Please enter a valid HTTP/HTTPS URL");
+        return;
+      }
+      payload = { kind: "url", url };
+    } else if (activeTab === "pdf") {
+      if (!pdfFile) {
+        toast.error("Please upload a PDF file first");
+        return;
+      }
+      if (pdfFile.size > 10 * 1024 * 1024) {
+        toast.error("File is too large (max 10MB)");
+        return;
+      }
+      const formData = new FormData();
+      formData.append("file", pdfFile);
+      payload = { kind: "pdf", formData };
+    } else if (activeTab === "voice") {
+      if (!audioBlob) {
+        toast.error("Please record a voice memo first");
+        return;
+      }
+      const formData = new FormData();
+      const filename = `recording_${new Date().getTime()}.webm`;
+      formData.append("file", audioBlob, filename);
+      payload = { kind: "voice", formData };
+    } else {
+      toast.error("This input method is not implemented yet.");
       return;
     }
+
     setUiState("loading");
-    const res = await extractKnowledge(text);
+    const res = await extractKnowledgeFromSource(payload);
     if ("error" in res) {
       toast.error(res.error);
       setUiState("input");
@@ -128,6 +237,7 @@ export function ExtractClient() {
     }
 
     setResult(res.result);
+    setSourceMeta(res.sourceMeta);
     setAllExistingNodes(res.allNodes);
 
     // Build routing: default everyone to "new", then override with high-confidence auto-matches
@@ -168,7 +278,7 @@ export function ExtractClient() {
     setCheckedFacts(initialFacts);
 
     setUiState("review");
-  }, [text]);
+  }, [activeTab, text, url, pdfFile, audioBlob]);
 
   const handleApply = useCallback(async () => {
     if (!result) return;
@@ -257,22 +367,120 @@ export function ExtractClient() {
     return (
       <div className="container mx-auto max-w-2xl py-8 px-4 space-y-6">
         <div>
-          <h1 className="text-2xl font-bold">Brain Dump Extraction</h1>
+          <h1 className="text-2xl font-bold">Add to Knowledge Graph</h1>
           <p className="text-muted-foreground mt-1 text-sm">
-            Paste any freeform text — a resume, journal, course notes, or life summary — and AI will extract
-            a structured knowledge tree.
+            Extract knowledge from any source and integrate it directly into your personal graph.
           </p>
         </div>
 
-        <Textarea
-          placeholder="Paste any text — resume, life notes, course material, anything..."
-          value={text}
-          onChange={(e) => setText(e.target.value)}
-          rows={14}
-          className="resize-none font-mono text-sm"
-        />
+        <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as InputTab)} className="w-full">
+          <TabsList className="grid w-full grid-cols-4">
+            <TabsTrigger value="text">Paste Text</TabsTrigger>
+            <TabsTrigger value="link">Web Link</TabsTrigger>
+            <TabsTrigger value="pdf">PDF</TabsTrigger>
+            <TabsTrigger value="voice">Voice</TabsTrigger>
+          </TabsList>
 
-        <Button onClick={handleExtract} disabled={!text.trim()} className="w-full">
+          <div className="mt-4 border rounded-md p-4 bg-card">
+            <TabsContent value="text" className="mt-0">
+              <Textarea
+                placeholder="Paste any freeform text — notes, syllabus, resume..."
+                value={text}
+                onChange={(e) => setText(e.target.value)}
+                rows={12}
+                className="resize-none font-mono text-sm border-0 focus-visible:ring-0 p-0"
+              />
+            </TabsContent>
+
+            <TabsContent value="link" className="mt-0 space-y-4 py-4">
+              <div className="space-y-2">
+                <label className="text-sm font-medium">Article or Page URL</label>
+                <Input
+                  type="url"
+                  placeholder="https://example.com/article"
+                  value={url}
+                  onChange={(e) => setUrl(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" && url) handleExtract();
+                  }}
+                />
+                <p className="text-xs text-muted-foreground">
+                  The AI will automatically fetch the article text and extract its core concepts.
+                </p>
+              </div>
+            </TabsContent>
+
+            <TabsContent value="pdf" className="mt-0 space-y-4 py-4">
+              <div className="space-y-2">
+                <label className="text-sm font-medium">Upload PDF Document</label>
+                <Input
+                  type="file"
+                  accept="application/pdf"
+                  onChange={(e) => {
+                    const file = e.target.files?.[0];
+                    if (file) setPdfFile(file);
+                  }}
+                />
+                <p className="text-xs text-muted-foreground">
+                  Upload lecture slides or research papers. Scanned images without text are not supported.
+                </p>
+              </div>
+            </TabsContent>
+
+            <TabsContent value="voice" className="mt-0 space-y-4 py-8 flex flex-col items-center justify-center">
+              <div className="text-center space-y-2 mb-4">
+                <h3 className="font-medium text-lg">Brain Dump Audio</h3>
+                <p className="text-sm text-muted-foreground max-w-sm">
+                  Record a quick voice memo explaining what you learned today. AI will transcribe and map it into your graph.
+                </p>
+              </div>
+
+              {!audioBlob ? (
+                <Button
+                  size="lg"
+                  variant={isRecording ? "destructive" : "default"}
+                  className="w-32 h-32 rounded-full flex flex-col gap-2 relative overflow-hidden"
+                  onClick={isRecording ? stopRecording : startRecording}
+                >
+                  {isRecording ? (
+                    <>
+                      <div className="animate-pulse w-8 h-8 rounded-sm bg-white" />
+                      <span className="font-mono">{formatTime(recordingTime)}</span>
+                      <div className="absolute inset-0 border-4 border-white/20 rounded-full animate-ping" />
+                    </>
+                  ) : (
+                    <>
+                      <div className="w-8 h-8 rounded-full bg-primary-foreground" />
+                      <span>Record</span>
+                    </>
+                  )}
+                </Button>
+              ) : (
+                <div className="flex flex-col items-center gap-4 w-full max-w-xs">
+                  <div className="bg-muted px-4 py-3 rounded-md w-full flex items-center justify-between">
+                    <span className="text-sm font-medium">Recording saved</span>
+                    {/* eslint-disable-next-line @typescript-eslint/no-explicit-any */}
+                    <span className="text-xs text-muted-foreground font-mono">{formatTime((audioBlob as any).duration || recordingTime)}</span>
+                  </div>
+                  <Button variant="outline" size="sm" onClick={() => { setAudioBlob(null); setRecordingTime(0); }} className="w-full">
+                    Discard & Re-record
+                  </Button>
+                </div>
+              )}
+            </TabsContent>
+          </div>
+        </Tabs>
+
+        <Button
+          onClick={handleExtract}
+          disabled={
+            (activeTab === "text" && !text.trim()) ||
+            (activeTab === "link" && !url.trim()) ||
+            (activeTab === "pdf" && !pdfFile) ||
+            (activeTab === "voice" && !audioBlob)
+          }
+          className="w-full"
+        >
           Extract Knowledge Structure
         </Button>
       </div>
@@ -305,6 +513,22 @@ export function ExtractClient() {
           Select the nodes and updates you want to apply to your knowledge graph.
         </p>
       </div>
+
+      {/* Input Preview banner */}
+      {sourceMeta && (
+        <div className="flex items-center gap-2 text-xs text-muted-foreground border-b pb-4 mb-4">
+          <Badge variant="secondary" className="text-[10px] uppercase tracking-wider font-semibold">
+            {sourceMeta.source}
+          </Badge>
+          <span className="truncate">
+            {sourceMeta.source === "url" && sourceMeta.title
+              ? `${sourceMeta.title} (${new URL(sourceMeta.source_ref).hostname})`
+              : sourceMeta.source === "url"
+                ? sourceMeta.source_ref
+                : "Manual text input"}
+          </span>
+        </div>
+      )}
 
       {/* Summary card */}
       <div className="rounded-lg border bg-muted/40 p-4 text-sm text-muted-foreground">
@@ -376,8 +600,8 @@ export function ExtractClient() {
                     <div className="px-3 pb-2 flex items-center gap-2 flex-wrap">
                       <button
                         className={`text-[10px] px-2 py-0.5 rounded-full border transition-colors ${rootRouting[root.temp_id] === "new"
-                            ? "bg-primary text-primary-foreground border-primary"
-                            : "text-muted-foreground border-border hover:border-foreground/30"
+                          ? "bg-primary text-primary-foreground border-primary"
+                          : "text-muted-foreground border-border hover:border-foreground/30"
                           }`}
                         onClick={() => {
                           setRootRouting((prev) => ({ ...prev, [root.temp_id]: "new" }));
@@ -392,8 +616,8 @@ export function ExtractClient() {
                       </button>
                       <button
                         className={`text-[10px] px-2 py-0.5 rounded-full border transition-colors ${rootRouting[root.temp_id] !== "new"
-                            ? "bg-primary text-primary-foreground border-primary"
-                            : "text-muted-foreground border-border hover:border-foreground/30"
+                          ? "bg-primary text-primary-foreground border-primary"
+                          : "text-muted-foreground border-border hover:border-foreground/30"
                           }`}
                         onClick={() => {
                           if (rootRouting[root.temp_id] === "new") {
@@ -538,10 +762,10 @@ export function ExtractClient() {
                       <Badge
                         variant="outline"
                         className={`text-[10px] px-1.5 py-0 h-4 ${match.confidence >= 0.8
-                            ? "bg-emerald-500/10 text-emerald-700"
-                            : match.confidence >= 0.65
-                              ? "bg-yellow-500/10 text-yellow-700"
-                              : "bg-muted text-muted-foreground"
+                          ? "bg-emerald-500/10 text-emerald-700"
+                          : match.confidence >= 0.65
+                            ? "bg-yellow-500/10 text-yellow-700"
+                            : "bg-muted text-muted-foreground"
                           }`}
                       >
                         {Math.round(match.confidence * 100)}% match
