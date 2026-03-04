@@ -275,6 +275,7 @@ export type ExtractionNode = {
   title: string;
   node_type: NodeType;
   evidence: string;
+  facts?: string[];
   children?: ExtractionNode[];
 };
 

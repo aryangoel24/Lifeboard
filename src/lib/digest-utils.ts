@@ -98,6 +98,7 @@ Analyze the journal and return a JSON object with these sections:
 
 STRICT CONSTRAINTS:
 - Proposed node titles MUST be 2-6 words, noun phrases only
+- If an item could be a fact on an existing node, do that. Only propose new nodes when the subject is likely to recur and be linkable.
 - Do NOT suggest nodes named "Overview", "Introduction", "Basics", "Advanced Topics", or other generic umbrella terms
 - Do NOT suggest a new node that duplicates an existing child title under the same parent
 - "suggested_parent_node_id" MUST be one of the provided node IDs listed above, or the inboxNodeId "${inboxNodeId}"
@@ -168,7 +169,7 @@ export async function generateDigestAnalysis(
         Array.isArray((u as DigestNodeUpdate).add_takeaways)
     );
 
-    const validNewNodes: DigestNewNode[] = (parsed.new_nodes ?? [])
+    const rawNewNodes: DigestNewNode[] = (parsed.new_nodes ?? [])
       .filter(
         (n): n is DigestNewNode =>
           typeof n === "object" &&
@@ -180,15 +181,67 @@ export async function generateDigestAnalysis(
         ...n,
         suggested_parent_node_id:
           candidateIds.has(n.suggested_parent_node_id) ||
-          n.suggested_parent_node_id === inboxNodeId
+            n.suggested_parent_node_id === inboxNodeId
             ? n.suggested_parent_node_id
             : inboxNodeId,
       }));
 
+    // Fact-first Gating: demote proposed new nodes if they match an existing node closely
+    const finalNewNodes: DigestNewNode[] = [];
+    const acronyms: Record<string, string> = { nlp: "natural language processing", ml: "machine learning", ai: "artificial intelligence", "c++": "cpp", js: "javascript", ts: "typescript", db: "database", ux: "user experience", ui: "user interface" };
+
+    for (const n of rawNewNodes) {
+      const lower = n.proposed_title.toLowerCase().trim();
+      const normProposed = (acronyms[lower] || lower).replace(/[^\\w\\s]/g, "").trim();
+      if (!normProposed) {
+        finalNewNodes.push(n);
+        continue;
+      }
+
+      let bestScore = 0;
+      let bestMatchId: string | null = null;
+
+      for (const cand of candidateNodes) {
+        const candLower = cand.title.toLowerCase().trim();
+        const normCand = (acronyms[candLower] || candLower).replace(/[^\\w\\s]/g, "").trim();
+
+        if (normCand === normProposed) {
+          bestScore = 1.0;
+          bestMatchId = cand.id;
+          break;
+        }
+
+        // Token overlap
+        const propTokens = new Set(normProposed.split(/\\s+/).filter(w => w.length > 2));
+        const candTokens = normCand.split(/\\s+/).filter(w => w.length > 2);
+
+        if (candTokens.length > 0 && propTokens.size > 0) {
+          const overlap = candTokens.filter(t => propTokens.has(t)).length;
+          const score = overlap / Math.max(candTokens.length, propTokens.size);
+          if (score > bestScore) {
+            bestScore = score;
+            bestMatchId = cand.id;
+          }
+        }
+      }
+
+      if (bestMatchId && bestScore >= 0.75) {
+        // Demote
+        let existingUpdate = validNodeUpdates.find(u => u.node_id === bestMatchId);
+        if (!existingUpdate) {
+          existingUpdate = { node_id: bestMatchId, confidence: bestScore, add_takeaways: [] };
+          validNodeUpdates.push(existingUpdate);
+        }
+        existingUpdate.add_takeaways.push(`[demoted-node] ${n.proposed_title} — ${n.why}`);
+      } else {
+        finalNewNodes.push(n);
+      }
+    }
+
     const validUnassigned: DigestUnassigned[] = Array.isArray(parsed.unassigned)
       ? (parsed.unassigned as DigestUnassigned[]).filter(
-          (u) => typeof u === "object" && u !== null && typeof u.text === "string"
-        )
+        (u) => typeof u === "object" && u !== null && typeof u.text === "string"
+      )
       : [];
 
     return {
@@ -197,7 +250,7 @@ export async function generateDigestAnalysis(
         ? parsed.highlights.filter((h): h is string => typeof h === "string")
         : [],
       node_updates: validNodeUpdates,
-      new_nodes: validNewNodes,
+      new_nodes: finalNewNodes,
       unassigned: validUnassigned,
     };
   } catch (err) {

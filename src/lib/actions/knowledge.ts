@@ -1020,3 +1020,72 @@ export async function resetScaffold(
 
   revalidatePath("/learn/hub");
 }
+
+export async function promoteFactToNode(
+  parentId: string,
+  factIndex: number,
+  factText: string
+): Promise<{ node: KnowledgeNode; remainingFacts: string[] } | { error: string }> {
+  const supabase = createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return { error: "Unauthorized" };
+
+  const { data: parent } = await supabase
+    .from("knowledge_nodes")
+    .select("id, root_id, depth, user_facts")
+    .eq("id", parentId)
+    .eq("user_id", user.id)
+    .single();
+
+  if (!parent) return { error: "Parent not found" };
+
+  const facts = (parent.user_facts as string[]) || [];
+  if (factIndex < 0 || factIndex >= facts.length || facts[factIndex] !== factText) {
+    return { error: "Takeaway has changed, please refresh" };
+  }
+
+  const newFacts = [...facts];
+  newFacts.splice(factIndex, 1);
+
+  let title = "Promoted Concept";
+  let evidenceStr = factText;
+  const match = factText.match(/^\\[demoted-node\\]\\s*(.*?) —\\s*(.*)$/);
+  if (match) {
+    title = match[1].trim();
+    evidenceStr = match[2].trim();
+  } else {
+    const words = factText.split(" ").slice(0, 5);
+    title = words.join(" ") + (factText.split(" ").length > 5 ? "..." : "");
+  }
+
+  const { data: newNode, error: insertError } = await supabase
+    .from("knowledge_nodes")
+    .insert({
+      user_id: user.id,
+      parent_id: parentId,
+      root_id: parent.root_id,
+      title,
+      ai_evidence: evidenceStr,
+      source: "manual",
+      node_type: "concept",
+      position_x: 0,
+      position_y: 0,
+      depth: parent.depth + 1,
+      ai_generated: false,
+    })
+    .select()
+    .single();
+
+  if (insertError || !newNode) return { error: insertError?.message ?? "Failed to create node" };
+
+  const { error: updateError } = await supabase
+    .from("knowledge_nodes")
+    .update({ user_facts: newFacts, updated_at: new Date().toISOString() })
+    .eq("id", parentId)
+    .eq("user_id", user.id);
+
+  if (updateError) return { error: updateError.message };
+
+  revalidatePath("/learn/hub");
+  return { node: newNode as KnowledgeNode, remainingFacts: newFacts };
+}

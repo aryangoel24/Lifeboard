@@ -14,6 +14,7 @@ import {
   findGaps,
   moveNode,
   saveDescription,
+  promoteFactToNode,
 } from "@/lib/actions/knowledge";
 import type { GapAnalysis } from "@/lib/knowledge-utils";
 import type { KnowledgeNode, KnowledgeLink, NodeResource, NodeType, MasteryStatus } from "@/types/database";
@@ -56,6 +57,7 @@ import {
   Edit2,
   Home,
   Move,
+  ArrowUpRight,
 } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
@@ -146,8 +148,8 @@ function ProvenanceBadge({
     source === 'extract'
       ? 'bg-blue-500/10 text-blue-700 border-blue-300/50'
       : source === 'digest'
-      ? 'bg-purple-500/10 text-purple-700 border-purple-300/50'
-      : 'bg-muted text-muted-foreground';
+        ? 'bg-purple-500/10 text-purple-700 border-purple-300/50'
+        : 'bg-muted text-muted-foreground';
 
   return (
     <div className="space-y-1.5">
@@ -327,7 +329,7 @@ export function NodeDetailPanel({
     setShowSiblingInput(false);
     setSiblingInput("");
     setIsEditingDescription(false);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [node?.id]);
 
   async function handleSaveNotes() {
@@ -409,6 +411,32 @@ export function NodeDetailPanel({
     }
     setLocalUserFacts(result.user_facts);
     onUserFactsChange(node.id, result.user_facts);
+  }
+
+  async function handlePromoteFact(index: number) {
+    if (!node) return;
+    const factText = localUserFacts[index];
+
+    // Optimistic UI updates
+    const newFacts = [...localUserFacts];
+    newFacts.splice(index, 1);
+    setLocalUserFacts(newFacts);
+    setAddFact("");
+
+    setFactsSaving(true);
+    const result = await promoteFactToNode(node.id, index, factText);
+    setFactsSaving(false);
+
+    if ("error" in result) {
+      toast.error(result.error);
+      // Revert optimistic update
+      setLocalUserFacts([...localUserFacts]);
+      return;
+    }
+
+    onChildAdded?.([result.node]);
+    onUserFactsChange?.(node.id, result.remainingFacts);
+    toast.success("Takeaway promoted to node");
   }
 
   async function handleNodeTypeSelect(type: NodeType) {
@@ -565,7 +593,7 @@ export function NodeDetailPanel({
     setShowBatchInput(false);
     toast.success(
       `Added ${added} child${added !== 1 ? "ren" : ""}` +
-        (skipped > 0 ? `, skipped ${skipped} duplicate${skipped !== 1 ? "s" : ""}` : "")
+      (skipped > 0 ? `, skipped ${skipped} duplicate${skipped !== 1 ? "s" : ""}` : "")
     );
   }
 
@@ -930,9 +958,18 @@ export function NodeDetailPanel({
                     />
                     <span className="flex-1 text-sm leading-relaxed">{fact}</span>
                     <button
+                      onClick={() => handlePromoteFact(i)}
+                      disabled={factsSaving}
+                      className="opacity-0 group-hover:opacity-100 transition-opacity p-0.5 rounded hover:bg-blue-100 dark:hover:bg-blue-900/30 mt-0.5 mr-1"
+                      title="Promote to node"
+                    >
+                      <ArrowUpRight className="h-3 w-3 text-blue-500" />
+                    </button>
+                    <button
                       onClick={() => handleDeleteFact(i)}
                       disabled={factsSaving}
                       className="opacity-0 group-hover:opacity-100 transition-opacity p-0.5 rounded hover:bg-red-100 dark:hover:bg-red-900/30 mt-0.5"
+                      title="Delete takeaway"
                     >
                       <Trash2 className="h-3 w-3 text-red-500" />
                     </button>

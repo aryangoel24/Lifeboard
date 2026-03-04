@@ -104,11 +104,14 @@ export function DigestClient({ recentDigests: initialDigests }: DigestClientProp
   function initReviewState(p: DigestPayload) {
     const takeaways = new Set<string>();
     for (const u of p.node_updates) {
-      if (u.confidence >= 0.65) {
-        u.add_takeaways.forEach((_, i) => takeaways.add(`${u.node_id}::${i}`));
+      u.add_takeaways.forEach((_, i) => takeaways.add(`${u.node_id}::${i}`));
+    }
+    const newNodes = new Set<string>();
+    for (const n of p.new_nodes) {
+      if (["person", "book", "project"].includes(n.node_type)) {
+        newNodes.add(n.temp_id);
       }
     }
-    const newNodes = new Set(p.new_nodes.map((n) => n.temp_id));
     setApprovedTakeaways(takeaways);
     setApprovedNewNodes(newNodes);
     setEditedNodeTypes({});
@@ -278,6 +281,63 @@ export function DigestClient({ recentDigests: initialDigests }: DigestClientProp
     setUiState("entry");
     setPayload(null);
     setDigestId(null);
+  }
+
+  function handlePromoteTakeaway(nodeId: string, factIndex: number) {
+    setPayload((prev) => {
+      if (!prev) return prev;
+
+      let promotedFact = "";
+      const newUpdates = prev.node_updates.map((u) => {
+        if (u.node_id === nodeId) {
+          const newTakeaways = [...u.add_takeaways];
+          promotedFact = newTakeaways[factIndex];
+          newTakeaways.splice(factIndex, 1);
+          return { ...u, add_takeaways: newTakeaways };
+        }
+        return u;
+      });
+
+      let title = "Promoted Concept";
+      let why = promotedFact;
+      const match = promotedFact.match(/^\\[demoted-node\\]\\s*(.*?) —\\s*(.*)$/);
+      if (match) {
+        title = match[1].trim();
+        why = match[2].trim();
+      } else {
+        const words = promotedFact.split(" ").slice(0, 5);
+        title = words.join(" ") + (promotedFact.split(" ").length > 5 ? "..." : "");
+      }
+
+      const newId = `promoted_${Date.now()}`;
+
+      const newNodesList = [
+        ...prev.new_nodes,
+        {
+          temp_id: newId,
+          proposed_title: title,
+          node_type: "concept" as NodeType,
+          suggested_parent_node_id: nodeId, // The mapped parent
+          why
+        }
+      ];
+
+      // Auto-check the newly promoted node
+      setApprovedNewNodes((c) => {
+        const next = new Set(c);
+        next.add(newId);
+        return next;
+      });
+
+      // Remove from approved takeaways
+      setApprovedTakeaways((c) => {
+        const next = new Set(c);
+        next.delete(`${nodeId}::${factIndex}`);
+        return next;
+      });
+
+      return { ...prev, node_updates: newUpdates, new_nodes: newNodesList };
+    });
   }
 
   async function handleApplyAll() {
@@ -525,19 +585,22 @@ export function DigestClient({ recentDigests: initialDigests }: DigestClientProp
                     {u.add_takeaways.map((takeaway, i) => {
                       const key = `${u.node_id}::${i}`;
                       return (
-                        <label
-                          key={key}
-                          className="flex items-start gap-2 cursor-pointer group"
-                        >
+                        <div key={key} className="flex items-start gap-2 group">
                           <Checkbox
                             checked={approvedTakeaways.has(key)}
                             onCheckedChange={() => toggleTakeaway(key)}
                             className="mt-0.5 shrink-0"
                           />
-                          <span className="text-sm text-muted-foreground group-hover:text-foreground transition-colors leading-relaxed">
+                          <span className="text-sm text-muted-foreground group-hover:text-foreground transition-colors leading-relaxed flex-1">
                             {takeaway}
                           </span>
-                        </label>
+                          <button
+                            className="opacity-0 group-hover:opacity-100 transition-opacity text-[10px] text-blue-500 hover:text-blue-700 font-medium px-2 shrink-0 self-center"
+                            onClick={() => handlePromoteTakeaway(u.node_id, i)}
+                          >
+                            Promote to node
+                          </button>
+                        </div>
                       );
                     })}
                   </div>
@@ -568,6 +631,9 @@ export function DigestClient({ recentDigests: initialDigests }: DigestClientProp
                       className="mt-0.5 shrink-0"
                     />
                     <span className="font-medium text-sm">{n.proposed_title}</span>
+                    {!checked && (
+                      <span className="text-[10px] text-yellow-600 bg-yellow-500/10 px-1.5 py-0.5 rounded ml-2">Auto: unselected</span>
+                    )}
                   </label>
                   <div className="pl-6 space-y-1.5">
                     <div className="flex items-center gap-1.5 flex-wrap">

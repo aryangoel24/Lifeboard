@@ -63,6 +63,7 @@ type FlatNode = {
   title: string;
   node_type: NodeType;
   evidence: string;
+  facts: string[];
   parentTempId: string | null;
   level: number;
 };
@@ -76,6 +77,7 @@ function flattenTree(roots: ExtractionNode[]): FlatNode[] {
       title: typeof node.title === "string" ? node.title : String(node.title ?? ""),
       node_type: typeof node.node_type === "string" ? node.node_type as NodeType : "topic",
       evidence: typeof node.evidence === "string" ? node.evidence : "",
+      facts: Array.isArray(node.facts) ? node.facts : [],
       parentTempId,
       level,
     });
@@ -116,6 +118,8 @@ export function ExtractClient() {
 
   // Per-node checked state: temp_id → boolean
   const [checkedNodes, setCheckedNodes] = useState<Record<string, boolean>>({});
+  // Per-node per-fact checked state: `${temp_id}::${index}` → boolean
+  const [checkedNodeFacts, setCheckedNodeFacts] = useState<Record<string, boolean>>({});
   // Per-node type overrides: temp_id → NodeType
   const [nodeTypes, setNodeTypes] = useState<Record<string, NodeType>>({});
   // Collapsed roots: Set of root temp_ids
@@ -259,11 +263,30 @@ export function ExtractClient() {
     setRootRouting(autoRouting);
     setAutoMatchedRoots(autoIds);
 
-    // Pre-check all nodes by default
+    // Pre-check UX defaults
     const flat = flattenTree(res.result.roots);
     const initialChecked: Record<string, boolean> = {};
-    for (const n of flat) initialChecked[n.temp_id] = true;
+    const initialNodeFacts: Record<string, boolean> = {};
+
+    for (const n of flat) {
+      const isRootMerge = n.parentTempId === null && autoRouting[n.temp_id] !== "new" && !!autoRouting[n.temp_id];
+      const hasChildren = flat.some(c => c.parentTempId === n.temp_id);
+      const isArtifact = ["person", "book", "project"].includes(n.node_type);
+
+      // New nodes ⛔ unchecked unless one of these conditions is met
+      if (isArtifact || hasChildren || isRootMerge) {
+        initialChecked[n.temp_id] = true;
+      } else {
+        initialChecked[n.temp_id] = false;
+      }
+
+      // Facts ✅ checked by default
+      for (let i = 0; i < n.facts.length; i++) {
+        initialNodeFacts[`${n.temp_id}::${i}`] = true;
+      }
+    }
     setCheckedNodes(initialChecked);
+    setCheckedNodeFacts(initialNodeFacts);
 
     // Pre-check matches with confidence >= 0.65
     const initialMatches: Record<string, boolean> = {};
@@ -284,6 +307,34 @@ export function ExtractClient() {
     if (!result) return;
 
     const flat = flattenTree(result.roots);
+    // First, map every node to its nearest CHECKED ancestor
+    const nearestCheckedParent = new Map<string, string | null>();
+    for (const n of flat) {
+      if (checkedNodes[n.temp_id]) continue; // We only care about finding parents for unchecked nodes
+
+      let parent = n.parentTempId;
+      while (parent !== null && !checkedNodes[parent]) {
+        const parentNode = flat.find(p => p.temp_id === parent);
+        parent = parentNode ? parentNode.parentTempId : null;
+      }
+      nearestCheckedParent.set(n.temp_id, parent);
+    }
+
+    // Accumulate facts from unchecked nodes
+    const hoistedFacts = new Map<string, string[]>();
+    for (const n of flat) {
+      if (checkedNodes[n.temp_id]) continue;
+
+      const targetParent = nearestCheckedParent.get(n.temp_id);
+      if (!targetParent) continue; // If there is no checked ancestor, facts are dropped
+
+      const checkedFactsHere = n.facts.filter((_, i) => checkedNodeFacts[`${n.temp_id}::${i}`]);
+      if (checkedFactsHere.length > 0) {
+        if (!hoistedFacts.has(targetParent)) hoistedFacts.set(targetParent, []);
+        hoistedFacts.get(targetParent)!.push(...checkedFactsHere);
+      }
+    }
+
     const approved: ApprovedExtractionNode[] = flat
       .filter((n) => checkedNodes[n.temp_id])
       .map((n) => ({
@@ -292,6 +343,10 @@ export function ExtractClient() {
         nodeType: nodeTypes[n.temp_id] ?? n.node_type,
         parentTempId: n.parentTempId,
         evidence: n.evidence,
+        facts: [
+          ...n.facts.filter((_, i) => checkedNodeFacts[`${n.temp_id}::${i}`]),
+          ...(hoistedFacts.get(n.temp_id) || [])
+        ],
       }));
 
     // Filter: only include nodes whose ancestors are also checked
@@ -334,7 +389,7 @@ export function ExtractClient() {
       (matchCount > 0 ? ` and updated ${matchCount} existing node${matchCount !== 1 ? "s" : ""}` : "")
     );
     router.push("/learn/hub");
-  }, [result, checkedNodes, nodeTypes, checkedMatches, checkedFacts, rootRouting, extractionId, router]);
+  }, [result, checkedNodes, nodeTypes, checkedMatches, checkedFacts, checkedNodeFacts, rootRouting, extractionId, router]);
 
   function toggleRootCollapse(tempId: string) {
     setCollapsedRoots((prev) => {
@@ -342,6 +397,64 @@ export function ExtractClient() {
       if (next.has(tempId)) next.delete(tempId);
       else next.add(tempId);
       return next;
+    });
+  }
+
+  function handlePromoteFact(parentTempId: string, factIndex: number) {
+    setResult((prev) => {
+      if (!prev) return prev;
+
+      let promotedFactText = "";
+      const newId = `promoted_${Date.now()}`;
+
+      const mutateTree = (nodes: ExtractionNode[]): ExtractionNode[] => {
+        return nodes.map((n) => {
+          if (n.temp_id === parentTempId) {
+            const newFacts = [...(n.facts || [])];
+            promotedFactText = newFacts[factIndex];
+            newFacts.splice(factIndex, 1);
+
+            // Rehydrate fact format if it was demoted
+            let title = "Promoted Concept";
+            let evidence = promotedFactText;
+            const match = promotedFactText.match(/^\\[demoted-node\\]\\s*(.*?) —\\s*(.*)$/);
+            if (match) {
+              title = match[1].trim();
+              evidence = match[2].trim();
+            } else {
+              title = promotedFactText.slice(0, 30);
+            }
+
+            const newChild: ExtractionNode = {
+              temp_id: newId,
+              title,
+              node_type: "concept",
+              evidence,
+              facts: [],
+              children: []
+            };
+
+            return {
+              ...n,
+              facts: newFacts,
+              children: [...(n.children || []), newChild]
+            };
+          }
+          if (n.children) {
+            return { ...n, children: mutateTree(n.children) };
+          }
+          return n;
+        });
+      };
+
+      const newRoots = mutateTree(prev.roots);
+
+      if (promotedFactText) {
+        setCheckedNodes((c) => ({ ...c, [newId]: true }));
+        setCheckedNodeFacts((c) => ({ ...c, [`${parentTempId}::${factIndex}`]: false }));
+      }
+
+      return { ...prev, roots: newRoots };
     });
   }
 
@@ -588,10 +701,37 @@ export function ExtractClient() {
                     >
                       {allChecked ? "Deselect all" : "Select all"}
                     </button>
+                    {!checkedNodes[root.temp_id] && (
+                      <span className="text-[10px] text-yellow-600 bg-yellow-500/10 px-1.5 py-0.5 rounded ml-2">Auto: demoted</span>
+                    )}
                   </div>
                   {root.evidence && (
                     <div className="px-3 pb-1 pt-0">
                       <p className="text-[10px] text-muted-foreground truncate italic">&ldquo;{root.evidence}&rdquo;</p>
+                    </div>
+                  )}
+                  {(root.facts || []).length > 0 && (
+                    <div className="px-3 pb-2 space-y-1">
+                      {root.facts.map((fact, i) => {
+                        const key = `${root.temp_id}::${i}`;
+                        return (
+                          <div key={key} className="flex items-start gap-2 group ml-4">
+                            <Checkbox
+                              checked={checkedNodeFacts[key] ?? false}
+                              onCheckedChange={(v) =>
+                                setCheckedNodeFacts((p) => ({ ...p, [key]: !!v }))
+                              }
+                            />
+                            <span className="text-[11px] leading-snug flex-1 text-muted-foreground">{fact}</span>
+                            <button
+                              className="opacity-0 group-hover:opacity-100 transition-opacity text-[10px] text-blue-500 hover:text-blue-700 font-medium px-2 shrink-0"
+                              onClick={() => handlePromoteFact(root.temp_id, i)}
+                            >
+                              Promote to node
+                            </button>
+                          </div>
+                        );
+                      })}
                     </div>
                   )}
 
@@ -707,11 +847,38 @@ export function ExtractClient() {
                                 </Badge>
                               </button>
                               <span className="text-sm">{n.title}</span>
+                              {!checkedNodes[n.temp_id] && (
+                                <span className="text-[10px] text-yellow-600 bg-yellow-500/10 px-1.5 py-0.5 rounded ml-2">Auto: demoted</span>
+                              )}
                             </div>
                             {n.evidence && (
                               <p className="text-[10px] text-muted-foreground truncate italic mt-0.5 ml-7">
                                 &ldquo;{n.evidence}&rdquo;
                               </p>
+                            )}
+                            {(n.facts || []).length > 0 && (
+                              <div className="mt-1.5 ml-7 space-y-1 pb-1">
+                                {n.facts.map((fact, i) => {
+                                  const key = `${n.temp_id}::${i}`;
+                                  return (
+                                    <div key={key} className="flex items-start gap-2 group">
+                                      <Checkbox
+                                        checked={checkedNodeFacts[key] ?? false}
+                                        onCheckedChange={(v) =>
+                                          setCheckedNodeFacts((p) => ({ ...p, [key]: !!v }))
+                                        }
+                                      />
+                                      <span className="text-[11px] leading-snug flex-1 text-muted-foreground">{fact}</span>
+                                      <button
+                                        className="opacity-0 group-hover:opacity-100 transition-opacity text-[10px] text-blue-500 hover:text-blue-700 font-medium px-2 shrink-0"
+                                        onClick={() => handlePromoteFact(n.temp_id, i)}
+                                      >
+                                        Promote to node
+                                      </button>
+                                    </div>
+                                  );
+                                })}
+                              </div>
                             )}
                           </div>
                         ))}

@@ -1,5 +1,5 @@
 import OpenAI from "openai";
-import type { ExtractionResult } from "@/types/database";
+import type { ExtractionResult, ExtractionNode, NodeType } from "@/types/database";
 
 export function getOpenAIClient(): OpenAI | null {
   const apiKey = process.env.OPENAI_API_KEY;
@@ -348,6 +348,46 @@ function selectTopCandidates(
   return scored.sort((a, b) => b.score - a.score).slice(0, topK);
 }
 
+function demoteThinLeaves(nodes: ExtractionNode[]): ExtractionNode[] {
+  const result: ExtractionNode[] = [];
+  for (const node of nodes) {
+    if (node.children && node.children.length > 0) {
+      const newChildren: ExtractionNode[] = [];
+      node.children = demoteThinLeaves(node.children);
+      for (const child of node.children) {
+        const isLeaf = !child.children || child.children.length === 0;
+        let keep = true;
+        if (isLeaf) {
+          const isArtifact = ["person", "book", "project"].includes(child.node_type);
+          const wordCount = (child.title || "").split(" ").filter((w: string) => w.length > 0).length;
+          const hasAcronym = /[A-Z]{2,}/.test(child.title || "");
+          const hasHyphen = /-[a-zA-Z0-9]/.test(child.title || "");
+          const hasVersion = /v\d+/i.test(child.title || "");
+          const isNamedTerm = hasAcronym || hasHyphen || hasVersion || (wordCount >= 2 && wordCount <= 6 && /^[A-Z]/.test(child.title || ""));
+          const hasFacts = Array.isArray(child.facts) && child.facts.length >= 2;
+
+          if (!isArtifact && !isNamedTerm && !hasFacts) {
+            keep = false;
+          }
+        }
+
+        if (keep) {
+          newChildren.push(child);
+        } else {
+          node.facts = node.facts || [];
+          node.facts.push(`[demoted-node] ${child.title} — ${child.evidence}`);
+          if (Array.isArray(child.facts)) {
+            node.facts.push(...child.facts);
+          }
+        }
+      }
+      node.children = newChildren.length > 0 ? newChildren : undefined;
+    }
+    result.push(node);
+  }
+  return result;
+}
+
 export async function generateKnowledgeExtraction(
   text: string,
   existingNodes: { id: string; title: string; breadcrumb?: string }[]
@@ -384,7 +424,8 @@ TASK:${hasExistingNodes ? `
 
 RULES:
 - Each root: up to 14 children. Each child: up to 14 grandchildren.
-- Prefer more nodes over fewer — do not collapse siblings into a parent.
+- Prefer extracting concept coverage, but do not create nodes for fine-grained details unless they are independently useful for linking/learning. When in doubt, attach details as facts to the closest parent concept.
+- Output a "facts" array for EACH node (even if empty) alongside its extracted children.
 - NEVER truncate repeating structures. If the text lists 12 weeks, 10 chapters, 8 assignments, etc., include ALL of them as separate nodes — do not stop partway through.
 - Exhaustively cover the text: every distinct skill, course, concept, project, person, or book mentioned deserves its own node.
 - Titles: 2–6 word noun phrases. No generic umbrella terms. No dates. No punctuation.
@@ -406,18 +447,21 @@ Return JSON exactly:
       "title": "...",
       "node_type": "topic|concept|person|book|skill|project|question|insight",
       "evidence": "...",
+      "facts": ["fact 1", "fact 2"],
       "children": [
         {
           "temp_id": "child_1_1",
           "title": "...",
           "node_type": "...",
           "evidence": "...",
+          "facts": [],
           "children": [
             {
               "temp_id": "grand_1_1_1",
               "title": "...",
               "node_type": "...",
-              "evidence": "..."
+              "evidence": "...",
+              "facts": ["..."]
             }
           ]
         }
@@ -454,8 +498,21 @@ Return JSON exactly:
     };
     if (typeof parsed.summary !== "string" || !Array.isArray(parsed.roots)) return null;
 
+    // Sanitize node function to ensure well-typed tree before demoting
+    const sanitizeNode = (n: unknown): ExtractionNode => {
+      const node = typeof n === "object" && n !== null ? (n as Record<string, unknown>) : {};
+      return {
+        temp_id: typeof node.temp_id === "string" ? node.temp_id : "",
+        title: typeof node.title === "string" ? node.title : "",
+        node_type: typeof node.node_type === "string" ? node.node_type as NodeType : "topic",
+        evidence: typeof node.evidence === "string" ? node.evidence : "",
+        facts: Array.isArray(node.facts) ? node.facts.filter((f): f is string => typeof f === "string") : [],
+        children: Array.isArray(node.children) ? node.children.map(sanitizeNode) : undefined
+      };
+    }
+
     // Sanitize matches: ensure add_facts only contains strings
-    const rawMatches = Array.isArray(parsed.matches) ? parsed.matches as Record<string, unknown>[] : [];
+    const rawMatches = Array.isArray(parsed.matches) ? (parsed.matches as Record<string, unknown>[]) : [];
     const sanitizedMatches: ExtractionResult["matches"] = rawMatches
       .filter((m) => typeof m.matched_node_id === "string" && typeof m.temp_id === "string")
       .map((m) => ({
@@ -472,7 +529,7 @@ Return JSON exactly:
 
     return {
       summary: parsed.summary,
-      roots: parsed.roots as ExtractionResult["roots"],
+      roots: demoteThinLeaves(parsed.roots.map(sanitizeNode)),
       matches: sanitizedMatches,
     };
   } catch (err) {

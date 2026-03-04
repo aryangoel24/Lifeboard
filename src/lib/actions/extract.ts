@@ -12,6 +12,7 @@ export type ApprovedExtractionNode = {
   nodeType: NodeType;
   parentTempId: string | null;
   evidence: string;
+  facts: string[];
 };
 
 export type ApprovedMatch = {
@@ -395,6 +396,7 @@ export async function applyExtraction(
         source: "extract",
         source_ref: extractionId,
         ai_evidence: r.evidence.slice(0, 120),
+        user_facts: r.facts,
       }));
 
       const { data: insertedRoots, error: rootError } = await supabase
@@ -501,6 +503,7 @@ export async function applyExtraction(
           source: "extract",
           source_ref: extractionId,
           ai_evidence: n.evidence.slice(0, 120),
+          user_facts: n.facts,
         };
       });
 
@@ -564,13 +567,33 @@ export async function applyExtraction(
   const gcResult = await insertLevel(grandchildren);
   if (gcResult && "error" in gcResult) return gcResult;
 
-  // Step 6: Apply approved matches — merge add_facts into existing nodes
-  if (approvedMatches.length > 0) {
-    const matchNodeIds = approvedMatches.map((m) => m.matched_node_id);
+  // Step 6: Apply approved matches — merge add_facts and root facts into existing nodes
+  const patchesByTargetId = new Map<string, string[]>();
+
+  for (const m of approvedMatches) {
+    if (m.add_facts.length > 0) {
+      if (!patchesByTargetId.has(m.matched_node_id)) {
+        patchesByTargetId.set(m.matched_node_id, []);
+      }
+      patchesByTargetId.get(m.matched_node_id)!.push(...m.add_facts);
+    }
+  }
+
+  for (const r of rootsForMerge) {
+    if (r.root.facts && r.root.facts.length > 0) {
+      if (!patchesByTargetId.has(r.targetNodeId)) {
+        patchesByTargetId.set(r.targetNodeId, []);
+      }
+      patchesByTargetId.get(r.targetNodeId)!.push(...r.root.facts);
+    }
+  }
+
+  if (patchesByTargetId.size > 0) {
+    const targetNodeIds = Array.from(patchesByTargetId.keys());
     const { data: existingMatchNodes } = await supabase
       .from("knowledge_nodes")
       .select("id, user_facts")
-      .in("id", matchNodeIds)
+      .in("id", targetNodeIds)
       .eq("user_id", user.id);
 
     const factsById = new Map<string, string[]>(
@@ -578,21 +601,23 @@ export async function applyExtraction(
     );
 
     await Promise.all(
-      approvedMatches
-        .filter((m) => m.add_facts.length > 0)
-        .map((m) => {
-          const existing = factsById.get(m.matched_node_id) ?? [];
-          const existingLower = new Set(existing.map((f) => f.toLowerCase()));
-          const merged = [
-            ...existing,
-            ...m.add_facts.filter((f) => !existingLower.has(f.toLowerCase())),
-          ];
-          return supabase
-            .from("knowledge_nodes")
-            .update({ user_facts: merged, updated_at: new Date().toISOString() })
-            .eq("id", m.matched_node_id)
-            .eq("user_id", user.id);
-        })
+      Array.from(patchesByTargetId.entries()).map(([targetId, newFacts]) => {
+        const existing = factsById.get(targetId) ?? [];
+        const existingLower = new Set(existing.map((f) => f.toLowerCase()));
+
+        const filteredNew = newFacts.filter((f) => !existingLower.has(f.toLowerCase()));
+        if (filteredNew.length === 0) return Promise.resolve(null);
+
+        const merged = [
+          ...existing,
+          ...filteredNew,
+        ];
+        return supabase
+          .from("knowledge_nodes")
+          .update({ user_facts: merged, updated_at: new Date().toISOString() })
+          .eq("id", targetId)
+          .eq("user_id", user.id);
+      })
     );
   }
 
