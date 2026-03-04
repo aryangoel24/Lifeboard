@@ -24,7 +24,7 @@ export function StepCard({ todaySteps }: StepCardProps) {
             <CardHeader className="pb-3">
                 <CardTitle className="text-base flex items-center gap-2">
                     <Footprints className="h-4 w-4 text-emerald-500" />
-                    Today's Steps
+                    Today&apos;s Steps
                 </CardTitle>
             </CardHeader>
             <CardContent>
