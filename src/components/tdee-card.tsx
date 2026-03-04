@@ -32,9 +32,14 @@ const CONFIDENCE_COLORS = {
 
 export function TDEECard({ tdee }: TDEECardProps) {
     if (tdee.status === "insufficient") {
-        const { weightDays, calorieDays, bothDays: _bothDays, requiredDays } = tdee.progress;
+        const { weightDays, calorieDays, bothDays, requiredDays } = tdee.progress;
+
+        // 70% of 28 days = 19.6 -> 20 days needed for completeness check
+        const requiredOverlap = Math.ceil(28 * 0.7);
+
         const weightPct = Math.min(100, (weightDays / requiredDays) * 100);
         const caloriePct = Math.min(100, (calorieDays / requiredDays) * 100);
+        const bothPct = Math.min(100, (bothDays / requiredOverlap) * 100);
 
         return (
             <Card className="border-dashed">
@@ -65,9 +70,16 @@ export function TDEECard({ tdee }: TDEECardProps) {
                         </div>
                         <Progress value={caloriePct} className="h-2" />
                     </div>
-                    <p className="text-xs text-muted-foreground flex items-center gap-1">
+                    <div className="space-y-1.5 mt-2">
+                        <div className="flex justify-between text-sm">
+                            <span className="text-muted-foreground">Days with both logged</span>
+                            <span className="font-medium">{bothDays}/{requiredOverlap}</span>
+                        </div>
+                        <Progress value={bothPct} className="h-2 bg-primary/20" />
+                    </div>
+                    <p className="text-xs text-muted-foreground flex items-center gap-1 mt-2">
                         <Info className="h-3 w-3" />
-                        Need ≥{requiredDays} entries each + ≥70% overlap in a 28-day window
+                        Needs ≥{requiredOverlap} overlapping days in a 28-day window (70% coverage)
                     </p>
                 </CardContent>
             </Card>

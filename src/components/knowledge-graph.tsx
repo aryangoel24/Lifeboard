@@ -582,7 +582,7 @@ function KnowledgeGraphInner({ initialNodes, initialLinks }: KnowledgeGraphInner
     }
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [synthesisModeActive, synthesisDialogOpen, synthesisSelectedIds, synthesisLoading, isLayoutMode, rfSelectedCount]);
 
   function enterSynthesisMode() {

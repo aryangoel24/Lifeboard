@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo, useCallback } from "react";
+import { useState, useMemo, useCallback, useRef, useEffect } from "react";
 import { toast } from "sonner";
 import { Loader2, ChevronDown, ChevronRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -8,6 +8,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   Select,
   SelectContent,
@@ -63,7 +64,17 @@ interface DigestClientProps {
 export function DigestClient({ recentDigests: initialDigests }: DigestClientProps) {
   const [uiState, setUiState] = useState<UIState>("entry");
   const [date, setDate] = useState(todayISO());
+
+  const [activeTab, setActiveTab] = useState<"text" | "voice">("text");
   const [text, setText] = useState("");
+
+  // Audio recording state
+  const [isRecording, setIsRecording] = useState(false);
+  const [recordingTime, setRecordingTime] = useState(0);
+  const [audioBlob, setAudioBlob] = useState<Blob | null>(null);
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const chunksRef = useRef<BlobPart[]>([]);
+  const timerRef = useRef<NodeJS.Timeout>();
 
   // Review state
   const [digestId, setDigestId] = useState<string | null>(null);
@@ -104,13 +115,79 @@ export function DigestClient({ recentDigests: initialDigests }: DigestClientProp
     setUnassignedOpen(false);
   }
 
-  async function handleAnalyze() {
-    if (!text.trim()) {
-      toast.error("Please write something before analyzing.");
-      return;
+  useEffect(() => {
+    return () => {
+      if (timerRef.current) clearInterval(timerRef.current);
+    };
+  }, []);
+
+  const startRecording = async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const mediaRecorder = new MediaRecorder(stream);
+      mediaRecorderRef.current = mediaRecorder;
+      chunksRef.current = [];
+
+      mediaRecorder.ondataavailable = (e) => {
+        if (e.data.size > 0) chunksRef.current.push(e.data);
+      };
+
+      mediaRecorder.onstop = () => {
+        const blob = new Blob(chunksRef.current, { type: "audio/webm" });
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        (blob as any).duration = recordingTime;
+        setAudioBlob(blob);
+        stream.getTracks().forEach((track) => track.stop());
+      };
+
+      mediaRecorder.start();
+      setIsRecording(true);
+      setRecordingTime(0);
+      setAudioBlob(null);
+
+      timerRef.current = setInterval(() => {
+        setRecordingTime((prev) => prev + 1);
+      }, 1000);
+    } catch (err) {
+      console.error("Error accessing microphone:", err);
+      toast.error("Could not access microphone. Please check permissions.");
     }
+  };
+
+  const stopRecording = () => {
+    if (mediaRecorderRef.current && isRecording) {
+      mediaRecorderRef.current.stop();
+      setIsRecording(false);
+      if (timerRef.current) clearInterval(timerRef.current);
+    }
+  };
+
+  const formatTime = (seconds: number) => {
+    const m = Math.floor(seconds / 60);
+    const s = seconds % 60;
+    return `${m}:${s.toString().padStart(2, "0")}`;
+  };
+
+  async function handleAnalyze() {
+    let payload;
+    if (activeTab === "text") {
+      if (!text.trim()) {
+        toast.error("Please write something before analyzing.");
+        return;
+      }
+      payload = { kind: "text" as const, text: text.trim() };
+    } else {
+      if (!audioBlob) {
+        toast.error("Please record an audio memo first.");
+        return;
+      }
+      const formData = new FormData();
+      formData.append("file", audioBlob, "voice-memo.webm");
+      payload = { kind: "voice" as const, formData };
+    }
+
     setUiState("analyzing");
-    const result = await analyzeDigest(text.trim(), date);
+    const result = await analyzeDigest(payload, date);
     if ("error" in result) {
       toast.error(result.error);
       setUiState("entry");
@@ -124,11 +201,24 @@ export function DigestClient({ recentDigests: initialDigests }: DigestClientProp
   }
 
   async function handleSaveOnly() {
-    if (!text.trim()) {
-      toast.error("Please write something before saving.");
-      return;
+    let payload;
+    if (activeTab === "text") {
+      if (!text.trim()) {
+        toast.error("Please write something before saving.");
+        return;
+      }
+      payload = { kind: "text" as const, text: text.trim() };
+    } else {
+      if (!audioBlob) {
+        toast.error("Please record an audio memo first.");
+        return;
+      }
+      const formData = new FormData();
+      formData.append("file", audioBlob, "voice-memo.webm");
+      payload = { kind: "voice" as const, formData };
     }
-    const result = await saveDigestOnly(text.trim(), date);
+
+    const result = await saveDigestOnly(payload, date);
     if (result && "error" in result) {
       toast.error(result.error);
       return;
@@ -271,17 +361,72 @@ export function DigestClient({ recentDigests: initialDigests }: DigestClientProp
               className="text-sm border rounded-md px-2 py-1 bg-background text-foreground"
             />
           </div>
-          <Textarea
-            value={text}
-            onChange={(e) => setText(e.target.value)}
-            placeholder="What did you learn, do, or think about today?"
-            className="min-h-[200px] resize-y"
-          />
-          <div className="flex gap-2 justify-end">
-            <Button variant="outline" onClick={handleSaveOnly} disabled={!text.trim()}>
+
+          <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as "text" | "voice")} className="w-full">
+            <TabsList className="grid w-full grid-cols-2">
+              <TabsTrigger value="text">Write</TabsTrigger>
+              <TabsTrigger value="voice">Voice</TabsTrigger>
+            </TabsList>
+
+            <div className="mt-4 border rounded-md p-4 bg-card">
+              <TabsContent value="text" className="mt-0">
+                <Textarea
+                  value={text}
+                  onChange={(e) => setText(e.target.value)}
+                  placeholder="What did you learn, do, or think about today?"
+                  className="min-h-[200px] resize-y border-0 focus-visible:ring-0 p-0 shadow-none"
+                />
+              </TabsContent>
+
+              <TabsContent value="voice" className="mt-0 space-y-4 py-8 flex flex-col items-center justify-center">
+                <div className="text-center space-y-2 mb-4">
+                  <h3 className="font-medium text-lg">Brain Dump Audio</h3>
+                  <p className="text-sm text-muted-foreground max-w-sm">
+                    Record a quick voice memo explaining your day. AI will transcribe and extract knowledge.
+                  </p>
+                </div>
+
+                {!audioBlob ? (
+                  <Button
+                    size="lg"
+                    variant={isRecording ? "destructive" : "default"}
+                    className="w-32 h-32 rounded-full flex flex-col gap-2 relative overflow-hidden"
+                    onClick={isRecording ? stopRecording : startRecording}
+                  >
+                    {isRecording ? (
+                      <>
+                        <div className="animate-pulse w-8 h-8 rounded-sm bg-white" />
+                        <span className="font-mono">{formatTime(recordingTime)}</span>
+                        <div className="absolute inset-0 border-4 border-white/20 rounded-full animate-ping" />
+                      </>
+                    ) : (
+                      <>
+                        <div className="w-8 h-8 rounded-full bg-primary-foreground" />
+                        <span>Record</span>
+                      </>
+                    )}
+                  </Button>
+                ) : (
+                  <div className="flex flex-col items-center gap-4 w-full max-w-xs">
+                    <div className="bg-muted px-4 py-3 rounded-md w-full flex items-center justify-between">
+                      <span className="text-sm font-medium">Recording saved</span>
+                      {/* eslint-disable-next-line @typescript-eslint/no-explicit-any */}
+                      <span className="text-xs text-muted-foreground font-mono">{formatTime((audioBlob as any).duration || recordingTime)}</span>
+                    </div>
+                    <Button variant="outline" size="sm" onClick={() => { setAudioBlob(null); setRecordingTime(0); }} className="w-full">
+                      Discard & Re-record
+                    </Button>
+                  </div>
+                )}
+              </TabsContent>
+            </div>
+          </Tabs>
+
+          <div className="flex gap-2 justify-end mt-2">
+            <Button variant="outline" onClick={handleSaveOnly} disabled={(activeTab === "text" && !text.trim()) || (activeTab === "voice" && !audioBlob)}>
               Save only
             </Button>
-            <Button onClick={handleAnalyze} disabled={!text.trim()}>
+            <Button onClick={handleAnalyze} disabled={(activeTab === "text" && !text.trim()) || (activeTab === "voice" && !audioBlob)}>
               Analyze
             </Button>
           </div>

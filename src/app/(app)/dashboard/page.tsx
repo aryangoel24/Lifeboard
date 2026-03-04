@@ -7,6 +7,7 @@ import { getWeightEntries } from "@/lib/actions/weight";
 import { getTodayHabits, getHabitEntries } from "@/lib/actions/habits";
 import { getCustomHabits, getTodayCustomHabitEntries, getCustomHabitEntries } from "@/lib/actions/custom-habits";
 import { computeAndUpdateDebt, getDebtState } from "@/lib/actions/habit-debt";
+import { getTodaySteps } from "@/lib/actions/steps";
 import { getToday, getNow } from "@/lib/timezone";
 import { FoodEntryList } from "@/components/food-entry-list";
 import { DailySummary } from "@/components/daily-summary";
@@ -15,6 +16,7 @@ import { DateNavigator } from "@/components/date-navigator";
 import { StreakWidget } from "@/components/streak-widget";
 import { QuickTemplates } from "@/components/quick-templates";
 import { WeightLogCard } from "@/components/weight-log-card";
+import { StepCard } from "@/components/step-card";
 import { HabitsSection } from "@/components/habits-section";
 
 interface DashboardPageProps {
@@ -38,7 +40,7 @@ export default async function DashboardPage({
   // We don't await it here — it runs alongside other fetches
   const debtComputePromise = computeAndUpdateDebt(today);
 
-  const [entries, profileResult, streaks, templates, recentWeights, todayHabits, customHabits, customHabitEntries, weeklyHabitEntries, weeklyCustomHabitEntries] =
+  const [entries, profileResult, streaks, templates, recentWeights, todayHabits, customHabits, customHabitEntries, weeklyHabitEntries, weeklyCustomHabitEntries, todaySteps] =
     await Promise.all([
       getFoodEntries(date),
       supabase.from("profiles").select("*").eq("id", user.id).single(),
@@ -50,6 +52,7 @@ export default async function DashboardPage({
       getTodayCustomHabitEntries(date),
       getHabitEntries(7),
       getCustomHabitEntries(7),
+      getTodaySteps(date),
     ]);
 
   // Wait for debt computation to complete, then fetch state
@@ -82,13 +85,18 @@ export default async function DashboardPage({
         />
       )}
 
-      <WeightLogCard
-        key={date}
-        todayWeight={todayWeight}
-        recentEntries={recentWeights}
-        goalWeight={profile?.goal_weight ?? null}
-        date={date}
-      />
+      {/* Primary Logs (Side-by-side on md+ screens) */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+        <WeightLogCard
+          key={`weight-${date}`}
+          todayWeight={todayWeight}
+          recentEntries={recentWeights}
+          goalWeight={profile?.goal_weight ?? null}
+          date={date}
+        />
+
+        <StepCard todaySteps={todaySteps} />
+      </div>
 
       {/* Daily Habits */}
       {profile && (

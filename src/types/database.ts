@@ -202,6 +202,14 @@ export type WeightEntry = {
   created_at: string;
 };
 
+export type StepEntry = {
+  id: string;
+  user_id: string;
+  steps: number;
+  logged_at: string;
+  created_at: string;
+};
+
 export type ExpenseEntry = {
   id: string;
   user_id: string;

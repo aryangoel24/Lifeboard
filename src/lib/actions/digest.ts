@@ -22,9 +22,33 @@ export type DigestHistoryItem = {
   suggestion_status: string | null;
 };
 
+async function getDigestText(payload: { kind: "text"; text: string } | { kind: "voice"; formData: FormData }): Promise<{ text: string } | { error: string }> {
+  if (payload.kind === "text") return { text: payload.text };
+  const file = payload.formData.get("file") as File | null;
+  if (!file) return { error: "No voice memo provided." };
+  if (file.size > 25 * 1024 * 1024) return { error: "Audio file is too large (max 25MB)." };
+  try {
+    const { getOpenAIClient } = await import("@/lib/knowledge-utils");
+    const openai = getOpenAIClient();
+    if (!openai) return { error: "AI client not configured." };
+    const response = await openai.audio.transcriptions.create({
+      file: file,
+      model: "whisper-1",
+      language: "en",
+    });
+    if (!response.text || response.text.trim().length < 10) {
+      return { error: "Could not transcribe any words from this audio file." };
+    }
+    return { text: response.text };
+  } catch (err: unknown) {
+    console.error("Voice transcription error:", err);
+    const errMsg = err instanceof Error ? err.message : String(err);
+    return { error: "Failed to transcribe audio file. " + errMsg };
+  }
+}
 
 export async function analyzeDigest(
-  rawText: string,
+  payload: { kind: "text"; text: string } | { kind: "voice"; formData: FormData },
   date: string
 ): Promise<
   | { digestId: string; payload: DigestPayload; nodeTitles: Record<string, string> }
@@ -35,6 +59,10 @@ export async function analyzeDigest(
     data: { user },
   } = await supabase.auth.getUser();
   if (!user) return { error: "Unauthorized" };
+
+  const textResult = await getDigestText(payload);
+  if ("error" in textResult) return { error: textResult.error };
+  const rawText = textResult.text;
 
   // Upsert daily_digests row
   const { data: digest, error: upsertError } = await supabase
@@ -82,8 +110,8 @@ export async function analyzeDigest(
   }));
 
   // Generate AI analysis
-  const payload = await generateDigestAnalysis(rawText, candidateRefs, inboxNodeId);
-  if (!payload) return { error: "AI analysis failed" };
+  const analysisPayload = await generateDigestAnalysis(rawText, candidateRefs, inboxNodeId);
+  if (!analysisPayload) return { error: "AI analysis failed" };
 
   // Delete existing pending suggestions for this digest (idempotency)
   await supabase
@@ -97,7 +125,7 @@ export async function analyzeDigest(
     digest_id: digest.id,
     user_id: user.id,
     status: "pending",
-    payload_json: payload,
+    payload_json: analysisPayload,
   });
 
   if (insertError) return { error: insertError.message };
@@ -105,14 +133,14 @@ export async function analyzeDigest(
   // Update digest summary
   await supabase
     .from("daily_digests")
-    .update({ summary: payload.summary })
+    .update({ summary: analysisPayload.summary })
     .eq("id", digest.id);
 
-  return { digestId: digest.id, payload, nodeTitles };
+  return { digestId: digest.id, payload: analysisPayload, nodeTitles };
 }
 
 export async function saveDigestOnly(
-  rawText: string,
+  payload: { kind: "text"; text: string } | { kind: "voice"; formData: FormData },
   date: string
 ): Promise<{ error: string } | void> {
   const supabase = createClient();
@@ -120,6 +148,10 @@ export async function saveDigestOnly(
     data: { user },
   } = await supabase.auth.getUser();
   if (!user) return { error: "Unauthorized" };
+
+  const textResult = await getDigestText(payload);
+  if ("error" in textResult) return { error: textResult.error };
+  const rawText = textResult.text;
 
   const { error } = await supabase
     .from("daily_digests")
