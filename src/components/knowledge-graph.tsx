@@ -58,8 +58,9 @@ import {
   CommandItem,
   CommandList,
 } from "@/components/ui/command";
-import { Plus, Maximize2, Loader2, Brain, ZoomIn, ZoomOut, Focus, Map as MapIcon, Sparkles, LayoutGrid, MousePointerClick, List } from "lucide-react";
+import { Plus, Maximize2, Loader2, Brain, ZoomIn, ZoomOut, Focus, Map as MapIcon, Sparkles, LayoutGrid, MousePointerClick, List, Inbox } from "lucide-react";
 import { ROOT_COLORS } from "@/lib/knowledge-utils";
+import { InboxTriageSheet } from "./inbox-triage";
 
 // Custom dashed cross-link edge (defined at module level, outside component)
 function CrossLinkEdge({ sourceX, sourceY, sourcePosition, targetX, targetY, targetPosition, id }: EdgeProps) {
@@ -272,6 +273,7 @@ function KnowledgeGraphInner({ initialNodes, initialLinks }: KnowledgeGraphInner
   const [focusEnabled, setFocusEnabled] = useState(false);
   const [minimapVisible, setMinimapVisible] = useState(false);
   const [spotlightOpen, setSpotlightOpen] = useState(false);
+  const [triageOpen, setTriageOpen] = useState(false);
 
   const [autoLayoutPending, setAutoLayoutPending] = useState(false);
 
@@ -784,11 +786,35 @@ function KnowledgeGraphInner({ initialNodes, initialLinks }: KnowledgeGraphInner
     );
   }
 
-  function handleResourcesChange(nodeId: string, resources: NodeResource[]) {
+  const handleResourcesChange = useCallback((nodeId: string, resources: NodeResource[]) => {
     setKnowledgeNodes((prev) =>
       prev.map((n) => (n.id === nodeId ? { ...n, resources } : n))
     );
-  }
+  }, []);
+
+  const handleNodeTriaged = useCallback((nodeId: string, actionType: 'move' | 'merge' | 'promote' | 'delete', targetId?: string) => {
+    if (actionType === 'delete' || actionType === 'merge') {
+      // For delete or merge, the node is entirely gone from the DB
+      setKnowledgeNodes((prev) => prev.filter(n => n.id !== nodeId));
+      setKnowledgeLinks((prev) => prev.filter(l => l.a_id !== nodeId && l.b_id !== nodeId));
+      setRfSelectedCount(0);
+      setSelectedNodeId(null);
+    } else if (actionType === 'promote') {
+      // Promoted node becomes its own root node
+      setKnowledgeNodes((prev) => prev.map(n =>
+        n.id === nodeId ? { ...n, parent_id: null, root_id: nodeId, depth: 0 } : n
+      ));
+    } else if (actionType === 'move' && targetId) {
+      // Node is moved under a new parent
+      setKnowledgeNodes((prev) => {
+        const targetTarget = prev.find(n => n.id === targetId);
+        if (!targetTarget) return prev;
+        return prev.map(n =>
+          n.id === nodeId ? { ...n, parent_id: targetId, root_id: targetTarget.root_id, depth: targetTarget.depth + 1 } : n
+        );
+      });
+    }
+  }, []);
 
   function handleUserFactsChange(nodeId: string, facts: string[]) {
     setKnowledgeNodes((prev) =>
@@ -1401,6 +1427,19 @@ function KnowledgeGraphInner({ initialNodes, initialLinks }: KnowledgeGraphInner
         >
           <List className="h-4 w-4" />
         </Button>
+        <div className="w-px h-6 bg-border mx-1" />
+        <Button
+          variant={triageOpen ? "secondary" : "ghost"}
+          size="icon"
+          className="h-8 w-8 text-muted-foreground hover:text-foreground relative"
+          onClick={() => setTriageOpen(!triageOpen)}
+          title="Inbox Triage (Review unsorted nodes)"
+        >
+          <Inbox className="h-4 w-4" />
+          {knowledgeNodes.filter(n => n.root_id === knowledgeNodes.find(r => r.parent_id === null && r.title === "Inbox")?.id && n.parent_id !== null).length > 0 && (
+            <span className="absolute top-1 right-1 h-2 w-2 rounded-full bg-red-500 animate-pulse border border-background"></span>
+          )}
+        </Button>
         <Button
           size="sm"
           onClick={() => setAddRootOpen(true)}
@@ -1587,6 +1626,12 @@ function KnowledgeGraphInner({ initialNodes, initialLinks }: KnowledgeGraphInner
           </CommandGroup>
         </CommandList>
       </CommandDialog>
+      <InboxTriageSheet
+        open={triageOpen}
+        onOpenChange={setTriageOpen}
+        allNodes={knowledgeNodes}
+        onNodeTriaged={handleNodeTriaged}
+      />
     </div>
   );
 }

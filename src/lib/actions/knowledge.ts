@@ -1089,3 +1089,116 @@ export async function promoteFactToNode(
   revalidatePath("/learn/hub");
   return { node: newNode as KnowledgeNode, remainingFacts: newFacts };
 }
+
+export async function mergeNodes(
+  sourceNodeId: string,
+  targetNodeId: string
+): Promise<{ success: boolean } | { error: string }> {
+  const supabase = createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return { error: "Unauthorized" };
+
+  if (sourceNodeId === targetNodeId) return { error: "Cannot merge a node into itself" };
+
+  // 1. Fetch source and target
+  const { data: source } = await supabase
+    .from("knowledge_nodes")
+    .select("id, user_facts, ai_evidence, user_notes")
+    .eq("id", sourceNodeId)
+    .eq("user_id", user.id)
+    .single();
+
+  if (!source) return { error: "Source node not found" };
+
+  const { data: target } = await supabase
+    .from("knowledge_nodes")
+    .select("id, user_facts, ai_evidence, user_notes")
+    .eq("id", targetNodeId)
+    .eq("user_id", user.id)
+    .single();
+
+  if (!target) return { error: "Target node not found" };
+
+  // 2. Compute merged properties
+  const targetFacts = (target.user_facts as string[]) || [];
+  const sourceFacts = (source.user_facts as string[]) || [];
+
+  // Dedup facts
+  const mergedFacts = Array.from(new Set([...targetFacts, ...sourceFacts]));
+
+  const mergedEvidence = [target.ai_evidence, source.ai_evidence].filter(Boolean).join("\n\n---\n\n");
+  const mergedNotes = [target.user_notes, source.user_notes].filter(Boolean).join("\n\n---\n\n");
+
+  // 3. Update target node with merged content
+  const { error: updateTargetError } = await supabase
+    .from("knowledge_nodes")
+    .update({
+      user_facts: mergedFacts,
+      ai_evidence: mergedEvidence || null,
+      user_notes: mergedNotes || null,
+      updated_at: new Date().toISOString()
+    })
+    .eq("id", targetNodeId)
+    .eq("user_id", user.id);
+
+  if (updateTargetError) return { error: updateTargetError.message };
+
+  // 4. Reparent children of source to target
+  // We just set parent_id = targetNodeId for any child of sourceNodeId
+  const { error: reparentError } = await supabase
+    .from("knowledge_nodes")
+    .update({
+      parent_id: targetNodeId,
+      updated_at: new Date().toISOString()
+    })
+    .eq("parent_id", sourceNodeId)
+    .eq("user_id", user.id);
+
+  if (reparentError) {
+    console.error("Failed to reparent children during merge:", reparentError);
+    // Non-fatal, proceed to delete source which cascades any straggler children
+  }
+
+  // 5. Transfer cross-links where source was 'a_id' or 'b_id'
+  // Fetch existing links involving source
+  const { data: sourceLinks } = await supabase
+    .from("knowledge_node_links")
+    .select("*")
+    .or(`a_id.eq.${sourceNodeId},b_id.eq.${sourceNodeId}`)
+    .eq("user_id", user.id);
+
+  if (sourceLinks && sourceLinks.length > 0) {
+    for (const link of sourceLinks) {
+      // Determine the 'other' node in the link
+      const otherId = link.a_id === sourceNodeId ? link.b_id : link.a_id;
+
+      // If the link is back to target itself, just delete it (it will be deleted via cascade anyway)
+      if (otherId === targetNodeId) continue;
+
+      // Recreate link between targetNodeId and otherId
+      const new_a_id = targetNodeId < otherId ? targetNodeId : otherId;
+      const new_b_id = targetNodeId < otherId ? otherId : targetNodeId;
+
+      const { error: linkInsertError } = await supabase
+        .from("knowledge_node_links")
+        .insert({ user_id: user.id, a_id: new_a_id, b_id: new_b_id });
+
+      if (linkInsertError && linkInsertError.code !== '23505') {
+        // Ignore unique constraint violations if connection already exists
+        console.error("Failed to transfer link during merge:", linkInsertError);
+      }
+    }
+  }
+
+  // 6. Delete source node
+  const { error: deleteError } = await supabase
+    .from("knowledge_nodes")
+    .delete()
+    .eq("id", sourceNodeId)
+    .eq("user_id", user.id);
+
+  if (deleteError) return { error: deleteError.message };
+
+  revalidatePath("/learn/hub");
+  return { success: true };
+}
