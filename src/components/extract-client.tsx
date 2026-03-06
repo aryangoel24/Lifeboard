@@ -15,7 +15,12 @@ import {
   FolderOpen,
   HelpCircle,
   Sparkles,
+  Check,
+  ChevronsUpDown,
 } from "lucide-react";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
+import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -94,6 +99,76 @@ function flattenTree(roots: ExtractionNode[]): FlatNode[] {
   return result;
 }
 
+function NodeCombobox({
+  nodes,
+  value,
+  onChange,
+}: {
+  nodes: { id: string; breadcrumb: string }[];
+  value: string;
+  onChange: (val: string) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>
+        <Button
+          variant="outline"
+          role="combobox"
+          aria-expanded={open}
+          className="h-6 text-[10px] px-2 py-0.5 max-w-[200px] justify-between font-normal"
+        >
+          <span className="truncate flex-1 text-left">
+            {nodes.find((n) => n.id === value)?.breadcrumb ?? "Select node"}
+          </span>
+          <ChevronsUpDown className="ml-1 h-3 w-3 shrink-0 opacity-50" />
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent className="w-[300px] p-0" align="start">
+        <Command
+          filter={(value, search) => {
+            if (!search) return 1;
+            const lowerValue = value.toLowerCase();
+            const lowerSearch = search.toLowerCase();
+            if (lowerValue.includes(lowerSearch)) {
+              // Less depth (fewer arrows) = higher score so it ranks at the top
+              const depth = (value.match(/→|->|>|›/g) || []).length;
+              return 100 - depth;
+            }
+            return 0;
+          }}
+        >
+          <CommandInput placeholder="Search nodes..." className="h-8 text-xs" />
+          <CommandList>
+            <CommandEmpty className="text-xs py-2 text-center text-muted-foreground">No node found.</CommandEmpty>
+            <CommandGroup>
+              {nodes.map((n) => (
+                <CommandItem
+                  key={n.id}
+                  value={n.breadcrumb}
+                  className="text-xs py-1"
+                  onSelect={() => {
+                    onChange(n.id);
+                    setOpen(false);
+                  }}
+                >
+                  <Check
+                    className={cn(
+                      "mr-2 h-3 w-3",
+                      value === n.id ? "opacity-100" : "opacity-0"
+                    )}
+                  />
+                  {n.breadcrumb}
+                </CommandItem>
+              ))}
+            </CommandGroup>
+          </CommandList>
+        </Command>
+      </PopoverContent>
+    </Popover>
+  );
+}
+
 export function ExtractClient() {
   const router = useRouter();
   const [uiState, setUiState] = useState<UIState>("input");
@@ -130,9 +205,9 @@ export function ExtractClient() {
   // Per-match per-fact checked state: `${matched_node_id}::${index}` → boolean
   const [checkedFacts, setCheckedFacts] = useState<Record<string, boolean>>({});
 
-  // Root routing: "new" = create under Inbox; any other string = targetNodeId for merge
+  // Root routing: "new" = create under Inbox; { mode: "merge" | "child", targetNodeId } 
   const [allExistingNodes, setAllExistingNodes] = useState<{ id: string; title: string; breadcrumb: string }[]>([]);
-  const [rootRouting, setRootRouting] = useState<Record<string, "new" | string>>({});
+  const [rootRouting, setRootRouting] = useState<Record<string, { mode: "new" } | { mode: "merge"; targetNodeId: string } | { mode: "child"; targetNodeId: string }>>({});
   const [autoMatchedRoots, setAutoMatchedRoots] = useState<Set<string>>(new Set());
 
   const [applying, setApplying] = useState(false);
@@ -245,10 +320,10 @@ export function ExtractClient() {
     setAllExistingNodes(res.allNodes);
 
     // Build routing: default everyone to "new", then override with high-confidence auto-matches
-    const autoRouting: Record<string, "new" | string> = {};
+    const autoRouting: Record<string, { mode: "new" } | { mode: "merge"; targetNodeId: string } | { mode: "child"; targetNodeId: string }> = {};
     const autoIds = new Set<string>();
     for (const r of res.result.roots) {
-      autoRouting[r.temp_id] = "new";
+      autoRouting[r.temp_id] = { mode: "new" };
     }
     for (const m of res.result.matches) {
       if (!m.temp_id) continue;
@@ -256,7 +331,7 @@ export function ExtractClient() {
         (m.evidence ?? "").toLowerCase().includes(k)
       );
       if (m.confidence >= 0.85 || (m.confidence >= 0.8 && hasStrongEvidence)) {
-        autoRouting[m.temp_id] = m.matched_node_id;
+        autoRouting[m.temp_id] = { mode: "merge", targetNodeId: m.matched_node_id };
         autoIds.add(m.temp_id);
       }
     }
@@ -269,7 +344,8 @@ export function ExtractClient() {
     const initialNodeFacts: Record<string, boolean> = {};
 
     for (const n of flat) {
-      const isRootMerge = n.parentTempId === null && autoRouting[n.temp_id] !== "new" && !!autoRouting[n.temp_id];
+      const routingObj = autoRouting[n.temp_id];
+      const isRootMerge = n.parentTempId === null && routingObj && routingObj.mode !== "new";
       const hasChildren = flat.some(c => c.parentTempId === n.temp_id);
       const isArtifact = ["person", "book", "project"].includes(n.node_type);
 
@@ -365,13 +441,7 @@ export function ExtractClient() {
         ),
       }));
 
-    const routing: RootRouting = {};
-    for (const [tempId, val] of Object.entries(rootRouting)) {
-      routing[tempId] =
-        val === "new" || !val
-          ? { mode: "new" }
-          : { mode: "merge", targetNodeId: val };
-    }
+    const routing: RootRouting = rootRouting;
 
     setApplying(true);
     const res = await applyExtraction(extractionId, filteredApproved, approvedMatches, routing);
@@ -739,12 +809,12 @@ export function ExtractClient() {
                   {allExistingNodes.length > 0 && (
                     <div className="px-3 pb-2 flex items-center gap-2 flex-wrap">
                       <button
-                        className={`text-[10px] px-2 py-0.5 rounded-full border transition-colors ${rootRouting[root.temp_id] === "new"
+                        className={`text-[10px] px-2 py-0.5 rounded-full border transition-colors ${!rootRouting[root.temp_id] || rootRouting[root.temp_id].mode === "new"
                           ? "bg-primary text-primary-foreground border-primary"
                           : "text-muted-foreground border-border hover:border-foreground/30"
                           }`}
                         onClick={() => {
-                          setRootRouting((prev) => ({ ...prev, [root.temp_id]: "new" }));
+                          setRootRouting((prev) => ({ ...prev, [root.temp_id]: { mode: "new" } }));
                           setAutoMatchedRoots((prev) => {
                             const next = new Set(prev);
                             next.delete(root.temp_id);
@@ -755,41 +825,68 @@ export function ExtractClient() {
                         New node
                       </button>
                       <button
-                        className={`text-[10px] px-2 py-0.5 rounded-full border transition-colors ${rootRouting[root.temp_id] !== "new"
+                        className={`text-[10px] px-2 py-0.5 rounded-full border transition-colors ${rootRouting[root.temp_id]?.mode === "merge"
                           ? "bg-primary text-primary-foreground border-primary"
                           : "text-muted-foreground border-border hover:border-foreground/30"
                           }`}
                         onClick={() => {
-                          if (rootRouting[root.temp_id] === "new") {
+                          if (!rootRouting[root.temp_id] || rootRouting[root.temp_id].mode !== "merge") {
                             setRootRouting((prev) => ({
                               ...prev,
-                              [root.temp_id]: allExistingNodes[0]?.id ?? "new",
+                              [root.temp_id]: { mode: "merge", targetNodeId: allExistingNodes[0]?.id ?? "" },
                             }));
                           }
                         }}
                       >
                         Merge into →
                       </button>
-                      {autoMatchedRoots.has(root.temp_id) && rootRouting[root.temp_id] !== "new" && (
+                      <button
+                        className={`text-[10px] px-2 py-0.5 rounded-full border transition-colors ${rootRouting[root.temp_id]?.mode === "child"
+                          ? "bg-emerald-600 text-white border-emerald-600"
+                          : "text-muted-foreground border-border hover:border-foreground/30"
+                          }`}
+                        onClick={() => {
+                          if (!rootRouting[root.temp_id] || rootRouting[root.temp_id].mode !== "child") {
+                            setRootRouting((prev) => ({
+                              ...prev,
+                              [root.temp_id]: { mode: "child", targetNodeId: allExistingNodes[0]?.id ?? "" },
+                            }));
+                          }
+                        }}
+                      >
+                        Make child of ↘
+                      </button>
+
+                      {autoMatchedRoots.has(root.temp_id) && rootRouting[root.temp_id]?.mode === "merge" && (
                         <span className="text-[10px] text-emerald-600 font-medium">Auto-matched</span>
                       )}
-                      {rootRouting[root.temp_id] !== "new" && (
-                        <select
-                          className="text-[10px] border rounded px-1 py-0.5 bg-background text-foreground max-w-[200px]"
-                          value={rootRouting[root.temp_id]}
-                          onChange={(e) =>
-                            setRootRouting((prev) => ({ ...prev, [root.temp_id]: e.target.value }))
+
+                      {rootRouting[root.temp_id] && rootRouting[root.temp_id].mode !== "new" && (
+                        <NodeCombobox
+                          nodes={allExistingNodes}
+                          value={
+                            rootRouting[root.temp_id].mode !== "new"
+                              ? (rootRouting[root.temp_id] as { mode: "merge" | "child"; targetNodeId: string }).targetNodeId
+                              : ""
                           }
-                        >
-                          {allExistingNodes.map((n) => (
-                            <option key={n.id} value={n.id}>
-                              {n.breadcrumb}
-                            </option>
-                          ))}
-                        </select>
+                          onChange={(val) =>
+                            setRootRouting((prev) => {
+                              const existing = prev[root.temp_id];
+                              const nextMode = existing && existing.mode !== "new" ? existing.mode : "merge";
+                              return {
+                                ...prev,
+                                [root.temp_id]: {
+                                  mode: nextMode,
+                                  targetNodeId: val
+                                }
+                              };
+                            })
+                          }
+                        />
                       )}
+
                       {(() => {
-                        if (rootRouting[root.temp_id] !== "new") return null;
+                        if (rootRouting[root.temp_id]?.mode !== "new") return null;
                         const nearMatch = result.matches.find(
                           (m) => m.temp_id === root.temp_id && m.confidence >= 0.75 && m.confidence < 0.85
                         );
@@ -800,7 +897,10 @@ export function ExtractClient() {
                           <button
                             className="text-[10px] text-blue-500 hover:text-blue-700 hover:underline transition-colors ml-1"
                             onClick={() =>
-                              setRootRouting((prev) => ({ ...prev, [root.temp_id]: nearMatch.matched_node_id }))
+                              setRootRouting((prev) => ({
+                                ...prev,
+                                [root.temp_id]: { mode: "merge", targetNodeId: nearMatch.matched_node_id }
+                              }))
                             }
                           >
                             Possible match: {breadcrumb} ({Math.round(nearMatch.confidence * 100)}%)
@@ -915,7 +1015,7 @@ export function ExtractClient() {
                         if (isRoot) {
                           setRootRouting((prev) => ({
                             ...prev,
-                            [match.temp_id]: v ? match.matched_node_id : "new",
+                            [match.temp_id]: v ? { mode: "merge", targetNodeId: match.matched_node_id } : { mode: "new" },
                           }));
                         }
                       }

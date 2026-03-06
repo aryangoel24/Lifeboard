@@ -35,6 +35,7 @@ import {
 } from "@/lib/actions/knowledge";
 import { SCAFFOLD_TEMPLATES } from "@/lib/scaffold-templates";
 import type { KnowledgeNode, KnowledgeLink, NodeResource } from "@/types/database";
+import ELK from "elkjs/lib/elk.bundled.js";
 import type { SynthesisResult } from "@/lib/knowledge-utils";
 import { KnowledgeNodeCard, type KnowledgeNodeData } from "@/components/knowledge-node-card";
 import { NodeDetailPanel } from "@/components/node-detail-panel";
@@ -80,115 +81,128 @@ const TEMPLATE_TOPICS = ["History", "Science", "Anime"];
 const X_SPACING = 200;
 const Y_SPACING = 170;
 const TREE_GAP = 300;
-// Tuneable: max children placed in a single horizontal row before wrapping.
-// Increase for wider monitors, decrease for more compact/vertical layouts.
-const MAX_CHILDREN_PER_ROW = 5;
 
-function chunkArray<T>(arr: T[], size: number): T[][] {
-  const rows: T[][] = [];
-  for (let i = 0; i < arr.length; i += size) rows.push(arr.slice(i, i + size));
-  return rows;
-}
+const ELK_OPTIONS = {
+  "elk.algorithm": "layered",
+  "elk.direction": "DOWN",
+  "elk.spacing.nodeNode": "40",
+  "elk.layered.spacing.nodeNodeBetweenLayers": "100",
+  "elk.edgeRouting": "ORTHOGONAL",
+  "elk.layered.wrapping.strategy": "MULTI_EDGE",
+  "elk.aspectRatio": "1.3",
+};
 
-// Sort children deterministically by created_at then id to prevent layout shuffling
-function buildChildrenMap(nodes: KnowledgeNode[], collapsedIds?: Set<string>): Map<string, string[]> {
-  const map = new Map<string, string[]>();
-  const ids = new Set(nodes.map(n => n.id));
-  for (const n of nodes) map.set(n.id, []);
-  const sorted = [...nodes].sort((a, b) =>
-    a.created_at.localeCompare(b.created_at)
-  );
-  for (const n of sorted) {
-    if (n.parent_id && ids.has(n.parent_id) && !collapsedIds?.has(n.parent_id)) {
-      map.get(n.parent_id)!.push(n.id);
+const elk = new ELK();
+
+async function computeAutoLayout(
+  nodes: KnowledgeNode[],
+  collapsedIds?: Set<string>,
+  subRootsOnly?: Set<string>
+): Promise<Map<string, { x: number; y: number }>> {
+  const visibleIds = new Set<string>();
+  const cm = new Map<string, string[]>();
+  for (const n of nodes) cm.set(n.id, []);
+  for (const n of nodes) {
+    if (n.parent_id && cm.has(n.parent_id)) {
+      cm.get(n.parent_id)!.push(n.id);
     }
   }
-  return map;
-}
 
-// Width in column units: max width across all rows of children
-function subtreeWidth(id: string, cm: Map<string, string[]>): number {
-  const ch = cm.get(id) ?? [];
-  if (ch.length === 0) return 1;
-  const rows = chunkArray(ch, MAX_CHILDREN_PER_ROW);
-  return Math.max(...rows.map(row => row.reduce((s, c) => s + subtreeWidth(c, cm), 0)));
-}
-
-// Height in row units (1 = leaf).
-function subtreeHeight(id: string, cm: Map<string, string[]>): number {
-  const ch = cm.get(id) ?? [];
-  if (ch.length === 0) return 1;
-  const rows = chunkArray(ch, MAX_CHILDREN_PER_ROW);
-  let h = 1;
-  for (const row of rows) {
-    h += Math.max(...row.map(c => subtreeHeight(c, cm)));
-  }
-  return h;
-}
-
-function assignPositions(
-  id: string,
-  leftX: number,
-  y: number,
-  cm: Map<string, string[]>,
-  result: Map<string, { x: number; y: number }>
-) {
-  const ch = cm.get(id) ?? [];
-  const w = subtreeWidth(id, cm);
-  result.set(id, { x: leftX + ((w - 1) / 2) * X_SPACING, y });
-  if (ch.length === 0) return;
-
-  const rows = chunkArray(ch, MAX_CHILDREN_PER_ROW);
-  let currentY = y + Y_SPACING;
-
-  for (const row of rows) {
-    const rowW = row.reduce((s, c) => s + subtreeWidth(c, cm), 0);
-    // Center each row within the parent's bounding box
-    let childLeft = leftX + ((w - rowW) / 2) * X_SPACING;
-    for (const child of row) {
-      assignPositions(child, childLeft, currentY, cm, result);
-      childLeft += subtreeWidth(child, cm) * X_SPACING;
+  function collectVisible(id: string) {
+    visibleIds.add(id);
+    if (!collapsedIds?.has(id)) {
+      for (const child of cm.get(id) ?? []) {
+        collectVisible(child);
+      }
     }
-    // Advance Y by max subtree height in this row to prevent overlap with next row
-    const maxChildH = Math.max(...row.map(c => subtreeHeight(c, cm)));
-    currentY += maxChildH * Y_SPACING;
   }
-}
 
-function computeAutoLayout(nodes: KnowledgeNode[], collapsedIds?: Set<string>): Map<string, { x: number; y: number }> {
-  const cm = buildChildrenMap(nodes, collapsedIds);
+  if (subRootsOnly) {
+    for (const rid of Array.from(subRootsOnly)) collectVisible(rid);
+  } else {
+    // all roots
+    const roots = nodes.filter((n) => n.depth === 0);
+    for (const r of roots) collectVisible(r.id);
+  }
+
+  // Group nodes by root_id to process each disconnected tree entirely independently
+  const nodesByRoot = new Map<string, KnowledgeNode[]>();
+  const visibleNodes = nodes.filter((n) => visibleIds.has(n.id));
+
+  for (const n of visibleNodes) {
+    const rId = n.root_id || n.id;
+    if (!nodesByRoot.has(rId)) nodesByRoot.set(rId, []);
+    nodesByRoot.get(rId)!.push(n);
+  }
+
   const result = new Map<string, { x: number; y: number }>();
-  const roots = nodes.filter(n => n.depth === 0);
-  let rootX = 0;
-  for (const root of roots) {
-    assignPositions(root.id, rootX, 0, cm, result);
-    rootX += subtreeWidth(root.id, cm) * X_SPACING + TREE_GAP;
+  let currentOffsetX = 0;
+
+  for (const [rId, groupNodes] of Array.from(nodesByRoot.entries())) {
+    const elkNodes = groupNodes.map((n) => ({
+      id: n.id,
+      width: 250, // typical card width
+      height: 100, // typical card height
+    }));
+
+    const elkEdges = groupNodes
+      .filter((n) => n.parent_id && visibleIds.has(n.parent_id))
+      .map((n) => ({
+        id: `e-${n.parent_id}-${n.id}`,
+        sources: [n.parent_id!],
+        targets: [n.id],
+      }));
+
+    const graph = {
+      id: `root-${rId}`,
+      layoutOptions: ELK_OPTIONS,
+      children: elkNodes,
+      edges: elkEdges,
+    };
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const layoutedGraph = await elk.layout(graph as any);
+
+    let maxW = 0;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    for (const n of (layoutedGraph.children as any[]) ?? []) {
+      const vx = n.x + currentOffsetX;
+      const vy = n.y;
+      result.set(n.id, { x: vx, y: vy });
+      if (n.x + n.width > maxW) maxW = n.x + n.width;
+    }
+
+    currentOffsetX += maxW + TREE_GAP;
   }
+
   return result;
 }
 
-function computeSubtreeLayout(
-  rootNodeId: string,
+async function computeSubtreeLayout(
+  nodeId: string,
   anchorX: number,
   anchorY: number,
   nodes: KnowledgeNode[],
   collapsedIds?: Set<string>
-): Map<string, { x: number; y: number }> {
-  const fullCm = buildChildrenMap(nodes);
-  const ids = new Set<string>();
-  function collect(id: string) {
-    ids.add(id);
-    for (const child of (fullCm.get(id) ?? [])) collect(child);
-  }
-  collect(rootNodeId);
+): Promise<Map<string, { x: number; y: number }>> {
+  const node = nodes.find((n) => n.id === nodeId);
+  const rId = node?.root_id || node?.id;
+  if (!rId) return new Map();
 
-  const subNodes = nodes.filter(n => ids.has(n.id));
-  const cm = buildChildrenMap(subNodes, collapsedIds);
-  const result = new Map<string, { x: number; y: number }>();
-  const w = subtreeWidth(rootNodeId, cm);
-  const leftX = anchorX - ((w - 1) / 2) * X_SPACING;
-  assignPositions(rootNodeId, leftX, anchorY, cm, result);
-  return result;
+  // Lay out the entire component to prevent the subtree from overlapping its siblings
+  const subRoots = new Set([rId]);
+  const layout = await computeAutoLayout(nodes, collapsedIds, subRoots);
+
+  // Shift the layout so the targeted node stays exactly at anchorX, anchorY
+  const nodePos = layout.get(nodeId);
+  if (nodePos) {
+    const dx = anchorX - nodePos.x;
+    const dy = anchorY - nodePos.y;
+    for (const [id, pos] of Array.from(layout.entries())) {
+      layout.set(id, { x: pos.x + dx, y: pos.y + dy });
+    }
+  }
+  return layout;
 }
 
 const GRID_SPACING = 250;
@@ -273,7 +287,7 @@ function KnowledgeGraphInner({ initialNodes, initialLinks }: KnowledgeGraphInner
   const [rfSelectedCount, setRfSelectedCount] = useState(0);
 
   // Legend state
-  const [showLegend, setShowLegend] = useState(true);
+  const [showLegend, setShowLegend] = useState(false);
 
   // Scaffold state
   const [scaffoldPending, setScaffoldPending] = useState(false);
@@ -863,7 +877,7 @@ function KnowledgeGraphInner({ initialNodes, initialLinks }: KnowledgeGraphInner
     setAutoLayoutPending(true);
     setContextMenu(null);
     if (focusEnabled) setFocusEnabled(false);
-    const layoutMap = computeAutoLayout(knowledgeNodes, collapsedIds);
+    const layoutMap = await computeAutoLayout(knowledgeNodes, collapsedIds);
     const updates: { id: string; x: number; y: number }[] = [];
     layoutMap.forEach((pos, id) => {
       updates.push({ id, x: pos.x, y: pos.y });
@@ -899,7 +913,7 @@ function KnowledgeGraphInner({ initialNodes, initialLinks }: KnowledgeGraphInner
     const anchorRfNode = rfNodes.find(n => n.id === nodeId);
     const anchorX = anchorRfNode?.position.x ?? 0;
     const anchorY = anchorRfNode?.position.y ?? 0;
-    const layoutMap = computeSubtreeLayout(nodeId, anchorX, anchorY, knowledgeNodes, collapsedIds);
+    const layoutMap = await computeSubtreeLayout(nodeId, anchorX, anchorY, knowledgeNodes, collapsedIds);
     const updates: { id: string; x: number; y: number }[] = [];
     layoutMap.forEach((pos, id) => {
       updates.push({ id, x: pos.x, y: pos.y });

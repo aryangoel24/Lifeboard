@@ -20,7 +20,7 @@ export type ApprovedMatch = {
   add_facts: string[];
 };
 
-export type RootRouting = Record<string, { mode: "new" } | { mode: "merge"; targetNodeId: string }>;
+export type RootRouting = Record<string, { mode: "new" } | { mode: "merge"; targetNodeId: string } | { mode: "child"; targetNodeId: string }>;
 
 export type ExtractionSourcePayload =
   | { kind: "text"; text: string }
@@ -325,30 +325,37 @@ export async function applyExtraction(
     root_id: inboxNode.root_id as string,
   });
 
-  // Step 2: Handle roots — split into new vs merge
+  // Step 2: Handle roots — split into new vs merge vs child
   const rootsForNew: typeof roots = [];
   const rootsForMerge: { root: (typeof roots)[0]; targetNodeId: string }[] = [];
+  const rootsForChild: { root: (typeof roots)[0]; targetNodeId: string }[] = [];
 
   for (const r of roots) {
     const routing = rootRouting?.[r.temp_id];
     if (routing?.mode === "merge") {
       rootsForMerge.push({ root: r, targetNodeId: routing.targetNodeId });
+    } else if (routing?.mode === "child") {
+      rootsForChild.push({ root: r, targetNodeId: routing.targetNodeId });
     } else {
       rootsForNew.push(r);
     }
   }
 
-  // Pre-populate tempIdToDbId for merge targets and fetch their metadata
-  if (rootsForMerge.length > 0) {
-    const mergeTargetIds = rootsForMerge.map((m) => m.targetNodeId);
-    const { data: mergeTargetNodes } = await supabase
+  // Pre-populate tempIdToDbId and parentMetaMap for explicit merge and child targets
+  const allTargetIds = [
+    ...rootsForMerge.map((m) => m.targetNodeId),
+    ...rootsForChild.map((c) => c.targetNodeId),
+  ];
+
+  if (allTargetIds.length > 0) {
+    const { data: targetNodes } = await supabase
       .from("knowledge_nodes")
       .select("id, depth, root_id")
-      .in("id", mergeTargetIds)
+      .in("id", allTargetIds)
       .eq("user_id", user.id);
 
-    const mergeMetaById = new Map(
-      (mergeTargetNodes ?? []).map((n) => [
+    const metaById = new Map(
+      (targetNodes ?? []).map((n) => [
         n.id as string,
         { depth: n.depth as number, root_id: n.root_id as string },
       ])
@@ -356,7 +363,14 @@ export async function applyExtraction(
 
     for (const { root, targetNodeId } of rootsForMerge) {
       tempIdToDbId.set(root.temp_id, targetNodeId);
-      const meta = mergeMetaById.get(targetNodeId);
+      const meta = metaById.get(targetNodeId);
+      if (meta) parentMetaMap.set(targetNodeId, meta);
+    }
+
+    // For "child" routing, the tempId gets no mapping yet (it will be inserted as a new row)
+    // but its parentMeta must be known so `insertLevel` or direct insertion works
+    for (const { targetNodeId } of rootsForChild) {
+      const meta = metaById.get(targetNodeId);
       if (meta) parentMetaMap.set(targetNodeId, meta);
     }
   }
@@ -435,6 +449,86 @@ export async function applyExtraction(
             parentMetaMap.set(inserted.id as string, {
               depth: inboxMeta.depth + 1,
               root_id: inboxMeta.root_id,
+            });
+          }
+        }
+      }
+    }
+  }
+
+  // Step 3b: Insert explicit children roots
+  if (rootsForChild.length > 0) {
+    // Collect all parent IDs targeted by the child-mode roots
+    const childParentIds = Array.from(new Set(rootsForChild.map(r => r.targetNodeId)));
+
+    // Fetch existing siblings under those targets to avoid exact name duplicates
+    const { data: existingSiblings } = await supabase
+      .from("knowledge_nodes")
+      .select("parent_id, title")
+      .in("parent_id", childParentIds)
+      .eq("user_id", user.id);
+
+    const siblingsByParent = new Map<string, Set<string>>();
+    for (const s of existingSiblings ?? []) {
+      const pid = s.parent_id as string;
+      if (!siblingsByParent.has(pid)) siblingsByParent.set(pid, new Set());
+      siblingsByParent.get(pid)!.add((s.title as string).toLowerCase());
+    }
+
+    const seenChildRootTitles = new Set<string>();
+    const dedupedChildRoots = rootsForChild.filter((rc) => {
+      const key = `${rc.targetNodeId}::${rc.root.title.toLowerCase()}`;
+      if (seenChildRootTitles.has(key)) return false;
+      const existingInParent = siblingsByParent.get(rc.targetNodeId);
+      if (existingInParent?.has(rc.root.title.toLowerCase())) return false; // Hard skip duplicates to avoid 23505
+      seenChildRootTitles.add(key);
+      return true;
+    });
+
+    if (dedupedChildRoots.length > 0) {
+      const childRows = dedupedChildRoots.map(({ root: r, targetNodeId }) => {
+        const pMeta = parentMetaMap.get(targetNodeId);
+        // Fallback meta just in case, though target should always exist
+        const depth = pMeta ? pMeta.depth + 1 : (inboxNode.depth as number) + 1;
+        const rootId = pMeta ? pMeta.root_id : inboxNode.root_id;
+
+        return {
+          user_id: user.id,
+          parent_id: targetNodeId,
+          root_id: rootId,
+          title: r.title,
+          node_type: r.nodeType,
+          position_x: 0,
+          position_y: 0,
+          depth,
+          ai_generated: true,
+          source: "extract",
+          source_ref: extractionId,
+          ai_evidence: r.evidence.slice(0, 120),
+          user_facts: r.facts,
+        };
+      });
+
+      const { data: insertedChildRoots, error: childRootError } = await supabase
+        .from("knowledge_nodes")
+        .insert(childRows)
+        .select("id, title, parent_id");
+
+      if (childRootError) {
+        if (childRootError.code !== "23505") {
+          return { error: childRootError.message };
+        }
+      } else {
+        for (const inserted of insertedChildRoots ?? []) {
+          const originalPair = dedupedChildRoots.find(
+            (cr) => cr.root.title === inserted.title && cr.targetNodeId === (inserted.parent_id as string)
+          );
+          if (originalPair) {
+            tempIdToDbId.set(originalPair.root.temp_id, inserted.id as string);
+            const pMeta = parentMetaMap.get(originalPair.targetNodeId)!;
+            parentMetaMap.set(inserted.id as string, {
+              depth: pMeta.depth + 1,
+              root_id: pMeta.root_id,
             });
           }
         }
