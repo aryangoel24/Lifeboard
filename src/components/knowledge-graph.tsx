@@ -61,6 +61,7 @@ import {
 import { Plus, Maximize2, Loader2, Brain, ZoomIn, ZoomOut, Focus, Map as MapIcon, Sparkles, LayoutGrid, MousePointerClick, List, Inbox } from "lucide-react";
 import { ROOT_COLORS } from "@/lib/knowledge-utils";
 import { InboxTriageSheet } from "./inbox-triage";
+import { RagSearchDialog } from "./rag-search";
 
 // Custom dashed cross-link edge (defined at module level, outside component)
 function CrossLinkEdge({ sourceX, sourceY, sourcePosition, targetX, targetY, targetPosition, id }: EdgeProps) {
@@ -1427,6 +1428,7 @@ function KnowledgeGraphInner({ initialNodes, initialLinks }: KnowledgeGraphInner
         >
           <List className="h-4 w-4" />
         </Button>
+        <RagSearchDialog />
         <div className="w-px h-6 bg-border mx-1" />
         <Button
           variant={triageOpen ? "secondary" : "ghost"}

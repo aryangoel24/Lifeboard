@@ -12,9 +12,60 @@ import {
   type GapAnalysis,
   type SynthesisResult,
 } from "@/lib/knowledge-utils";
+import { generateEmbedding, hashContent } from "@/lib/ai-utils";
 import { SCAFFOLD_TEMPLATES } from "@/lib/scaffold-templates";
 
 const DETAIL_MODEL = "gpt-4o-mini";
+
+/**
+ * Re-evaluates a node's embedding by hashing its content.
+ * Calls OpenAI only if the hash differs from what's stored in the database.
+ */
+export async function syncNodeEmbedding(nodeId: string): Promise<void> {
+  const supabase = createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return;
+
+  const { data: node } = await supabase
+    .from("knowledge_nodes")
+    .select("title, description, key_facts, user_facts, ai_evidence, node_type, parent_id, root_id, embedding_content_hash")
+    .eq("id", nodeId)
+    .single();
+
+  if (!node) return;
+
+  const payloadString = `Title: ${node.title}
+Type: ${node.node_type}
+Path: Parent(${node.parent_id || 'Root'}) -> Root(${node.root_id})
+Description: ${node.description || "None"}
+Key Facts:
+${Array.isArray(node.key_facts) ? node.key_facts.slice(0, 10).map((f: any) => "- " + f).join("\n") : "None"}
+User Facts:
+${Array.isArray(node.user_facts) ? node.user_facts.slice(0, 10).map((f: any) => "- " + f).join("\n") : "None"}
+Evidence: ${node.ai_evidence ? node.ai_evidence.substring(0, 500) + '...' : "None"}`;
+
+  const currentHash = hashContent(payloadString);
+
+  // If the content hasn't changed meaningfully, skip the OpenAI call to save cost/latency
+  if (currentHash === node.embedding_content_hash) {
+    return;
+  }
+
+  const { embedding, error } = await generateEmbedding(payloadString);
+  if (error || !embedding) {
+    console.error("Failed to generate embedding for node", nodeId, error);
+    return;
+  }
+
+  // Update table with the newly computed hash and array representing the vector
+  await supabase
+    .from("knowledge_nodes")
+    .update({
+      embedding: embedding as any,
+      embedding_content_hash: currentHash
+    })
+    .eq("id", nodeId);
+}
 
 export async function getOrCreateInboxNode(
   userId: string,
@@ -140,6 +191,9 @@ export async function addRootNode(
     .update({ root_id: data.id })
     .eq("id", data.id);
 
+  // Sync embedding in the background
+  void syncNodeEmbedding(data.id).catch(console.error);
+
   revalidatePath("/learn/hub");
   return { node: { ...(data as KnowledgeNode), root_id: data.id } };
 }
@@ -197,6 +251,10 @@ export async function addChildNodes(
     .select();
 
   if (error) return { error: error.message };
+
+  if (data) {
+    data.forEach((n) => void syncNodeEmbedding(n.id).catch(console.error));
+  }
 
   revalidatePath("/learn/hub");
   return { nodes: (data as KnowledgeNode[]) || [] };
@@ -420,6 +478,8 @@ export async function getNodeDetail(nodeId: string): Promise<
     })
     .eq("id", nodeId);
 
+  void syncNodeEmbedding(nodeId).catch(console.error);
+
   return { summary: detail.summary, key_facts: detail.key_facts };
 }
 
@@ -485,6 +545,8 @@ export async function saveUserFacts(
     .eq("user_id", user.id);
 
   if (error) return { error: error.message };
+
+  void syncNodeEmbedding(nodeId).catch(console.error);
 
   return { user_facts: facts };
 }
@@ -739,6 +801,8 @@ export async function updateNodeTitle(
     .eq("user_id", user.id);
 
   if (error) return { error: error.message };
+
+  void syncNodeEmbedding(nodeId).catch(console.error);
 
   revalidatePath("/learn/hub");
   return { title: trimmed };
@@ -1086,6 +1150,9 @@ export async function promoteFactToNode(
 
   if (updateError) return { error: updateError.message };
 
+  void syncNodeEmbedding(newNode.id).catch(console.error);
+  void syncNodeEmbedding(parentId).catch(console.error);
+
   revalidatePath("/learn/hub");
   return { node: newNode as KnowledgeNode, remainingFacts: newFacts };
 }
@@ -1142,6 +1209,8 @@ export async function mergeNodes(
     .eq("user_id", user.id);
 
   if (updateTargetError) return { error: updateTargetError.message };
+
+  void syncNodeEmbedding(targetNodeId).catch(console.error);
 
   // 4. Reparent children of source to target
   // We just set parent_id = targetNodeId for any child of sourceNodeId

@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { generateKnowledgeExtraction } from "@/lib/knowledge-utils";
-import { getOrCreateInboxNode } from "@/lib/actions/knowledge";
+import { getOrCreateInboxNode, syncNodeEmbedding } from "@/lib/actions/knowledge";
 import type { ExtractionResult, NodeType } from "@/types/database";
 
 export type ApprovedExtractionNode = {
@@ -325,6 +325,8 @@ export async function applyExtraction(
     root_id: inboxNode.root_id as string,
   });
 
+  const nodesToSync = new Set<string>();
+
   // Step 2: Handle roots — split into new vs merge vs child
   const rootsForNew: typeof roots = [];
   const rootsForMerge: { root: (typeof roots)[0]; targetNodeId: string }[] = [];
@@ -443,6 +445,7 @@ export async function applyExtraction(
         }
       } else {
         for (const inserted of insertedRoots ?? []) {
+          nodesToSync.add(inserted.id as string);
           const original = dedupedRoots.find((r) => r.title === inserted.title);
           if (original) {
             tempIdToDbId.set(original.temp_id, inserted.id as string);
@@ -520,6 +523,7 @@ export async function applyExtraction(
         }
       } else {
         for (const inserted of insertedChildRoots ?? []) {
+          nodesToSync.add(inserted.id as string);
           const originalPair = dedupedChildRoots.find(
             (cr) => cr.root.title === inserted.title && cr.targetNodeId === (inserted.parent_id as string)
           );
@@ -637,6 +641,7 @@ export async function applyExtraction(
       }
     } else {
       for (const ins of inserted ?? []) {
+        nodesToSync.add(ins.id as string);
         const original = nodes.find(
           (n) =>
             n.title === ins.title &&
@@ -706,6 +711,9 @@ export async function applyExtraction(
           ...existing,
           ...filteredNew,
         ];
+
+        nodesToSync.add(targetId);
+
         return supabase
           .from("knowledge_nodes")
           .update({ user_facts: merged, updated_at: new Date().toISOString() })
@@ -714,6 +722,11 @@ export async function applyExtraction(
       })
     );
   }
+
+  // Trigger embedding updates asynchronously for all newly added or patched nodes
+  Array.from(nodesToSync).forEach((id) => {
+    void syncNodeEmbedding(id).catch(console.error);
+  });
 
   revalidatePath("/learn/hub");
 }

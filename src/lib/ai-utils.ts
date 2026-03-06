@@ -1,4 +1,5 @@
 import OpenAI from "openai";
+import crypto from "crypto";
 
 const NUTRITION_SYSTEM_PROMPT = `You are a nutrition estimation assistant. Given a food description, estimate the nutritional content.
 
@@ -294,5 +295,103 @@ export async function extractNutritionFromLabelImage(
       data: null,
       error: "Failed to extract nutrition from label. Please enter values manually.",
     };
+  }
+}
+
+// ------------------------------------------------------------------
+// RAG & Semantic Search Utilities
+// ------------------------------------------------------------------
+
+/**
+ * Generates a 1536-dimensional embedding map for any text using text-embedding-3-small
+ */
+export async function generateEmbedding(text: string): Promise<{ embedding: number[] | null; error: string | null }> {
+  const openai = getOpenAIClient();
+  if (!openai) {
+    return { embedding: null, error: "OpenAI API key not configured." };
+  }
+
+  try {
+    const response = await openai.embeddings.create({
+      model: "text-embedding-3-small",
+      input: text,
+      encoding_format: "float",
+    });
+
+    const embedding = response.data[0]?.embedding;
+    if (!embedding) return { embedding: null, error: "No embedding returned" };
+
+    return { embedding, error: null };
+  } catch (err) {
+    console.error("Embedding generation error:", err);
+    return { embedding: null, error: "Failed to generate embedding" };
+  }
+}
+
+/**
+ * Securely hashes a string to avoid repeating expensive OpenAI embedding calls
+ */
+export function hashContent(content: string): string {
+  return crypto.createHash("sha256").update(content).digest("hex");
+}
+
+const RAG_SYNTHESIS_PROMPT = `You are a precision knowledge retrieval assistant. Your job is to answer the user's question using ONLY the provided context nodes.
+
+Strict Constraints:
+1. ONLY use information present in the Context given. Do NOT hallucinate or invent facts.
+2. If the Context contains the answer (even if it is just a mathematical formula, code snippet, or a terse technical note), provide it and explain it simply if you can.
+3. Only if the Context is completely irrelevant to the question should you explicitly say: "I couldn't find information about this in your graph."
+4. Cite your sources clearly by mentioning the node title (e.g., "According to [Node Title]...").
+5. Be concise, direct, and helpful. Format your answer in markdown for readability.`;
+
+/**
+ * Synthesizes a natural language answer based exclusively on retrieved nodes.
+ */
+export async function synthesizeRagResponse(
+  query: string,
+  contextNodes: any[]
+): Promise<{ text: string | null; error: string | null }> {
+  const openai = getOpenAIClient();
+  if (!openai) {
+    return { text: null, error: "OpenAI API key not configured." };
+  }
+
+  if (contextNodes.length === 0) {
+    return { text: "I couldn't find any relevant information in your knowledge graph.", error: null };
+  }
+
+  // Build the strict structured context block from the nodes
+  const contextString = contextNodes
+    .map(
+      (n, i) =>
+        `--- Node ${i + 1} ---\nTitle: ${n.title}\nType: ${n.node_type}\nPath: Parent(${n.parent_id || 'Root'}) -> Root(${n.root_id})\nDescription: ${n.description || "None"}\nKey Facts:\n${Array.isArray(n.key_facts) ? n.key_facts.slice(0, 10).map((f: any) => "- " + f).join("\n") : "None"
+        }\nUser Facts:\n${Array.isArray(n.user_facts) ? n.user_facts.slice(0, 10).map((f: any) => "- " + f).join("\n") : "None"
+        }\nEvidence: ${n.ai_evidence ? n.ai_evidence.substring(0, 500) + '...' : "None"}`
+    )
+    .join("\n\n");
+
+  try {
+    const response = await openai.chat.completions.create({
+      model: "gpt-4o",
+      messages: [
+        { role: "system", content: RAG_SYNTHESIS_PROMPT },
+        {
+          role: "user",
+          content: `Question: ${query}\n\n=== CONTEXT NODES ===\n${contextString}`,
+        },
+      ],
+      temperature: 0.1, // Keep it highly deterministic and grounded
+      max_tokens: 1000,
+    });
+
+    const text = response.choices[0]?.message?.content;
+    if (!text) {
+      return { text: null, error: "Failed to generate a synthesis." };
+    }
+
+    return { text, error: null };
+  } catch (err) {
+    console.error("RAG Synthesis error:", err);
+    return { text: null, error: "Failed to synthesize an answer." };
   }
 }

@@ -255,6 +255,8 @@ export type KnowledgeNode = {
   source_ref?: string | null;
   ai_evidence?: string | null;
   is_collapsed: boolean;
+  embedding?: string | null;
+  embedding_content_hash?: string | null;
   updated_at: string;
   created_at: string;
 };
