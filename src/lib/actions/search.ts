@@ -47,10 +47,10 @@ export async function performRagSearch(query: string): Promise<RagSearchResult> 
                 id: match.id,
                 title: match.title,
                 description: match.description,
-                key_facts: match.key_facts as any,
-                user_facts: match.user_facts as any,
+                key_facts: match.key_facts as string[],
+                user_facts: match.user_facts as string[],
                 ai_evidence: match.ai_evidence,
-                node_type: match.node_type as any,
+                node_type: match.node_type as KnowledgeNode["node_type"],
                 parent_id: match.parent_id,
                 root_id: match.root_id
             });

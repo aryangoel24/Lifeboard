@@ -39,9 +39,9 @@ Type: ${node.node_type}
 Path: Parent(${node.parent_id || 'Root'}) -> Root(${node.root_id})
 Description: ${node.description || "None"}
 Key Facts:
-${Array.isArray(node.key_facts) ? node.key_facts.slice(0, 10).map((f: any) => "- " + f).join("\n") : "None"}
+${Array.isArray(node.key_facts) ? node.key_facts.slice(0, 10).map((f: unknown) => "- " + String(f)).join("\n") : "None"}
 User Facts:
-${Array.isArray(node.user_facts) ? node.user_facts.slice(0, 10).map((f: any) => "- " + f).join("\n") : "None"}
+${Array.isArray(node.user_facts) ? node.user_facts.slice(0, 10).map((f: unknown) => "- " + String(f)).join("\n") : "None"}
 Evidence: ${node.ai_evidence ? node.ai_evidence.substring(0, 500) + '...' : "None"}`;
 
   const currentHash = hashContent(payloadString);
@@ -61,6 +61,7 @@ Evidence: ${node.ai_evidence ? node.ai_evidence.substring(0, 500) + '...' : "Non
   await supabase
     .from("knowledge_nodes")
     .update({
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       embedding: embedding as any,
       embedding_content_hash: currentHash
     })

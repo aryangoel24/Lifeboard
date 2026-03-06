@@ -1,5 +1,6 @@
 import OpenAI from "openai";
 import crypto from "crypto";
+import type { KnowledgeNode } from "@/types/database";
 
 const NUTRITION_SYSTEM_PROMPT = `You are a nutrition estimation assistant. Given a food description, estimate the nutritional content.
 
@@ -349,7 +350,7 @@ Strict Constraints:
  */
 export async function synthesizeRagResponse(
   query: string,
-  contextNodes: any[]
+  contextNodes: Partial<KnowledgeNode>[]
 ): Promise<{ text: string | null; error: string | null }> {
   const openai = getOpenAIClient();
   if (!openai) {
@@ -364,8 +365,8 @@ export async function synthesizeRagResponse(
   const contextString = contextNodes
     .map(
       (n, i) =>
-        `--- Node ${i + 1} ---\nTitle: ${n.title}\nType: ${n.node_type}\nPath: Parent(${n.parent_id || 'Root'}) -> Root(${n.root_id})\nDescription: ${n.description || "None"}\nKey Facts:\n${Array.isArray(n.key_facts) ? n.key_facts.slice(0, 10).map((f: any) => "- " + f).join("\n") : "None"
-        }\nUser Facts:\n${Array.isArray(n.user_facts) ? n.user_facts.slice(0, 10).map((f: any) => "- " + f).join("\n") : "None"
+        `--- Node ${i + 1} ---\nTitle: ${n.title}\nType: ${n.node_type}\nPath: Parent(${n.parent_id || 'Root'}) -> Root(${n.root_id})\nDescription: ${n.description || "None"}\nKey Facts:\n${Array.isArray(n.key_facts) ? n.key_facts.slice(0, 10).map((f: unknown) => "- " + String(f)).join("\n") : "None"
+        }\nUser Facts:\n${Array.isArray(n.user_facts) ? n.user_facts.slice(0, 10).map((f: unknown) => "- " + String(f)).join("\n") : "None"
         }\nEvidence: ${n.ai_evidence ? n.ai_evidence.substring(0, 500) + '...' : "None"}`
     )
     .join("\n\n");
