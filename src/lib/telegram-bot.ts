@@ -4,16 +4,30 @@ import { getDayRange } from "@/lib/utils";
 import type { Recipe } from "@/types/database";
 
 export interface PendingSessionData {
-  name: string;
-  calories: number;
-  protein: number;
-  carbs: number;
-  fat: number;
-  meal_category: "breakfast" | "lunch" | "dinner" | "snack";
-  photo_path?: string;
+  // Common
   original_text?: string;
-  source?: "recipe" | "ai";
+  source?: "recipe" | "ai" | "expense" | "pantry";
+
+  // Specific to Food
+  name?: string;
+  calories?: number;
+  protein?: number;
+  carbs?: number;
+  fat?: number;
+  meal_category?: "breakfast" | "lunch" | "dinner" | "snack";
+  photo_path?: string;
   recipe_id?: string;
+
+  // Specific to Expense
+  amount?: number;
+  merchant?: string;
+  expense_category?: string;
+  description?: string;
+
+  // Specific to Pantry
+  pantry_name?: string;
+  pantry_category?: string;
+  assumed_size?: string;
 }
 
 export interface TodaySummary {

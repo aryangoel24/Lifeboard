@@ -396,3 +396,108 @@ export async function synthesizeRagResponse(
     return { text: null, error: "Failed to synthesize an answer." };
   }
 }
+
+export interface TelegramIntentAnalysis {
+  intent: "food" | "expense" | "pantry" | "knowledge" | "unknown";
+  data?: {
+    // For expense
+    amount?: number;
+    merchant?: string;
+    expense_category?: string; // e.g. "groceries", "dining", "entertainment"
+    description?: string;
+    // For pantry
+    pantry_name?: string;
+    pantry_category?: string; // e.g. "produce", "dairy", "pantry"
+    assumed_size?: string;
+    // For knowledge
+    url?: string;
+  };
+}
+
+const TELEGRAM_ROUTER_PROMPT = `You are a smart triage assistant for a personal Lifeboard application.
+The user will send you a short text message, often typed quickly on the go.
+Your job is to determine the intent and extract relevant structured data.
+
+Valid intents:
+1. "food": The user is describing something they just ate or a meal (e.g., "I just had a slice of pizza", "2 eggs and toast").
+2. "expense": The user is logging a purchase or money spent (e.g., "Spent $15 at Starbucks", "Bought groceries for 40.50").
+3. "pantry": The user is noting an item they ran out of or need to buy (e.g., "We are out of milk", "Add eggs to the shopping list").
+4. "knowledge": The user is saving an article, thought, or extraction, usually comprising a URL or a long informative note (e.g., "Read this: https://example.com/ai-article").
+5. "unknown": If it's just a greeting, a random string, or something completely unrelated to the above categories.
+
+Output strictly in JSON format.
+Example Expense:
+{
+  "intent": "expense",
+  "data": {
+    "amount": 15.00,
+    "merchant": "Starbucks",
+    "expense_category": "dining",
+    "description": "Morning coffee"
+  }
+}
+
+Example Pantry:
+{
+  "intent": "pantry",
+  "data": {
+    "pantry_name": "Milk",
+    "pantry_category": "dairy",
+    "assumed_size": "1 gallon"
+  }
+}
+
+Example Knowledge:
+{
+  "intent": "knowledge",
+  "data": {
+    "url": "https://example.com/article"
+  }
+}
+
+Example Food:
+{
+  "intent": "food"
+}
+`;
+
+export async function analyzeTelegramIntent(
+  text: string
+): Promise<{ result: TelegramIntentAnalysis | null; error: string | null }> {
+  const openai = getOpenAIClient();
+  if (!openai) {
+    return { result: null, error: "OpenAI API key not configured." };
+  }
+
+  // Fast-path: if text strictly contains ONLY a URL, assume knowledge
+  const urlRegex = /^(https?:\/\/[^\s]+)$/i;
+  if (urlRegex.test(text.trim())) {
+    return {
+      result: { intent: "knowledge", data: { url: text.trim() } },
+      error: null,
+    };
+  }
+
+  try {
+    const response = await openai.chat.completions.create({
+      model: "gpt-4o",
+      response_format: { type: "json_object" },
+      messages: [
+        { role: "system", content: TELEGRAM_ROUTER_PROMPT },
+        { role: "user", content: text },
+      ],
+      temperature: 0.2, // Low temp for reliable classification
+    });
+
+    const content = response.choices[0]?.message?.content;
+    if (!content) {
+      return { result: null, error: "Failed to parse intent." };
+    }
+
+    const parsed = JSON.parse(content) as TelegramIntentAnalysis;
+    return { result: parsed, error: null };
+  } catch (err) {
+    console.error("Error parsing Telegram intent:", err);
+    return { result: null, error: "Failed to analyze message content." };
+  }
+}

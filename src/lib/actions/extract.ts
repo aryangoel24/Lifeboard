@@ -730,3 +730,69 @@ export async function applyExtraction(
 
   revalidatePath("/learn/hub");
 }
+
+export async function directIngestKnowledgeToInbox(payload: ExtractionSourcePayload) {
+  const supabase = createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return { error: "Unauthorized" };
+
+  // 1. Fetch Inbox Node ID
+  const inboxNodeId = await getOrCreateInboxNode(user.id, supabase);
+
+  // 2. Perform raw extraction
+  const extractRes = await extractKnowledgeFromSource(payload);
+  if ("error" in extractRes) {
+    return extractRes; // pass error bubble up
+  }
+
+  const { result } = extractRes;
+
+  // 3. Map the raw extraction blocks into "Approved" formats (auto-approving everything)
+  const approvedNodes: ApprovedExtractionNode[] = [];
+
+  // Recursively flatten the extraction hierarchy
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  function flattenNodes(node: any, parentTempId: string | null = null) {
+    approvedNodes.push({
+      temp_id: node.proposed_id,
+      title: node.title,
+      nodeType: node.nodeType,
+      parentTempId: parentTempId,
+      evidence: node.evidence || "",
+      facts: node.facts || []
+    });
+    if (node.children) {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      for (const child of node.children as any[]) {
+        flattenNodes(child, node.proposed_id);
+      }
+    }
+  }
+
+  for (const root of result.roots) {
+    flattenNodes(root, null);
+  }
+
+  // Generate unique routing instructions:
+  // Any node that had no parent in the extraction (a root) should be routed as a child of INBOX.
+  const rootRouting: RootRouting = {};
+  for (const node of approvedNodes) {
+    if (!node.parentTempId) {
+      rootRouting[node.temp_id] = { mode: "child", targetNodeId: inboxNodeId };
+    }
+  }
+
+  // 4. Submit to the universal apply handler
+  const sourceRef = payload.kind === "text" ? "manual_text" :
+    payload.kind === "url" ? payload.url :
+      "upload";
+
+  const applyRes = await applyExtraction(
+    sourceRef,    // extractionId/SourceRef
+    approvedNodes,
+    [],           // no matches for direct inbox ingestion
+    rootRouting
+  );
+
+  return applyRes;
+}

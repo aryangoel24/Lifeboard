@@ -19,6 +19,7 @@ import {
 import {
   estimateNutritionFromDescription,
   estimateNutritionFromPhoto,
+  analyzeTelegramIntent,
 } from "@/lib/ai-utils";
 import { uploadBase64Photo } from "@/lib/storage-utils";
 import { getDefaultMealCategory } from "@/lib/utils";
@@ -139,6 +140,111 @@ async function handleTextMessage(chatId: string, text: string): Promise<void> {
     return;
   }
 
+  // 1. Ask the LLM to classify intent
+  const { result: intentResponse, error: intentError } = await analyzeTelegramIntent(text);
+  if (intentError || !intentResponse) {
+    await sendMessage(chatId, "❌ Failed to understand your message. Please try again.");
+    return;
+  }
+
+  const { intent, data } = intentResponse;
+
+  // --- KNOWLEDGE INTENT ---
+  if (intent === "knowledge") {
+    const isUrl = !!data?.url;
+    const processingMsg = isUrl ? `🧠 Extracting into Knowledge Hub...\nAnalyzing: ${data.url}` : `🧠 Saving thought to Knowledge Hub...`;
+
+    await sendMessage(chatId, processingMsg);
+
+    // Import dynamically to avoid top-level circular issues if any exist
+    const { directIngestKnowledgeToInbox } = await import("@/lib/actions/extract");
+
+    const ingestPayload = isUrl
+      ? { kind: "url" as const, url: data.url! }
+      : { kind: "text" as const, text };
+
+    const ingestRes = await directIngestKnowledgeToInbox(ingestPayload);
+
+    if (ingestRes && "error" in ingestRes) {
+      await sendMessage(chatId, `❌ Failed to save knowledge: ${ingestRes.error}`);
+    } else {
+      await sendMessage(chatId, `✅ Successfully saved to your Knowledge Inbox!`);
+    }
+    return;
+  }
+
+  // --- EXPENSE INTENT ---
+  if (intent === "expense") {
+    const amount = data?.amount || 0;
+    const merchant = data?.merchant || "Unknown Merchant";
+
+    const sessionId = await savePendingSession(user.id, chatId, {
+      source: "expense",
+      amount,
+      merchant,
+      expense_category: data?.expense_category || "other",
+      description: data?.description || text,
+      // satisfy required types with dummy data since it's an expense source
+      name: "", calories: 0, protein: 0, carbs: 0, fat: 0, meal_category: "snack"
+    });
+
+    if (!sessionId) {
+      await sendMessage(chatId, "❌ Something went wrong preserving the session.");
+      return;
+    }
+
+    await sendMessage(
+      chatId,
+      `💸 <b>Log Expense</b>\n\nAmount: $${amount.toFixed(2)}\nMerchant: ${merchant}\nCategory: ${data?.expense_category || "other"}`,
+      {
+        parse_mode: "HTML",
+        reply_markup: buildInlineKeyboard([
+          [
+            { text: "✅ Log Expense", callback_data: `log_expense:${sessionId}` },
+            { text: "❌ Cancel", callback_data: `cancel:${sessionId}` },
+          ],
+        ]),
+      }
+    );
+    return;
+  }
+
+  // --- PANTRY INTENT ---
+  if (intent === "pantry") {
+    const itemName = data?.pantry_name || "Unknown Item";
+
+    const sessionId = await savePendingSession(user.id, chatId, {
+      source: "pantry",
+      pantry_name: itemName,
+      pantry_category: data?.pantry_category || "other",
+      assumed_size: data?.assumed_size || "1 unit",
+      // satisfy dummy data
+      name: "", calories: 0, protein: 0, carbs: 0, fat: 0, meal_category: "snack"
+    });
+
+    if (!sessionId) {
+      await sendMessage(chatId, "❌ Something went wrong preserving the session.");
+      return;
+    }
+
+    await sendMessage(
+      chatId,
+      `🛒 <b>Add to Pantry</b>\n\nItem: ${itemName}\nCategory: ${data?.pantry_category || "other"}\nSize: ${data?.assumed_size || "1 unit"}`,
+      {
+        parse_mode: "HTML",
+        reply_markup: buildInlineKeyboard([
+          [
+            { text: "✅ Add to Pantry", callback_data: `log_pantry:${sessionId}` },
+            { text: "❌ Cancel", callback_data: `cancel:${sessionId}` },
+          ],
+        ]),
+      }
+    );
+    return;
+  }
+
+  // --- FOOD INTENT (Fallback to existing logic) ---
+
   // Check recipe match
   const recipes = await fetchUserRecipes(user.id);
   const matchedRecipe = findRecipeMatch(recipes, text);
@@ -160,7 +266,6 @@ async function handleTextMessage(chatId: string, text: string): Promise<void> {
       protein: perServing.protein,
       carbs: perServing.carbs,
       fat: perServing.fat,
-      // Use server UTC time: no user session/cookie available in bot context
       meal_category: getDefaultMealCategory(new Date().getHours()),
       original_text: text,
     });
@@ -177,7 +282,7 @@ async function handleTextMessage(chatId: string, text: string): Promise<void> {
         parse_mode: "HTML",
         reply_markup: buildInlineKeyboard([
           [
-            { text: "✅ Yes, log recipe", callback_data: `log:${sessionId}` },
+            { text: "✅ Yes, log recipe", callback_data: `log_food:${sessionId}` },
             { text: "🤖 No, estimate instead", callback_data: `no_recipe:${sessionId}` },
             { text: "❌ Cancel", callback_data: `cancel:${sessionId}` },
           ],
@@ -217,7 +322,7 @@ async function handleTextMessage(chatId: string, text: string): Promise<void> {
       parse_mode: "HTML",
       reply_markup: buildInlineKeyboard([
         [
-          { text: "✅ Log it", callback_data: `log:${sessionId}` },
+          { text: "✅ Log it", callback_data: `log_food:${sessionId}` },
           { text: "❌ Cancel", callback_data: `cancel:${sessionId}` },
         ],
       ]),
@@ -289,7 +394,7 @@ async function handlePhotoMessage(chatId: string, photos: TelegramPhotoSize[]): 
       parse_mode: "HTML",
       reply_markup: buildInlineKeyboard([
         [
-          { text: "✅ Log it", callback_data: `log:${sessionId}` },
+          { text: "✅ Log it", callback_data: `log_food:${sessionId}` },
           { text: "❌ Cancel", callback_data: `cancel:${sessionId}` },
         ],
       ]),
@@ -310,8 +415,8 @@ async function handleCallbackQuery(callbackQuery: TelegramCallbackQuery): Promis
   const callbackData = callbackQuery.data ?? "";
   const chatId = String(callbackQuery.message?.chat.id ?? callbackQuery.from.id);
 
-  if (callbackData.startsWith("log:")) {
-    const sessionId = callbackData.slice(4);
+  if (callbackData.startsWith("log_food:")) {
+    const sessionId = callbackData.slice(9);
     const session = await getPendingSession(sessionId);
     if (!session) {
       await answerCallbackQuery(callbackQuery.id, "Session expired.");
@@ -343,6 +448,80 @@ async function handleCallbackQuery(callbackQuery: TelegramCallbackQuery): Promis
     await sendMessage(
       chatId,
       `✅ Logged <b>${name}</b>\n📊 ${calories} cal  |  ${protein}g protein  |  ${carbs}g carbs  |  ${fat}g fat`,
+      { parse_mode: "HTML" }
+    );
+    return;
+  }
+
+  if (callbackData.startsWith("log_expense:")) {
+    const sessionId = callbackData.slice(12);
+    const session = await getPendingSession(sessionId);
+    if (!session) {
+      await answerCallbackQuery(callbackQuery.id, "Session expired.");
+      return;
+    }
+
+    const { amount, merchant, expense_category, description } = session.data;
+    const supabase = createAdminClient();
+    const { error } = await supabase.from("expense_entries").insert({
+      user_id: session.user_id,
+      amount: amount || 0,
+      merchant_name: merchant || null,
+      category: expense_category || "other",
+      description: description || null,
+      expense_date: new Date().toISOString().slice(0, 10),
+      source: "manual",
+    });
+
+    if (error) {
+      await answerCallbackQuery(callbackQuery.id, "Failed to log expense.");
+      await sendMessage(chatId, "❌ Failed to log expense. Please try again.");
+      return;
+    }
+
+    await deletePendingSession(sessionId);
+    await answerCallbackQuery(callbackQuery.id, "✅ Expense Logged!");
+    await sendMessage(
+      chatId,
+      `✅ Logged Expense\n💸 $${amount?.toFixed(2)} at ${merchant}`,
+      { parse_mode: "HTML" }
+    );
+    return;
+  }
+
+  if (callbackData.startsWith("log_pantry:")) {
+    const sessionId = callbackData.slice(11);
+    const session = await getPendingSession(sessionId);
+    if (!session) {
+      await answerCallbackQuery(callbackQuery.id, "Session expired.");
+      return;
+    }
+
+    const { pantry_name, pantry_category, assumed_size } = session.data;
+    const supabase = createAdminClient();
+    const { error } = await supabase.from("pantry_items").insert({
+      user_id: session.user_id,
+      name: pantry_name || "Unknown Item",
+      category: pantry_category || "pantry",
+      base_amount: 1, // AI estimation isn't strict here, just drop it in
+      base_unit: assumed_size || "unit",
+      calories_per_base: 0,
+      protein_per_base: 0,
+      carbs_per_base: 0,
+      fat_per_base: 0,
+    });
+
+    if (error) {
+      await answerCallbackQuery(callbackQuery.id, "Failed to add to pantry.");
+      await sendMessage(chatId, "❌ Failed to add to pantry. Please try again.");
+      return;
+    }
+
+    await deletePendingSession(sessionId);
+    await answerCallbackQuery(callbackQuery.id, "✅ Added to Pantry!");
+    await sendMessage(
+      chatId,
+      `✅ Added <b>${pantry_name}</b> to your Pantry.`,
       { parse_mode: "HTML" }
     );
     return;
@@ -394,7 +573,7 @@ async function handleCallbackQuery(callbackQuery: TelegramCallbackQuery): Promis
         parse_mode: "HTML",
         reply_markup: buildInlineKeyboard([
           [
-            { text: "✅ Log it", callback_data: `log:${newSessionId}` },
+            { text: "✅ Log it", callback_data: `log_food:${newSessionId}` },
             { text: "❌ Cancel", callback_data: `cancel:${newSessionId}` },
           ],
         ]),
