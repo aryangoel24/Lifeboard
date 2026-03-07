@@ -163,7 +163,7 @@ async function handleTextMessage(chatId: string, text: string): Promise<void> {
       ? { kind: "url" as const, url: data.url! }
       : { kind: "text" as const, text };
 
-    const ingestRes = await directIngestKnowledgeToInbox(ingestPayload);
+    const ingestRes = await directIngestKnowledgeToInbox(ingestPayload, user.id);
 
     if (ingestRes && "error" in ingestRes) {
       await sendMessage(chatId, `❌ Failed to save knowledge: ${ingestRes.error}`);
