@@ -2,6 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
+import { createAdminClient } from "@/lib/supabase/admin";
 import { generateKnowledgeExtraction } from "@/lib/knowledge-utils";
 import { getOrCreateInboxNode, syncNodeEmbedding } from "@/lib/actions/knowledge";
 import type { ExtractionResult, NodeType } from "@/types/database";
@@ -32,7 +33,8 @@ export type ExtractionSourcePayload =
 const USER_AGENT = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36";
 
 export async function extractKnowledgeFromSource(
-  payload: ExtractionSourcePayload
+  payload: ExtractionSourcePayload,
+  overrideUserId?: string
 ): Promise<
   | {
     result: ExtractionResult;
@@ -41,10 +43,18 @@ export async function extractKnowledgeFromSource(
   }
   | { error: string }
 > {
-  const supabase = createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  let supabase: ReturnType<typeof createClient>;
+  let user: { id: string } | null = null;
+
+  if (overrideUserId) {
+    supabase = createAdminClient();
+    user = { id: overrideUserId };
+  } else {
+    supabase = createClient();
+    const authRet = await supabase.auth.getUser();
+    user = authRet.data.user;
+  }
+
   if (!user) return { error: "Unauthorized" };
 
   let textToExtract = "";
@@ -286,12 +296,21 @@ export async function applyExtraction(
   extractionId: string,
   approvedNodes: ApprovedExtractionNode[],
   approvedMatches: ApprovedMatch[],
-  rootRouting?: RootRouting
+  rootRouting?: RootRouting,
+  overrideUserId?: string
 ): Promise<void | { error: string }> {
-  const supabase = createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  let supabase: ReturnType<typeof createClient>;
+  let user: { id: string } | null = null;
+
+  if (overrideUserId) {
+    supabase = createAdminClient();
+    user = { id: overrideUserId };
+  } else {
+    supabase = createClient();
+    const authRet = await supabase.auth.getUser();
+    user = authRet.data.user;
+  }
+
   if (!user) return { error: "Unauthorized" };
 
   // Separate by level
@@ -731,16 +750,26 @@ export async function applyExtraction(
   revalidatePath("/learn/hub");
 }
 
-export async function directIngestKnowledgeToInbox(payload: ExtractionSourcePayload) {
-  const supabase = createClient();
-  const { data: { user } } = await supabase.auth.getUser();
+export async function directIngestKnowledgeToInbox(payload: ExtractionSourcePayload, overrideUserId?: string) {
+  let supabase: ReturnType<typeof createClient>;
+  let user: { id: string } | null = null;
+
+  if (overrideUserId) {
+    supabase = createAdminClient();
+    user = { id: overrideUserId };
+  } else {
+    supabase = createClient();
+    const authRet = await supabase.auth.getUser();
+    user = authRet.data.user;
+  }
+
   if (!user) return { error: "Unauthorized" };
 
   // 1. Fetch Inbox Node ID
   const inboxNodeId = await getOrCreateInboxNode(user.id, supabase);
 
   // 2. Perform raw extraction
-  const extractRes = await extractKnowledgeFromSource(payload);
+  const extractRes = await extractKnowledgeFromSource(payload, user.id);
   if ("error" in extractRes) {
     return extractRes; // pass error bubble up
   }
@@ -791,7 +820,8 @@ export async function directIngestKnowledgeToInbox(payload: ExtractionSourcePayl
     sourceRef,    // extractionId/SourceRef
     approvedNodes,
     [],           // no matches for direct inbox ingestion
-    rootRouting
+    rootRouting,
+    user.id       // propagate auth override
   );
 
   return applyRes;
