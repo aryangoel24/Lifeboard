@@ -967,11 +967,6 @@ function KnowledgeGraphInner({ initialNodes, initialLinks }: KnowledgeGraphInner
     setTimeout(() => fitView({ duration: 500 }), 50);
   }
 
-  function handleDescriptionChange(nodeId: string, description: string | null) {
-    setKnowledgeNodes((prev) =>
-      prev.map((n) => (n.id === nodeId ? { ...n, description } : n))
-    );
-  }
 
   const selectedNode = knowledgeNodes.find((n) => n.id === selectedNodeId) ?? null;
   const expandNode = knowledgeNodes.find((n) => n.id === expandNodeId) ?? null;
@@ -1506,7 +1501,6 @@ function KnowledgeGraphInner({ initialNodes, initialLinks }: KnowledgeGraphInner
         onChildAdded={handleSubtopicsAdded}
         onTitleChange={handleRename}
         onNodeMoved={handleNodeMoved}
-        onDescriptionChange={handleDescriptionChange}
       />
 
       {/* Add root dialog */}

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useCallback, useRef, useMemo } from "react";
+import { useEffect, useState, useRef, useMemo } from "react";
 import {
   saveUserNotes,
   saveResources,
@@ -47,7 +47,6 @@ import {
   Zap,
   FolderOpen,
   HelpCircle,
-  Check,
   Home,
   Move,
   ArrowUpRight,
@@ -74,7 +73,6 @@ interface NodeDetailPanelProps {
   onChildAdded?: (newNodes: KnowledgeNode[]) => void;
   onTitleChange?: (nodeId: string, newTitle: string) => Promise<void>;
   onNodeMoved?: (nodes: KnowledgeNode[]) => void;
-  onDescriptionChange?: (nodeId: string, description: string | null) => void;
 }
 
 const NODE_TYPE_OPTIONS: { type: NodeType; label: string; icon: LucideIcon | null }[] = [
@@ -186,7 +184,6 @@ export function NodeDetailPanel({
   onChildAdded,
   onTitleChange,
   onNodeMoved,
-  onDescriptionChange,
 }: NodeDetailPanelProps) {
   // User content state
   const [localNotes, setLocalNotes] = useState<string>(node?.user_notes ?? "");
