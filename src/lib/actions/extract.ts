@@ -785,7 +785,7 @@ export async function directIngestKnowledgeToInbox(payload: ExtractionSourcePayl
     approvedNodes.push({
       temp_id: node.proposed_id,
       title: node.title,
-      nodeType: node.nodeType,
+      nodeType: node.node_type || node.nodeType || "insight",
       parentTempId: parentTempId,
       evidence: node.evidence || "",
       facts: node.facts || []
