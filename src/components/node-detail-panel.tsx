@@ -2,7 +2,6 @@
 
 import { useEffect, useState, useCallback, useRef, useMemo } from "react";
 import {
-  getNodeDetail,
   saveUserNotes,
   saveResources,
   saveUserFacts,
@@ -11,16 +10,12 @@ import {
   addKnowledgeLink,
   deleteKnowledgeLink,
   addChildNodes,
-  findGaps,
   moveNode,
-  saveDescription,
   promoteFactToNode,
 } from "@/lib/actions/knowledge";
-import type { GapAnalysis } from "@/lib/knowledge-utils";
 import type { KnowledgeNode, KnowledgeLink, NodeResource, NodeType, MasteryStatus } from "@/types/database";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { Input } from "@/components/ui/input";
@@ -53,8 +48,6 @@ import {
   FolderOpen,
   HelpCircle,
   Check,
-  ScanSearch,
-  Edit2,
   Home,
   Move,
   ArrowUpRight,
@@ -82,11 +75,6 @@ interface NodeDetailPanelProps {
   onTitleChange?: (nodeId: string, newTitle: string) => Promise<void>;
   onNodeMoved?: (nodes: KnowledgeNode[]) => void;
   onDescriptionChange?: (nodeId: string, description: string | null) => void;
-}
-
-interface DetailState {
-  summary: string;
-  key_facts: string[];
 }
 
 const NODE_TYPE_OPTIONS: { type: NodeType; label: string; icon: LucideIcon | null }[] = [
@@ -200,10 +188,6 @@ export function NodeDetailPanel({
   onNodeMoved,
   onDescriptionChange,
 }: NodeDetailPanelProps) {
-  const [detail, setDetail] = useState<DetailState | null>(null);
-  const [isGenerating, setIsGenerating] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
   // User content state
   const [localNotes, setLocalNotes] = useState<string>(node?.user_notes ?? "");
   const [localResources, setLocalResources] = useState<NodeResource[]>(node?.resources ?? []);
@@ -236,11 +220,6 @@ export function NodeDetailPanel({
   const [childInput, setChildInput] = useState("");
   const [addingChild, setAddingChild] = useState(false);
 
-  // Find Gaps state
-  const [gapResult, setGapResult] = useState<GapAnalysis | null>(null);
-  const [gapLoading, setGapLoading] = useState(false);
-  const [addedGapItems, setAddedGapItems] = useState<Set<string>>(new Set());
-
   // Rename state
   const [isEditingTitle, setIsEditingTitle] = useState(false);
   const [editingTitle, setEditingTitle] = useState("");
@@ -259,53 +238,6 @@ export function NodeDetailPanel({
   const [addingBatch, setAddingBatch] = useState(false);
   const [showBatchInput, setShowBatchInput] = useState(false);
 
-  // Description edit state
-  const [isEditingDescription, setIsEditingDescription] = useState(false);
-  const [editDescription, setEditDescription] = useState("");
-  const [descriptionSaving, setDescriptionSaving] = useState(false);
-
-  useEffect(() => {
-    setEditDescription(detail?.summary ?? "");
-  }, [detail]);
-
-  const fetchDetail = useCallback(
-    async (nodeId: string) => {
-      setDetail(null);
-      setError(null);
-      setIsGenerating(false);
-
-      const result = await getNodeDetail(nodeId);
-
-      if ("error" in result) {
-        setError(result.error);
-        return;
-      }
-
-      if ("generating" in result) {
-        setIsGenerating(true);
-        return;
-      }
-
-      setDetail(result);
-      setIsGenerating(false);
-    },
-    []
-  );
-
-  // Poll when generating
-  useEffect(() => {
-    if (!isGenerating || !node) return;
-    const timer = setTimeout(() => fetchDetail(node.id), 2000);
-    return () => clearTimeout(timer);
-  }, [isGenerating, node, fetchDetail]);
-
-  // Fetch on node change
-  useEffect(() => {
-    if (!node) return;
-    fetchDetail(node.id);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [node?.id, fetchDetail]);
-
   // Reset local state when selected node changes
   useEffect(() => {
     if (!node) return;
@@ -319,16 +251,12 @@ export function NodeDetailPanel({
     setLocalNodeType(node.node_type ?? 'topic');
     setShowChildInput(false);
     setChildInput("");
-    setGapResult(null);
-    setGapLoading(false);
-    setAddedGapItems(new Set());
     setIsEditingTitle(false);
     setEditingTitle(node?.title ?? "");
     setMovePickerOpen(false);
     setMoveSaving(false);
     setShowSiblingInput(false);
     setSiblingInput("");
-    setIsEditingDescription(false);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [node?.id]);
 
@@ -597,70 +525,6 @@ export function NodeDetailPanel({
     );
   }
 
-  async function handleSaveDescription() {
-    if (!node) return;
-    const trimmed = editDescription.trim();
-    const value = trimmed === "" ? null : trimmed;
-    setDescriptionSaving(true);
-    const result = await saveDescription(node.id, value);
-    setDescriptionSaving(false);
-    if ("error" in result) {
-      toast.error(result.error);
-      return;
-    }
-    setDetail(value ? { summary: value, key_facts: detail?.key_facts ?? [] } : null);
-    setIsEditingDescription(false);
-    onDescriptionChange?.(node.id, result.description);
-    toast.success("Description saved");
-  }
-
-  function dedupeAndCap(items: string[], max: number): string[] {
-    const seen = new Set<string>();
-    return items
-      .map((s) => s.trim().replace(/\s+/g, " "))
-      .filter((s) => {
-        const k = s.toLowerCase();
-        if (seen.has(k)) return false;
-        seen.add(k);
-        return true;
-      })
-      .slice(0, max);
-  }
-
-  function normalizeGapItem(s: string) {
-    return s.trim().replace(/\s+/g, " ").toLowerCase();
-  }
-
-  async function handleFindGaps() {
-    if (!node) return;
-    setGapLoading(true);
-    setGapResult(null);
-    const result = await findGaps(node.id);
-    setGapLoading(false);
-    if ("error" in result) {
-      toast.error(result.error);
-      return;
-    }
-    setGapResult({
-      foundational: dedupeAndCap(result.foundational, 4),
-      advanced: dedupeAndCap(result.advanced, 3),
-      learning_path: dedupeAndCap(result.learning_path, 5),
-    });
-  }
-
-  async function handleAddGapItem(item: string) {
-    if (!node) return;
-    const key = normalizeGapItem(item);
-    if (addedGapItems.has(key)) return;
-    const result = await addChildNodes(node.id, [item], false);
-    if ("error" in result) {
-      toast.error(result.error);
-      return;
-    }
-    setAddedGapItems((prev) => new Set(Array.from(prev).concat(key)));
-    onChildAdded?.(result.nodes);
-  }
-
   // These useMemo hooks must come before the early return to satisfy Rules of Hooks
   const descendantIds = useMemo(
     () => node ? getDescendantIds(node.id, allNodes) : new Set<string>(),
@@ -676,8 +540,6 @@ export function NodeDetailPanel({
   const breadcrumb = buildBreadcrumb(node, nodes);
 
   if (!node) return null;
-
-  const childCount = nodes.filter((n) => n.parent_id === node.id).length;
 
   // Compute IDs already linked to this node
   const linkedNodeIds = new Set(
@@ -759,9 +621,6 @@ export function NodeDetailPanel({
         <TabsList className="w-full shrink-0 rounded-none border-b bg-transparent px-2 h-10 gap-0">
           <TabsTrigger value="my" className="flex-1 text-xs gap-1.5">
             <BookOpen className="h-3 w-3" /> My Learning
-          </TabsTrigger>
-          <TabsTrigger value="ai" className="flex-1 text-xs gap-1.5">
-            <Sparkles className="h-3 w-3" /> AI Insights
           </TabsTrigger>
         </TabsList>
 
@@ -1266,254 +1125,6 @@ export function NodeDetailPanel({
           </div>
         </TabsContent>
 
-        {/* AI tab */}
-        <TabsContent value="ai" className="flex-1 overflow-y-auto p-4 space-y-4 m-0">
-          {isGenerating && (
-            <div className="flex items-center gap-2 text-sm text-muted-foreground">
-              <Loader2 className="h-4 w-4 animate-spin" />
-              Generating AI summary…
-            </div>
-          )}
-
-          {isGenerating && (
-            <div className="space-y-2">
-              <Skeleton className="h-4 w-full" />
-              <Skeleton className="h-4 w-5/6" />
-              <Skeleton className="h-4 w-4/6" />
-            </div>
-          )}
-
-          {error && (
-            <p className="text-sm text-destructive">{error}</p>
-          )}
-
-          {/* Write your own summary (when no AI summary yet) */}
-          {!detail && !isGenerating && !error && !isEditingDescription && (
-            <button
-              className="text-xs text-muted-foreground hover:text-foreground flex items-center gap-1 transition-colors"
-              onClick={() => { setEditDescription(""); setIsEditingDescription(true); }}
-            >
-              <Edit2 className="h-3 w-3" />
-              Write your own summary
-            </button>
-          )}
-
-          {isEditingDescription && (
-            <div className="space-y-2">
-              <span className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
-                Summary
-              </span>
-              <Textarea
-                value={editDescription}
-                onChange={(e) => setEditDescription(e.target.value)}
-                className="min-h-[100px] resize-none text-sm"
-                placeholder="Write a summary for this node…"
-                autoFocus
-              />
-              <div className="flex gap-1.5">
-                <Button size="sm" className="flex-1 h-7 text-xs" onClick={handleSaveDescription} disabled={descriptionSaving}>
-                  {descriptionSaving && <Loader2 className="h-3 w-3 animate-spin mr-1.5" />}
-                  Save
-                </Button>
-                <Button size="sm" variant="outline" className="h-7 text-xs" onClick={() => setIsEditingDescription(false)}>
-                  Cancel
-                </Button>
-              </div>
-            </div>
-          )}
-
-          {detail && (
-            <>
-              <div>
-                <div className="flex items-center gap-1.5 mb-2">
-                  <Sparkles className="h-3.5 w-3.5" style={{ color: rootColor }} />
-                  <span className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
-                    Summary
-                  </span>
-                  {!isEditingDescription && (
-                    <button
-                      className="ml-auto p-0.5 rounded hover:bg-muted transition-colors text-muted-foreground hover:text-foreground"
-                      onClick={() => { setEditDescription(detail.summary); setIsEditingDescription(true); }}
-                      title="Edit summary"
-                    >
-                      <Edit2 className="h-3 w-3" />
-                    </button>
-                  )}
-                </div>
-                {isEditingDescription ? (
-                  <div className="space-y-2">
-                    <Textarea
-                      value={editDescription}
-                      onChange={(e) => setEditDescription(e.target.value)}
-                      className="min-h-[100px] resize-none text-sm"
-                      autoFocus
-                    />
-                    <div className="flex gap-1.5">
-                      <Button size="sm" className="flex-1 h-7 text-xs" onClick={handleSaveDescription} disabled={descriptionSaving}>
-                        {descriptionSaving && <Loader2 className="h-3 w-3 animate-spin mr-1.5" />}
-                        Save
-                      </Button>
-                      <Button size="sm" variant="outline" className="h-7 text-xs" onClick={() => setIsEditingDescription(false)}>
-                        Cancel
-                      </Button>
-                    </div>
-                  </div>
-                ) : (
-                  <p className="text-sm leading-relaxed">{detail.summary}</p>
-                )}
-              </div>
-
-              {detail.key_facts.length > 0 && (
-                <div>
-                  <div className="flex items-center gap-1.5 mb-2">
-                    <span className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
-                      Key Facts
-                    </span>
-                  </div>
-                  <ul className="space-y-2">
-                    {detail.key_facts.map((fact, i) => (
-                      <li key={i} className="flex gap-2 text-sm">
-                        <span
-                          className="mt-1.5 h-1.5 w-1.5 rounded-full shrink-0"
-                          style={{ backgroundColor: rootColor }}
-                        />
-                        <span className="leading-relaxed">{fact}</span>
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-              )}
-            </>
-          )}
-
-          <div className="border-t" />
-
-          {/* Find Gaps */}
-          <div className="space-y-3">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-1.5">
-                <ScanSearch className="h-3.5 w-3.5" style={{ color: rootColor }} />
-                <span className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
-                  {childCount === 0 ? "Suggested Subtopics" : "Find Gaps"}
-                </span>
-              </div>
-              <Button
-                size="sm"
-                variant="outline"
-                className="h-6 text-xs px-2"
-                onClick={handleFindGaps}
-                disabled={gapLoading}
-              >
-                {gapLoading ? (
-                  <Loader2 className="h-3 w-3 animate-spin" />
-                ) : childCount === 0 ? (
-                  "Suggest"
-                ) : (
-                  "Analyze"
-                )}
-              </Button>
-            </div>
-
-            {gapLoading && (
-              <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                <Loader2 className="h-3 w-3 animate-spin" />
-                Analyzing coverage…
-              </div>
-            )}
-
-            {gapResult && (
-              <div className="space-y-3">
-                {gapResult.foundational.length > 0 && (
-                  <div>
-                    <p className="text-[10px] font-medium text-muted-foreground uppercase mb-1.5">
-                      Foundational
-                    </p>
-                    <ul className="space-y-1.5">
-                      {gapResult.foundational.map((item, i) => {
-                        const key = normalizeGapItem(item);
-                        const added = addedGapItems.has(key);
-                        return (
-                          <li key={i} className="flex items-center justify-between gap-2">
-                            <span className="text-xs flex-1">{item}</span>
-                            <button
-                              onClick={() => handleAddGapItem(item)}
-                              disabled={added}
-                              className={cn(
-                                "shrink-0 h-5 w-5 rounded flex items-center justify-center transition-colors",
-                                added
-                                  ? "text-green-500"
-                                  : "text-muted-foreground hover:text-foreground hover:bg-muted"
-                              )}
-                              title={added ? "Added" : "Add to graph"}
-                            >
-                              {added ? (
-                                <Check className="h-3 w-3" />
-                              ) : (
-                                <Plus className="h-3 w-3" />
-                              )}
-                            </button>
-                          </li>
-                        );
-                      })}
-                    </ul>
-                  </div>
-                )}
-
-                {gapResult.advanced.length > 0 && (
-                  <div>
-                    <p className="text-[10px] font-medium text-muted-foreground uppercase mb-1.5">
-                      Advanced
-                    </p>
-                    <ul className="space-y-1.5">
-                      {gapResult.advanced.map((item, i) => {
-                        const key = normalizeGapItem(item);
-                        const added = addedGapItems.has(key);
-                        return (
-                          <li key={i} className="flex items-center justify-between gap-2">
-                            <span className="text-xs flex-1">{item}</span>
-                            <button
-                              onClick={() => handleAddGapItem(item)}
-                              disabled={added}
-                              className={cn(
-                                "shrink-0 h-5 w-5 rounded flex items-center justify-center transition-colors",
-                                added
-                                  ? "text-green-500"
-                                  : "text-muted-foreground hover:text-foreground hover:bg-muted"
-                              )}
-                              title={added ? "Added" : "Add to graph"}
-                            >
-                              {added ? (
-                                <Check className="h-3 w-3" />
-                              ) : (
-                                <Plus className="h-3 w-3" />
-                              )}
-                            </button>
-                          </li>
-                        );
-                      })}
-                    </ul>
-                  </div>
-                )}
-
-                {gapResult.learning_path.length > 0 && (
-                  <div>
-                    <p className="text-[10px] font-medium text-muted-foreground uppercase mb-1.5">
-                      Learning Path
-                    </p>
-                    <ol className="space-y-1.5">
-                      {gapResult.learning_path.map((step, i) => (
-                        <li key={i} className="flex gap-2 text-xs">
-                          <span className="text-muted-foreground shrink-0 font-mono">{i + 1}.</span>
-                          <span>{step}</span>
-                        </li>
-                      ))}
-                    </ol>
-                  </div>
-                )}
-              </div>
-            )}
-          </div>
-        </TabsContent>
       </Tabs>
     </div>
   );

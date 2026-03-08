@@ -796,7 +796,19 @@ function KnowledgeGraphInner({ initialNodes, initialLinks }: KnowledgeGraphInner
   const handleNodeTriaged = useCallback((nodeId: string, actionType: 'move' | 'merge' | 'promote' | 'delete', targetId?: string) => {
     if (actionType === 'delete' || actionType === 'merge') {
       // For delete or merge, the node is entirely gone from the DB
-      setKnowledgeNodes((prev) => prev.filter(n => n.id !== nodeId));
+      setKnowledgeNodes((prev) => {
+        const filtered = prev.filter(n => n.id !== nodeId);
+        if (actionType === 'merge' && targetId) {
+          const source = prev.find(n => n.id === nodeId);
+          return filtered.map(n => {
+            if (n.id !== targetId || !source) return n;
+            const mergedFacts = Array.from(new Set([...(n.user_facts ?? []), ...(source.user_facts ?? [])]));
+            const mergedNotes = [n.user_notes, source.user_notes].filter(Boolean).join('\n\n---\n\n') || null;
+            return { ...n, user_facts: mergedFacts, user_notes: mergedNotes };
+          });
+        }
+        return filtered;
+      });
       setKnowledgeLinks((prev) => prev.filter(l => l.a_id !== nodeId && l.b_id !== nodeId));
       setRfSelectedCount(0);
       setSelectedNodeId(null);
