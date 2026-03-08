@@ -21,6 +21,9 @@ import {
 } from "lucide-react";
 import type { WeightEntry, HabitEntry, CustomHabit } from "@/types/database";
 import type { WeightStats, WeightCalorieData, TDEEResponse } from "@/lib/actions/weight";
+import type { DebtState } from "@/lib/actions/habit-debt";
+import { payOffTotalDebt } from "@/lib/actions/habit-debt";
+import { formatCents, getHabitDisplayName, getMondayOfWeek } from "@/lib/habit-debt-utils";
 import { TDEECard } from "@/components/tdee-card";
 import {
     LineChart,
@@ -82,6 +85,8 @@ interface AnalyticsClientProps {
     customHabits?: CustomHabit[];
     customHabitEntries?: HabitEntry[];
     creatineGoal?: number;
+    debtState?: DebtState;
+    today?: string;
 }
 
 export function AnalyticsClient({
@@ -97,8 +102,11 @@ export function AnalyticsClient({
     customHabits = [],
     customHabitEntries = [],
     creatineGoal = 2,
+    debtState,
+    today,
 }: AnalyticsClientProps) {
     const [exporting, setExporting] = useState(false);
+    const [payingOff, setPayingOff] = useState(false);
     const [selectedHabitId, setSelectedHabitId] = useState<string>("creatine");
 
     const chartData = useMemo(() =>
@@ -184,6 +192,17 @@ export function AnalyticsClient({
         URL.revokeObjectURL(url);
         toast.success("Export downloaded!");
         setExporting(false);
+    }
+
+    async function handlePayOff() {
+        if (!debtState || debtState.totalDebtCents === 0) return;
+        const amount = formatCents(debtState.totalDebtCents);
+        if (!window.confirm(`This will clear ${amount} in total debt. Are you sure?`)) return;
+        setPayingOff(true);
+        const result = await payOffTotalDebt();
+        if (result.error) toast.error(result.error);
+        else toast.success("Total debt cleared");
+        setPayingOff(false);
     }
 
     return (
@@ -655,6 +674,73 @@ export function AnalyticsClient({
                     </Card>
                 </TabsContent>
             </Tabs>
+
+            {/* Habit Debt */}
+            {debtState && (debtState.debts.length > 0 || debtState.totalDebtCents > 0) && (
+                <Card className="mt-6">
+                    <CardHeader>
+                        <CardTitle className="text-base">Habit Debt</CardTitle>
+                    </CardHeader>
+                    <CardContent className="space-y-4">
+                        {/* Summary row */}
+                        <div className="space-y-2">
+                            {today && (
+                                <div className="flex items-center justify-between text-sm">
+                                    <span className="text-muted-foreground">
+                                        This week ({format(new Date(getMondayOfWeek(today) + "T12:00:00"), "MMM d")}–
+                                        {format(new Date(getMondayOfWeek(today) + "T12:00:00").setDate(
+                                            new Date(getMondayOfWeek(today) + "T12:00:00").getDate() + 6
+                                        ), "MMM d")})
+                                    </span>
+                                    <span className="font-medium">
+                                        {formatCents(debtState.currentWeekTotalCents)}
+                                        {" "}
+                                        <span className="text-muted-foreground font-normal">
+                                            ({debtState.debts.reduce((s, d) => s + d.debt_count, 0)} misses)
+                                        </span>
+                                    </span>
+                                </div>
+                            )}
+                            <div className="flex items-center justify-between text-sm">
+                                <span className="text-muted-foreground">Total owed</span>
+                                <div className="flex items-center gap-2">
+                                    <span className="font-medium text-red-600 dark:text-red-400">
+                                        {formatCents(debtState.totalDebtCents)}
+                                    </span>
+                                    <Button
+                                        size="sm"
+                                        variant="outline"
+                                        className="h-7 text-xs"
+                                        disabled={debtState.totalDebtCents === 0 || payingOff}
+                                        onClick={handlePayOff}
+                                    >
+                                        {payingOff ? "Clearing..." : "Mark as Paid"}
+                                    </Button>
+                                </div>
+                            </div>
+                        </div>
+
+                        {/* Per-habit rows */}
+                        {debtState.debts.filter((d) => d.debt_count > 0).length > 0 && (
+                            <div className="space-y-1">
+                                {debtState.debts
+                                    .filter((d) => d.debt_count > 0)
+                                    .sort((a, b) => b.debt_count - a.debt_count)
+                                    .map((d) => (
+                                        <div key={d.id} className="flex items-center justify-between text-sm text-muted-foreground">
+                                            <span>{getHabitDisplayName(d.habit_type, d.custom_habit_id, customHabits)}</span>
+                                            <span>
+                                                {d.debt_count} miss{d.debt_count !== 1 ? "es" : ""} this week
+                                                {" · "}
+                                                {formatCents(d.current_week_unpaid_cents)}
+                                            </span>
+                                        </div>
+                                    ))}
+                            </div>
+                        )}
+                    </CardContent>
+                </Card>
+            )}
         </div>
     );
 }

@@ -85,9 +85,9 @@ export function CustomHabitCard({ habit, entry, date, isFallingBehind, debt }: C
           <p className="text-xs text-muted-foreground mt-1">
             {value >= goal ? "Goal reached" : `${goal - value} remaining`}
           </p>
-          {debt && debt.lifetime_unpaid_cents > 0 && (
+          {debt && debt.current_week_unpaid_cents > 0 && (
             <div className="mt-1 text-xs text-red-600 dark:text-red-400 font-medium">
-              {formatCents(debt.lifetime_unpaid_cents)} owed · {debt.debt_count} debt
+              {formatCents(debt.current_week_unpaid_cents)} this week · {debt.debt_count} miss{debt.debt_count !== 1 ? "es" : ""}
             </div>
           )}
         </CardContent>
@@ -131,9 +131,9 @@ export function CustomHabitCard({ habit, entry, date, isFallingBehind, debt }: C
               <Check className="h-5 w-5 text-green-500" />
             )}
           </div>
-          {debt && debt.lifetime_unpaid_cents > 0 && (
+          {debt && debt.current_week_unpaid_cents > 0 && (
             <div className="mt-1 text-xs text-red-600 dark:text-red-400 font-medium">
-              {formatCents(debt.lifetime_unpaid_cents)} owed · {debt.debt_count} debt
+              {formatCents(debt.current_week_unpaid_cents)} this week · {debt.debt_count} miss{debt.debt_count !== 1 ? "es" : ""}
             </div>
           )}
         </CardContent>
@@ -170,9 +170,9 @@ export function CustomHabitCard({ habit, entry, date, isFallingBehind, debt }: C
             "Mark as done"
           )}
         </Button>
-        {debt && debt.lifetime_unpaid_cents > 0 && (
+        {debt && debt.current_week_unpaid_cents > 0 && (
           <div className="mt-2 text-xs text-red-600 dark:text-red-400 font-medium">
-            {formatCents(debt.lifetime_unpaid_cents)} owed · {debt.debt_count} debt
+            {formatCents(debt.current_week_unpaid_cents)} this week · {debt.debt_count} miss{debt.debt_count !== 1 ? "es" : ""}
           </div>
         )}
       </CardContent>

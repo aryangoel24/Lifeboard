@@ -352,7 +352,7 @@ export type HabitDebt = {
   completions_pending: number;
   scheduled_clean_streak: number;
   consecutive_miss_days: number;
-  lifetime_unpaid_cents: number;
+  current_week_unpaid_cents: number;
   debt_computed_through: string | null;
   created_at: string;
   updated_at: string;
@@ -365,6 +365,8 @@ export type HabitDebtMeta = {
   recovery_mode_deadline: string | null;
   recovery_streak: number;
   recovery_cooldown_until: string | null;
+  total_debt_cents: number;
+  last_week_reset_date: string | null;
   updated_at: string;
 };
 
@@ -377,7 +379,7 @@ export type PenaltyMonth = {
   created_at: string;
 };
 
-export type PenaltyEventReason = 'miss' | 'cap_skipped' | 'forgiven' | 'recovery_paused';
+export type PenaltyEventReason = 'miss';
 
 export type PenaltyEvent = {
   id: string;

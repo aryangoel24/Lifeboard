@@ -32,25 +32,24 @@ export function BuiltinHabitsCard({ profile }: { profile: Profile }) {
   const [editingGym, setEditingGym] = useState(false);
   const [saving, setSaving] = useState(false);
 
-  // NR state
-  const [creatineNR, setCreatineNR] = useState({ enabled: profile.creatine_nr_enabled ?? false, isHard: profile.creatine_nr_is_hard ?? false });
-  const [magnesiumNR, setMagnesiumNR] = useState({ enabled: profile.magnesium_nr_enabled ?? false, isHard: profile.magnesium_nr_is_hard ?? false });
-  const [gymNR, setGymNR] = useState({ enabled: profile.gym_nr_enabled ?? false, isHard: profile.gym_nr_is_hard ?? true });
+  // NR state (plain booleans)
+  const [creatineNR, setCreatineNR] = useState(profile.creatine_nr_enabled ?? false);
+  const [magnesiumNR, setMagnesiumNR] = useState(profile.magnesium_nr_enabled ?? false);
+  const [gymNR, setGymNR] = useState(profile.gym_nr_enabled ?? false);
   const [savingNR, setSavingNR] = useState<string | null>(null);
 
   async function handleNRUpdate(
     type: "creatine" | "magnesium" | "gym",
-    enabled: boolean,
-    isHard: boolean
+    enabled: boolean
   ) {
     setSavingNR(type);
-    const result = await updateBuiltinHabitNRSettings(type, enabled, isHard);
+    const result = await updateBuiltinHabitNRSettings(type, enabled);
     if (result.error) {
       toast.error(result.error);
     } else {
-      if (type === "creatine") setCreatineNR({ enabled, isHard });
-      if (type === "magnesium") setMagnesiumNR({ enabled, isHard });
-      if (type === "gym") setGymNR({ enabled, isHard });
+      if (type === "creatine") setCreatineNR(enabled);
+      if (type === "magnesium") setMagnesiumNR(enabled);
+      if (type === "gym") setGymNR(enabled);
     }
     setSavingNR(null);
   }
@@ -101,13 +100,13 @@ export function BuiltinHabitsCard({ profile }: { profile: Profile }) {
               </div>
               <div className="flex items-center gap-1">
                 <Button
-                  variant={creatineNR.enabled ? "default" : "ghost"}
+                  variant={creatineNR ? "default" : "ghost"}
                   size="sm"
                   className="h-7 text-xs"
                   disabled={savingNR === "creatine"}
-                  onClick={() => handleNRUpdate("creatine", !creatineNR.enabled, creatineNR.isHard)}
+                  onClick={() => handleNRUpdate("creatine", !creatineNR)}
                 >
-                  {creatineNR.enabled ? "NR On" : "NR"}
+                  {creatineNR ? "NR On" : "NR"}
                 </Button>
                 <Button
                   variant="ghost"
@@ -122,33 +121,6 @@ export function BuiltinHabitsCard({ profile }: { profile: Profile }) {
                 </Button>
               </div>
             </div>
-            {creatineNR.enabled && (
-              <div className="px-3 pb-3 flex items-center gap-2">
-                <Button
-                  type="button"
-                  size="sm"
-                  variant={!creatineNR.isHard ? "default" : "outline"}
-                  disabled={savingNR === "creatine"}
-                  onClick={() => handleNRUpdate("creatine", true, false)}
-                  className="h-6 text-xs"
-                >
-                  Soft
-                </Button>
-                <Button
-                  type="button"
-                  size="sm"
-                  variant={creatineNR.isHard ? "default" : "outline"}
-                  disabled={savingNR === "creatine"}
-                  onClick={() => handleNRUpdate("creatine", true, true)}
-                  className="h-6 text-xs"
-                >
-                  Hard
-                </Button>
-                <span className="text-xs text-muted-foreground">
-                  {creatineNR.isHard ? "1 completion = $5 forgiven" : "2 completions = $5 forgiven"}
-                </span>
-              </div>
-            )}
           </div>
 
           <div className="rounded-lg border">
@@ -163,42 +135,15 @@ export function BuiltinHabitsCard({ profile }: { profile: Profile }) {
                 </div>
               </div>
               <Button
-                variant={magnesiumNR.enabled ? "default" : "ghost"}
+                variant={magnesiumNR ? "default" : "ghost"}
                 size="sm"
                 className="h-7 text-xs"
                 disabled={savingNR === "magnesium"}
-                onClick={() => handleNRUpdate("magnesium", !magnesiumNR.enabled, magnesiumNR.isHard)}
+                onClick={() => handleNRUpdate("magnesium", !magnesiumNR)}
               >
-                {magnesiumNR.enabled ? "NR On" : "NR"}
+                {magnesiumNR ? "NR On" : "NR"}
               </Button>
             </div>
-            {magnesiumNR.enabled && (
-              <div className="px-3 pb-3 flex items-center gap-2">
-                <Button
-                  type="button"
-                  size="sm"
-                  variant={!magnesiumNR.isHard ? "default" : "outline"}
-                  disabled={savingNR === "magnesium"}
-                  onClick={() => handleNRUpdate("magnesium", true, false)}
-                  className="h-6 text-xs"
-                >
-                  Soft
-                </Button>
-                <Button
-                  type="button"
-                  size="sm"
-                  variant={magnesiumNR.isHard ? "default" : "outline"}
-                  disabled={savingNR === "magnesium"}
-                  onClick={() => handleNRUpdate("magnesium", true, true)}
-                  className="h-6 text-xs"
-                >
-                  Hard
-                </Button>
-                <span className="text-xs text-muted-foreground">
-                  {magnesiumNR.isHard ? "1 completion = $5 forgiven" : "2 completions = $5 forgiven"}
-                </span>
-              </div>
-            )}
           </div>
 
           <div className="rounded-lg border">
@@ -214,13 +159,13 @@ export function BuiltinHabitsCard({ profile }: { profile: Profile }) {
               </div>
               <div className="flex items-center gap-1">
                 <Button
-                  variant={gymNR.enabled ? "default" : "ghost"}
+                  variant={gymNR ? "default" : "ghost"}
                   size="sm"
                   className="h-7 text-xs"
                   disabled={savingNR === "gym"}
-                  onClick={() => handleNRUpdate("gym", !gymNR.enabled, gymNR.isHard)}
+                  onClick={() => handleNRUpdate("gym", !gymNR)}
                 >
-                  {gymNR.enabled ? "NR On" : "NR"}
+                  {gymNR ? "NR On" : "NR"}
                 </Button>
                 <Button
                   variant="ghost"
@@ -235,33 +180,6 @@ export function BuiltinHabitsCard({ profile }: { profile: Profile }) {
                 </Button>
               </div>
             </div>
-            {gymNR.enabled && (
-              <div className="px-3 pb-3 flex items-center gap-2">
-                <Button
-                  type="button"
-                  size="sm"
-                  variant={!gymNR.isHard ? "default" : "outline"}
-                  disabled={savingNR === "gym"}
-                  onClick={() => handleNRUpdate("gym", true, false)}
-                  className="h-6 text-xs"
-                >
-                  Soft
-                </Button>
-                <Button
-                  type="button"
-                  size="sm"
-                  variant={gymNR.isHard ? "default" : "outline"}
-                  disabled={savingNR === "gym"}
-                  onClick={() => handleNRUpdate("gym", true, true)}
-                  className="h-6 text-xs"
-                >
-                  Hard
-                </Button>
-                <span className="text-xs text-muted-foreground">
-                  {gymNR.isHard ? "1 completion = $5 forgiven" : "2 completions = $5 forgiven"}
-                </span>
-              </div>
-            )}
           </div>
         </div>
 

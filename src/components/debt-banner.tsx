@@ -1,203 +1,77 @@
 "use client";
 
-import { useState } from "react";
-import { toast } from "sonner";
-import { AlertTriangle, Shield, Clock } from "lucide-react";
-import { Button } from "@/components/ui/button";
-import { cn } from "@/lib/utils";
-import {
-  enterRecoveryMode,
-  exitRecoveryMode,
-} from "@/lib/actions/habit-debt";
-import { formatCents, getHabitDisplayName } from "@/lib/habit-debt-utils";
-import type { HabitDebt, HabitDebtMeta, CustomHabit } from "@/types/database";
+import { DollarSign } from "lucide-react";
+import { format } from "date-fns";
+import { formatCents, getHabitDisplayName, getMondayOfWeek } from "@/lib/habit-debt-utils";
+import type { HabitDebt, CustomHabit } from "@/types/database";
 
 interface DebtBannerProps {
   debts: HabitDebt[];
-  meta: HabitDebtMeta | null;
   customHabits: CustomHabit[];
-  liveMonthChargedCents: number;
-  liveMonthForgivenCents: number;
+  currentWeekTotalCents: number;
   today: string;
 }
 
 export function DebtBanner({
   debts,
-  meta,
   customHabits,
-  liveMonthChargedCents,
-  liveMonthForgivenCents,
+  currentWeekTotalCents,
   today,
 }: DebtBannerProps) {
-  const [loading, setLoading] = useState(false);
+  if (currentWeekTotalCents === 0) return null;
 
-  const totalOwed = debts.reduce((sum, d) => sum + d.lifetime_unpaid_cents, 0);
+  const monday = getMondayOfWeek(today);
+  const weekLabel = format(new Date(monday + "T12:00:00"), "MMM d");
 
-  // Top habits by consecutive miss days
   const topMissers = [...debts]
     .filter((d) => d.consecutive_miss_days > 0)
     .sort((a, b) => b.consecutive_miss_days - a.consecutive_miss_days)
-    .slice(0, 3);
-
-  // Recovery mode state
-  const isRecoveryActive = meta?.recovery_mode_active ?? false;
-  const hasCooldown =
-    meta?.recovery_cooldown_until && meta.recovery_cooldown_until >= today;
-  const cooldownDaysLeft = hasCooldown
-    ? Math.ceil(
-        (new Date(meta!.recovery_cooldown_until! + "T12:00:00").getTime() -
-          new Date(today + "T12:00:00").getTime()) /
-          86400000
-      )
-    : 0;
-
-  const recoveryDaysLeft = isRecoveryActive && meta?.recovery_mode_deadline
-    ? Math.ceil(
-        (new Date(meta.recovery_mode_deadline + "T12:00:00").getTime() -
-          new Date(today + "T12:00:00").getTime()) /
-          86400000
-      )
-    : 0;
-
-  const canEnterRecovery = !isRecoveryActive && !hasCooldown && totalOwed >= 500;
-
-  async function handleEnterRecovery() {
-    setLoading(true);
-    const result = await enterRecoveryMode();
-    if (result.error) toast.error(result.error);
-    else toast.success("Recovery mode active — charges paused for 14 days");
-    setLoading(false);
-  }
-
-  async function handleExitRecovery() {
-    setLoading(true);
-    const result = await exitRecoveryMode(false);
-    if (result.error) toast.error(result.error);
-    else toast.success("Exited recovery mode");
-    setLoading(false);
-  }
-
-  // Don't show if no debt
-  if (totalOwed === 0 && !isRecoveryActive) return null;
+    .slice(0, 4);
 
   return (
-    <div
-      className={cn(
-        "rounded-xl border p-4 space-y-3",
-        isRecoveryActive
-          ? "border-blue-500/40 bg-blue-500/5"
-          : "border-red-500/40 bg-red-500/5"
-      )}
-    >
-      {/* Line 1: What you owe */}
-      <div className="flex items-center gap-2">
-        <AlertTriangle
-          className={cn(
-            "h-4 w-4 shrink-0",
-            isRecoveryActive ? "text-blue-500" : "text-red-500"
-          )}
-        />
-        <span className="text-sm font-semibold">
-          Owed:{" "}
-          <span className={isRecoveryActive ? "text-blue-600 dark:text-blue-400" : "text-red-600 dark:text-red-400"}>
-            {formatCents(totalOwed)} total
-          </span>
-          {" · "}
-          <span className="text-muted-foreground font-normal">
-            {formatCents(liveMonthChargedCents)} charged this month
-          </span>
-          {liveMonthForgivenCents > 0 && (
-            <>
-              {" · "}
-              <span className="text-emerald-600 dark:text-emerald-400 font-normal">
-                {formatCents(liveMonthForgivenCents)} forgiven
-              </span>
-            </>
-          )}
+    <div className="rounded-xl border border-red-500/40 bg-red-500/5 p-4 space-y-3">
+      <div className="flex items-center justify-between">
+        <div>
+          <div className="flex items-center gap-2">
+            <DollarSign className="h-4 w-4 text-red-500 shrink-0" />
+            <span className="text-sm font-semibold">Habit Debt This Week</span>
+          </div>
+          <p className="text-xs text-muted-foreground pl-6">
+            Resets into total owed every Monday
+          </p>
+        </div>
+        <span className="text-sm font-bold text-red-600 dark:text-red-400">
+          {formatCents(currentWeekTotalCents)}
         </span>
       </div>
 
-      {/* Line 2: Top miss drivers */}
       {topMissers.length > 0 && (
-        <div className="text-xs text-muted-foreground flex flex-wrap gap-x-3 gap-y-1">
+        <div className="space-y-2">
           {topMissers.map((d) => {
             const name = getHabitDisplayName(d.habit_type, d.custom_habit_id, customHabits);
-            const tierCents = d.consecutive_miss_days >= 4 ? 1000 : d.consecutive_miss_days >= 2 ? 700 : 500;
+            const pct = Math.min(100, (d.consecutive_miss_days / 7) * 100);
+            const amount = formatCents(d.current_week_unpaid_cents);
             return (
-              <span key={d.id} className="flex items-center gap-1">
-                <span className="font-medium text-foreground">{name}</span>
-                <span>({d.consecutive_miss_days}d miss, {formatCents(tierCents)}/day)</span>
-              </span>
+              <div key={d.id} className="space-y-1">
+                <div className="flex items-center justify-between text-xs">
+                  <span className="font-medium">{name}</span>
+                  <span className="text-muted-foreground">
+                    {d.consecutive_miss_days}d miss · {amount}
+                  </span>
+                </div>
+                <div className="h-1.5 rounded-full bg-muted overflow-hidden">
+                  <div
+                    className="h-full rounded-full bg-red-500"
+                    style={{ width: `${pct}%` }}
+                  />
+                </div>
+              </div>
             );
           })}
         </div>
       )}
 
-      {/* Line 3: Action prompts + Recovery controls */}
-      <div className="flex items-center justify-between gap-2 flex-wrap">
-        {/* Forgiveness hints */}
-        <div className="text-xs text-muted-foreground flex flex-wrap gap-x-3">
-          {debts
-            .filter((d) => d.lifetime_unpaid_cents > 0)
-            .slice(0, 2)
-            .map((d) => {
-              const name = getHabitDisplayName(d.habit_type, d.custom_habit_id, customHabits);
-              const isHardHint =
-                d.habit_type === "gym"
-                  ? true
-                  : d.habit_type === "creatine" || d.habit_type === "magnesium"
-                  ? false
-                  : customHabits.find((h) => h.id === d.custom_habit_id)?.nr_is_hard ?? false;
-              return (
-                <span key={d.id}>
-                  Complete <span className="font-medium">{name}</span>{" "}
-                  {isHardHint ? "to forgive $5" : "twice to forgive $5"}
-                </span>
-              );
-            })}
-        </div>
-
-        {/* Recovery mode controls */}
-        <div className="flex items-center gap-2">
-          {isRecoveryActive && (
-            <div className="flex items-center gap-2">
-              <span className="text-xs text-blue-600 dark:text-blue-400 flex items-center gap-1">
-                <Shield className="h-3.5 w-3.5" />
-                Recovery · {recoveryDaysLeft}d left
-              </span>
-              <Button
-                variant="ghost"
-                size="sm"
-                className="h-6 text-xs text-muted-foreground"
-                onClick={handleExitRecovery}
-                disabled={loading}
-              >
-                Exit
-              </Button>
-            </div>
-          )}
-
-          {canEnterRecovery && (
-            <Button
-              variant="outline"
-              size="sm"
-              className="h-7 text-xs border-blue-500/40 text-blue-600 dark:text-blue-400 hover:bg-blue-500/10"
-              onClick={handleEnterRecovery}
-              disabled={loading}
-            >
-              <Shield className="h-3.5 w-3.5 mr-1" />
-              Recovery Mode
-            </Button>
-          )}
-
-          {hasCooldown && !isRecoveryActive && (
-            <span className="text-xs text-muted-foreground flex items-center gap-1">
-              <Clock className="h-3.5 w-3.5" />
-              Recovery in {cooldownDaysLeft}d
-            </span>
-          )}
-        </div>
-      </div>
+      <p className="text-xs text-muted-foreground">Week of {weekLabel}</p>
     </div>
   );
 }

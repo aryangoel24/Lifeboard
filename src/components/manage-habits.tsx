@@ -69,7 +69,6 @@ function HabitFormDialog({
     habit?.tracking_type || "checkbox"
   );
   const [nrEnabled, setNrEnabled] = useState<boolean>(habit?.nr_enabled ?? false);
-  const [nrIsHard, setNrIsHard] = useState<boolean>(habit?.nr_is_hard ?? false);
   const [savingNr, setSavingNr] = useState(false);
 
   const isEdit = !!habit;
@@ -91,7 +90,7 @@ function HabitFormDialog({
     } else {
       // Save NR settings if editing existing habit
       if (isEdit) {
-        await updateCustomHabitNRSettings(habit.id, nrEnabled, nrIsHard);
+        await updateCustomHabitNRSettings(habit.id, nrEnabled);
       }
       toast.success(isEdit ? "Habit updated" : "Habit created");
       onOpenChange(false);
@@ -102,23 +101,11 @@ function HabitFormDialog({
   async function handleNrToggle(enabled: boolean) {
     if (!habit?.id) return;
     setSavingNr(true);
-    const result = await updateCustomHabitNRSettings(habit.id, enabled, nrIsHard);
+    const result = await updateCustomHabitNRSettings(habit.id, enabled);
     if (result.error) {
       toast.error(result.error);
     } else {
       setNrEnabled(enabled);
-    }
-    setSavingNr(false);
-  }
-
-  async function handleNrHardToggle(isHard: boolean) {
-    if (!habit?.id) return;
-    setSavingNr(true);
-    const result = await updateCustomHabitNRSettings(habit.id, nrEnabled, isHard);
-    if (result.error) {
-      toast.error(result.error);
-    } else {
-      setNrIsHard(isHard);
     }
     setSavingNr(false);
   }
@@ -281,35 +268,9 @@ function HabitFormDialog({
                 </Button>
               </div>
               {nrEnabled && (
-                <div className="space-y-2">
-                  <div className="flex items-center gap-2">
-                    <Button
-                      type="button"
-                      size="sm"
-                      variant={!nrIsHard ? "default" : "outline"}
-                      disabled={savingNr}
-                      onClick={() => handleNrHardToggle(false)}
-                      className="flex-1"
-                    >
-                      Soft
-                    </Button>
-                    <Button
-                      type="button"
-                      size="sm"
-                      variant={nrIsHard ? "default" : "outline"}
-                      disabled={savingNr}
-                      onClick={() => handleNrHardToggle(true)}
-                      className="flex-1"
-                    >
-                      Hard
-                    </Button>
-                  </div>
-                  <p className="text-xs text-muted-foreground">
-                    {nrIsHard
-                      ? "Hard: 1 completion = -1 debt, forgives $5/day"
-                      : "Soft: 2 completions = -1 debt, forgives $2.50 each"}
-                  </p>
-                </div>
+                <p className="text-xs text-muted-foreground">
+                  $5 penalty per missed day. Resets into total owed every Monday.
+                </p>
               )}
             </div>
           )}

@@ -6,35 +6,27 @@ import type {
   HabitDebt,
   HabitDebtMeta,
   HabitType,
-  PenaltyMonth,
   CustomHabit,
   HabitEntry,
 } from "@/types/database";
 import {
-  getPenaltyTierCents,
-  getForgivenessCents,
-  getHabitFrequencyWeight,
-  applyGlobalDailyCap,
-  computeRecoveryCompliance,
+  FLAT_PENALTY_CENTS,
+  getMondayOfWeek,
   isHabitCompletedForDate,
   isHabitScheduledForDate,
   addDays,
-  getMonthStart,
-  isSameMonth,
-  type CapCandidate,
 } from "@/lib/habit-debt-utils";
 
 export type DebtState = {
   debts: HabitDebt[];
-  meta: HabitDebtMeta | null;
-  unsettledMonths: PenaltyMonth[];
-  liveMonthChargedCents: number;
-  liveMonthForgivenCents: number;
+  currentWeekTotalCents: number;
+  totalDebtCents: number;
 };
 
 /**
  * Computes and updates debt state for all opted-in habits.
  * Called on dashboard page load. Idempotent — won't double-charge.
+ * Also handles the weekly rollover on Mondays.
  */
 export async function computeAndUpdateDebt(today: string): Promise<void> {
   const supabase = createClient();
@@ -45,18 +37,21 @@ export async function computeAndUpdateDebt(today: string): Promise<void> {
 
   const yesterday = addDays(today, -1);
 
-  // Fetch all needed data in parallel
-  const [
-    profileResult,
-    customHabitsResult,
-    debtRowsResult,
-    metaResult,
-  ] = await Promise.all([
-    supabase.from("profiles").select("*").eq("id", user.id).single(),
-    supabase.from("custom_habits").select("*").eq("user_id", user.id).eq("archived", false),
-    supabase.from("habit_debt").select("*").eq("user_id", user.id),
-    supabase.from("habit_debt_meta").select("*").eq("user_id", user.id).single(),
-  ]);
+  const [profileResult, customHabitsResult, debtRowsResult, metaResult] =
+    await Promise.all([
+      supabase.from("profiles").select("*").eq("id", user.id).single(),
+      supabase
+        .from("custom_habits")
+        .select("*")
+        .eq("user_id", user.id)
+        .eq("archived", false),
+      supabase.from("habit_debt").select("*").eq("user_id", user.id),
+      supabase
+        .from("habit_debt_meta")
+        .select("*")
+        .eq("user_id", user.id)
+        .single(),
+    ]);
 
   const profile = profileResult.data;
   if (!profile) return;
@@ -69,34 +64,53 @@ export async function computeAndUpdateDebt(today: string): Promise<void> {
   type OptedInHabit = {
     habitType: HabitType;
     customHabitId: string | null;
-    isHard: boolean;
     habit: CustomHabit | null;
   };
 
   const optedInHabits: OptedInHabit[] = [];
   if (profile.creatine_nr_enabled) {
-    optedInHabits.push({ habitType: "creatine", customHabitId: null, isHard: profile.creatine_nr_is_hard, habit: null });
+    optedInHabits.push({ habitType: "creatine", customHabitId: null, habit: null });
   }
   if (profile.magnesium_nr_enabled) {
-    optedInHabits.push({ habitType: "magnesium", customHabitId: null, isHard: profile.magnesium_nr_is_hard, habit: null });
+    optedInHabits.push({ habitType: "magnesium", customHabitId: null, habit: null });
   }
   if (profile.gym_nr_enabled) {
-    optedInHabits.push({ habitType: "gym", customHabitId: null, isHard: profile.gym_nr_is_hard, habit: null });
+    optedInHabits.push({ habitType: "gym", customHabitId: null, habit: null });
   }
   for (const h of customHabits) {
     if (h.nr_enabled) {
-      optedInHabits.push({ habitType: "custom", customHabitId: h.id, isHard: h.nr_is_hard, habit: h });
+      optedInHabits.push({ habitType: "custom", customHabitId: h.id, habit: h });
     }
   }
 
   if (optedInHabits.length === 0) return;
+
+  // Ensure habit_debt_meta row exists (create if first time)
+  await supabase
+    .from("habit_debt_meta")
+    .upsert(
+      {
+        user_id: user.id,
+        recovery_mode_active: false,
+        recovery_mode_start: null,
+        recovery_mode_deadline: null,
+        recovery_streak: 0,
+        recovery_cooldown_until: null,
+        total_debt_cents: 0,
+        last_week_reset_date: null,
+        updated_at: new Date().toISOString(),
+      },
+      { onConflict: "user_id", ignoreDuplicates: true }
+    );
 
   // Upsert habit_debt rows for newly opted-in habits
   for (const opted of optedInHabits) {
     const existing = debtRows.find(
       (d) =>
         d.habit_type === opted.habitType &&
-        (opted.customHabitId ? d.custom_habit_id === opted.customHabitId : d.custom_habit_id === null)
+        (opted.customHabitId
+          ? d.custom_habit_id === opted.customHabitId
+          : d.custom_habit_id === null)
     );
     if (!existing) {
       const newRow = {
@@ -108,7 +122,7 @@ export async function computeAndUpdateDebt(today: string): Promise<void> {
         completions_pending: 0,
         scheduled_clean_streak: 0,
         consecutive_miss_days: 0,
-        lifetime_unpaid_cents: 0,
+        current_week_unpaid_cents: 0,
         debt_computed_through: today,
       };
       const { data: inserted } = await supabase
@@ -120,12 +134,14 @@ export async function computeAndUpdateDebt(today: string): Promise<void> {
     }
   }
 
-  // Find the earliest debt_computed_through
+  // Find the earliest debt_computed_through among opted-in habits
   const relevantDebts = debtRows.filter((d) =>
     optedInHabits.some(
       (o) =>
         o.habitType === d.habit_type &&
-        (o.customHabitId ? d.custom_habit_id === o.customHabitId : d.custom_habit_id === null)
+        (o.customHabitId
+          ? d.custom_habit_id === o.customHabitId
+          : d.custom_habit_id === null)
     )
   );
 
@@ -136,395 +152,162 @@ export async function computeAndUpdateDebt(today: string): Promise<void> {
     return d.debt_computed_through < min ? d.debt_computed_through : min;
   }, today);
 
-  // If already computed through yesterday, nothing to do
-  if (earliestThrough >= yesterday) return;
+  // Process missed days if there are uncomputed days
+  if (earliestThrough < yesterday) {
+    const fetchFrom = addDays(earliestThrough, 1);
 
-  // Fetch habit entries for the backfill range
-  const fetchFrom = addDays(earliestThrough, 1);
+    const [builtinEntriesResult, customEntriesResult] = await Promise.all([
+      supabase
+        .from("habit_entries")
+        .select("*")
+        .eq("user_id", user.id)
+        .is("custom_habit_id", null)
+        .gte("logged_at", fetchFrom)
+        .lte("logged_at", yesterday),
+      supabase
+        .from("habit_entries")
+        .select("*")
+        .eq("user_id", user.id)
+        .not("custom_habit_id", "is", null)
+        .gte("logged_at", fetchFrom)
+        .lte("logged_at", yesterday),
+    ]);
 
-  const [builtinEntriesResult, customEntriesResult] = await Promise.all([
-    supabase
-      .from("habit_entries")
-      .select("*")
-      .eq("user_id", user.id)
-      .is("custom_habit_id", null)
-      .gte("logged_at", fetchFrom)
-      .lte("logged_at", yesterday),
-    supabase
-      .from("habit_entries")
-      .select("*")
-      .eq("user_id", user.id)
-      .not("custom_habit_id", "is", null)
-      .gte("logged_at", fetchFrom)
-      .lte("logged_at", yesterday),
-  ]);
+    const builtinEntries: HabitEntry[] = (builtinEntriesResult.data as HabitEntry[]) || [];
+    const customEntries: HabitEntry[] = (customEntriesResult.data as HabitEntry[]) || [];
 
-  const builtinEntries: HabitEntry[] = (builtinEntriesResult.data as HabitEntry[]) || [];
-  const customEntries: HabitEntry[] = (customEntriesResult.data as HabitEntry[]) || [];
+    // Track in-memory state for each debt row
+    const debtState = new Map<string, HabitDebt>(
+      relevantDebts.map((d) => [d.id, { ...d }])
+    );
 
-  // Track in-memory state for each debt row
-  const debtState = new Map<string, HabitDebt>(
-    relevantDebts.map((d) => [d.id, { ...d }])
-  );
+    const newPenaltyEvents: Array<{
+      user_id: string;
+      habit_type: HabitType;
+      custom_habit_id: string | null;
+      event_date: string;
+      cents: number;
+      reason: string;
+    }> = [];
 
-  // Collect all penalty events to batch insert
-  const newPenaltyEvents: Array<{
-    user_id: string;
-    habit_type: HabitType;
-    custom_habit_id: string | null;
-    event_date: string;
-    cents: number;
-    reason: string;
-  }> = [];
-
-  // Track month boundaries crossed
-  const monthsToUpsert = new Set<string>();
-
-  // Process day by day from earliest through yesterday
-  let currentDate = addDays(earliestThrough, 1);
-  while (currentDate <= yesterday) {
-    const candidates: CapCandidate[] = [];
-    const dayMissedDebts: string[] = []; // debt IDs that missed today
-
-    for (const debt of Array.from(debtState.values())) {
-      const opted = optedInHabits.find(
-        (o) =>
-          o.habitType === debt.habit_type &&
-          (o.customHabitId
-            ? debt.custom_habit_id === o.customHabitId
-            : debt.custom_habit_id === null)
-      );
-      if (!opted) continue;
-
-      // Only process if this debt hasn't been computed through this date
-      if (debt.debt_computed_through && debt.debt_computed_through >= currentDate) continue;
-
-      // Check scheduling
-      let scheduled = false;
-      if (opted.habitType !== "custom") {
-        scheduled = true;
-      } else if (opted.habit) {
-        scheduled = isHabitScheduledForDate(opted.habit, currentDate);
-      }
-
-      if (!scheduled) {
-        // Update debt_computed_through even for unscheduled days
-        debt.debt_computed_through = currentDate;
-        continue;
-      }
-
-      // Check if completed
-      const completed = isHabitCompletedForDate(
-        opted.habitType,
-        opted.customHabitId,
-        builtinEntries,
-        customEntries,
-        opted.habit,
-        profile.creatine_goal ?? 2,
-        currentDate
-      );
-
-      if (completed) {
-        debt.scheduled_clean_streak++;
-        if (debt.scheduled_clean_streak >= 7) {
-          debt.consecutive_miss_days = 0;
-        }
-      } else {
-        debt.debt_count++;
-        debt.consecutive_miss_days++;
-        debt.scheduled_clean_streak = 0;
-        dayMissedDebts.push(debt.id);
-
-        const tierCents = getPenaltyTierCents(debt.consecutive_miss_days);
-        const weight = getHabitFrequencyWeight(opted.habit);
-        candidates.push({
-          habitType: debt.habit_type,
-          customHabitId: debt.custom_habit_id,
-          consecutiveMissDays: debt.consecutive_miss_days,
-          frequencyWeight: weight,
-          cents: tierCents,
-        });
-      }
-
-      debt.debt_computed_through = currentDate;
-    }
-
-    // Apply global cap for this day
-    if (candidates.length > 0) {
-      const { charged, skipped } = applyGlobalDailyCap(candidates);
-
-      // Recovery mode: if active, paused charges become 'recovery_paused' events
-      const isRecoveryActive =
-        meta?.recovery_mode_active &&
-        meta.recovery_mode_deadline &&
-        meta.recovery_mode_deadline >= currentDate;
-
-      for (const c of charged) {
-        const debt = Array.from(debtState.values()).find(
-          (d) =>
-            d.habit_type === c.habitType &&
-            (c.customHabitId
-              ? d.custom_habit_id === c.customHabitId
-              : d.custom_habit_id === null)
+    let currentDate = addDays(earliestThrough, 1);
+    while (currentDate <= yesterday) {
+      for (const debt of Array.from(debtState.values())) {
+        const opted = optedInHabits.find(
+          (o) =>
+            o.habitType === debt.habit_type &&
+            (o.customHabitId
+              ? debt.custom_habit_id === o.customHabitId
+              : debt.custom_habit_id === null)
         );
-        if (!debt) continue;
+        if (!opted) continue;
 
-        if (isRecoveryActive) {
-          newPenaltyEvents.push({
-            user_id: user.id,
-            habit_type: c.habitType,
-            custom_habit_id: c.customHabitId,
-            event_date: currentDate,
-            cents: c.cents,
-            reason: "recovery_paused",
-          });
-          // Don't charge lifetime_unpaid_cents during recovery
+        // Skip if already computed through this date
+        if (debt.debt_computed_through && debt.debt_computed_through >= currentDate) continue;
+
+        // Check scheduling
+        let scheduled = false;
+        if (opted.habitType !== "custom") {
+          scheduled = true;
+        } else if (opted.habit) {
+          scheduled = isHabitScheduledForDate(opted.habit, currentDate);
+        }
+
+        if (!scheduled) {
+          debt.debt_computed_through = currentDate;
+          continue;
+        }
+
+        // Check if completed
+        const completed = isHabitCompletedForDate(
+          opted.habitType,
+          opted.customHabitId,
+          builtinEntries,
+          customEntries,
+          opted.habit,
+          profile.creatine_goal ?? 2,
+          currentDate
+        );
+
+        if (completed) {
+          debt.scheduled_clean_streak++;
         } else {
+          debt.debt_count++;
+          debt.consecutive_miss_days++;
+          debt.scheduled_clean_streak = 0;
+          debt.current_week_unpaid_cents += FLAT_PENALTY_CENTS;
+
           newPenaltyEvents.push({
             user_id: user.id,
-            habit_type: c.habitType,
-            custom_habit_id: c.customHabitId,
+            habit_type: debt.habit_type,
+            custom_habit_id: debt.custom_habit_id,
             event_date: currentDate,
-            cents: c.cents,
+            cents: FLAT_PENALTY_CENTS,
             reason: "miss",
           });
-          debt.lifetime_unpaid_cents += c.cents;
         }
+
+        debt.debt_computed_through = currentDate;
       }
 
-      for (const c of skipped) {
-        newPenaltyEvents.push({
-          user_id: user.id,
-          habit_type: c.habitType,
-          custom_habit_id: c.customHabitId,
-          event_date: currentDate,
-          cents: c.cents,
-          reason: "cap_skipped",
-        });
-      }
+      currentDate = addDays(currentDate, 1);
     }
 
-    // Track month boundaries
-    const nextDate = addDays(currentDate, 1);
-    if (!isSameMonth(currentDate, nextDate) && nextDate <= yesterday) {
-      monthsToUpsert.add(getMonthStart(nextDate));
+    // Batch insert penalty events
+    if (newPenaltyEvents.length > 0) {
+      await supabase.from("penalty_events").insert(newPenaltyEvents);
     }
 
-    currentDate = nextDate;
-  }
-
-  // Check recovery mode expiry
-  if (meta?.recovery_mode_active) {
-    if (
-      meta.recovery_mode_deadline &&
-      meta.recovery_mode_deadline < today
-    ) {
-      // Forced exit: past deadline
-      await supabase
-        .from("habit_debt_meta")
-        .update({
-          recovery_mode_active: false,
-          recovery_mode_start: null,
-          recovery_mode_deadline: null,
-          recovery_streak: 0,
-          recovery_cooldown_until: addDays(today, 3),
-          updated_at: new Date().toISOString(),
-        })
-        .eq("user_id", user.id);
-    } else {
-      // Check compliance
-      const optedForCompliance = optedInHabits.map((o) => ({
-        habitType: o.habitType,
-        customHabitId: o.customHabitId,
-        isHard: o.isHard,
-      }));
-      const compliance = computeRecoveryCompliance(
-        builtinEntries,
-        customEntries,
-        customHabits,
-        optedForCompliance,
-        profile.creatine_goal ?? 2,
-        today,
-        7
-      );
-      if (compliance < 0.7) {
-        await supabase
-          .from("habit_debt_meta")
+    // Update all debt rows in parallel
+    await Promise.all(
+      Array.from(debtState.values()).map((debt) =>
+        supabase
+          .from("habit_debt")
           .update({
-            recovery_mode_active: false,
-            recovery_mode_start: null,
-            recovery_mode_deadline: null,
-            recovery_streak: 0,
-            recovery_cooldown_until: addDays(today, 3),
+            debt_count: debt.debt_count,
+            scheduled_clean_streak: debt.scheduled_clean_streak,
+            consecutive_miss_days: debt.consecutive_miss_days,
+            current_week_unpaid_cents: debt.current_week_unpaid_cents,
+            debt_computed_through: debt.debt_computed_through,
             updated_at: new Date().toISOString(),
           })
-          .eq("user_id", user.id);
-      }
-    }
-  }
-
-  // Batch insert penalty events
-  if (newPenaltyEvents.length > 0) {
-    await supabase.from("penalty_events").insert(newPenaltyEvents);
-  }
-
-  // Upsert month summaries for completed months
-  for (const monthStart of Array.from(monthsToUpsert)) {
-    const monthEnd = addDays(getMonthStart(addDays(monthStart, 32)), -1);
-    const { data: monthEvents } = await supabase
-      .from("penalty_events")
-      .select("cents")
-      .eq("user_id", user.id)
-      .eq("reason", "miss")
-      .gte("event_date", monthStart)
-      .lte("event_date", monthEnd);
-
-    const totalCents = (monthEvents || []).reduce((sum, e) => sum + (e.cents || 0), 0);
-    await supabase.from("penalty_months").upsert(
-      {
-        user_id: user.id,
-        month: monthStart,
-        total_cents: totalCents,
-      },
-      { onConflict: "user_id,month", ignoreDuplicates: false }
+          .eq("id", debt.id)
+      )
     );
   }
 
-  // Update all debt rows in parallel
-  await Promise.all(
-    Array.from(debtState.values()).map((debt) =>
-      supabase
-        .from("habit_debt")
-        .update({
-          debt_count: debt.debt_count,
-          completions_pending: debt.completions_pending,
-          scheduled_clean_streak: debt.scheduled_clean_streak,
-          consecutive_miss_days: debt.consecutive_miss_days,
-          lifetime_unpaid_cents: debt.lifetime_unpaid_cents,
-          debt_computed_through: debt.debt_computed_through,
-          updated_at: new Date().toISOString(),
-        })
-        .eq("id", debt.id)
-    )
-  );
-}
-
-/**
- * Applies forgiveness when a habit is completed.
- * Called from logHabit / logCustomHabit after successful logging.
- */
-export async function applyHabitCompletion(
-  habitType: HabitType,
-  customHabitId: string | null,
-  isHard: boolean,
-  today: string
-): Promise<void> {
-  const supabase = createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!user) return;
-
-  // Fetch the debt row
-  const query = supabase
-    .from("habit_debt")
-    .select("*")
-    .eq("user_id", user.id)
-    .eq("habit_type", habitType);
-
-  const { data: debtRow } = customHabitId
-    ? await query.eq("custom_habit_id", customHabitId).single()
-    : await query.is("custom_habit_id", null).single();
-
-  if (!debtRow) return; // NR not configured for this habit
-
-  // Validate it's a scheduled day for custom habits
-  if (habitType === "custom" && customHabitId) {
-    const { data: habit } = await supabase
-      .from("custom_habits")
-      .select("*")
-      .eq("id", customHabitId)
-      .eq("user_id", user.id)
-      .single();
-
-    if (!habit) return;
-    if (!(habit as CustomHabit).nr_enabled) return;
-
-    const { isHabitScheduledForDate: checkScheduled } = await import("@/lib/habit-debt-utils");
-    if (!checkScheduled(habit as CustomHabit, today)) return;
-  }
-
-  // Check daily forgiveness cap
-  const maxForgivenessEvents = isHard ? 1 : 2;
-  let forgivenessQuery = supabase
-    .from("penalty_events")
-    .select("id")
-    .eq("user_id", user.id)
-    .eq("habit_type", habitType)
-    .eq("event_date", today)
-    .eq("reason", "forgiven");
-
-  if (customHabitId) {
-    forgivenessQuery = forgivenessQuery.eq("custom_habit_id", customHabitId) as typeof forgivenessQuery;
-  } else {
-    forgivenessQuery = forgivenessQuery.is("custom_habit_id", null) as typeof forgivenessQuery;
-  }
-
-  const { data: todayForgivenessData } = await forgivenessQuery;
-  const forgivenessTodayCount = (todayForgivenessData?.length ?? 0);
-  if (forgivenessTodayCount >= maxForgivenessEvents) return; // Already maxed
-
-  const debt = debtRow as HabitDebt;
-  const forgivenessCents = getForgivenessCents(isHard);
-
-  // Update completions_pending and debt_count
-  let newCompletionsPending = debt.completions_pending + 1;
-  const completionsNeeded = isHard ? 1 : 2;
-  let newDebtCount = debt.debt_count;
-
-  if (newCompletionsPending >= completionsNeeded) {
-    newDebtCount = Math.max(0, debt.debt_count - 1);
-    newCompletionsPending = 0;
-  }
-
-  const newLifetimeUnpaid = Math.max(0, debt.lifetime_unpaid_cents - forgivenessCents);
-  const newStreak = debt.scheduled_clean_streak + 1;
-  const newConsecutiveMiss = newStreak >= 7 ? 0 : debt.consecutive_miss_days;
-
-  await Promise.all([
-    supabase
+  // Weekly reset — roll current week debt into total_debt_cents every Monday
+  const thisMonday = getMondayOfWeek(today);
+  if (!meta?.last_week_reset_date || meta.last_week_reset_date < thisMonday) {
+    // Fetch fresh per-habit values (reflects any updates done above)
+    const { data: freshDebts } = await supabase
       .from("habit_debt")
-      .update({
-        debt_count: newDebtCount,
-        completions_pending: newCompletionsPending,
-        scheduled_clean_streak: newStreak,
-        consecutive_miss_days: newConsecutiveMiss,
-        lifetime_unpaid_cents: newLifetimeUnpaid,
-        updated_at: new Date().toISOString(),
-      })
-      .eq("id", debt.id),
-    supabase.from("penalty_events").insert({
-      user_id: user.id,
-      habit_type: habitType,
-      custom_habit_id: customHabitId,
-      event_date: today,
-      cents: -forgivenessCents,
-      reason: "forgiven",
-    }),
-  ]);
+      .select("current_week_unpaid_cents")
+      .eq("user_id", user.id);
 
-  // Update recovery streak if in recovery mode
-  const { data: meta } = await supabase
-    .from("habit_debt_meta")
-    .select("*")
-    .eq("user_id", user.id)
-    .single();
+    const rollover = (freshDebts || []).reduce(
+      (sum: number, d: { current_week_unpaid_cents: number }) =>
+        sum + (d.current_week_unpaid_cents || 0),
+      0
+    );
 
-  if (meta?.recovery_mode_active) {
+    // Atomically update meta — .or() guard prevents double-rollover on concurrent loads
     await supabase
       .from("habit_debt_meta")
       .update({
-        recovery_streak: (meta.recovery_streak || 0) + 1,
+        total_debt_cents: (meta?.total_debt_cents ?? 0) + rollover,
+        last_week_reset_date: thisMonday,
+        updated_at: new Date().toISOString(),
+      })
+      .eq("user_id", user.id)
+      .or(`last_week_reset_date.is.null,last_week_reset_date.lt.${thisMonday}`);
+
+    // Zero out per-habit current week values
+    await supabase
+      .from("habit_debt")
+      .update({
+        current_week_unpaid_cents: 0,
+        debt_count: 0,
         updated_at: new Date().toISOString(),
       })
       .eq("user_id", user.id);
@@ -532,7 +315,7 @@ export async function applyHabitCompletion(
 }
 
 /**
- * Returns current debt state including live month stats from penalty_events.
+ * Returns current debt state for display.
  */
 export async function getDebtState(): Promise<DebtState> {
   const supabase = createClient();
@@ -541,133 +324,30 @@ export async function getDebtState(): Promise<DebtState> {
   } = await supabase.auth.getUser();
 
   if (!user) {
-    return { debts: [], meta: null, unsettledMonths: [], liveMonthChargedCents: 0, liveMonthForgivenCents: 0 };
+    return { debts: [], currentWeekTotalCents: 0, totalDebtCents: 0 };
   }
 
-  const monthStart = new Date();
-  monthStart.setDate(1);
-  const monthStartStr = monthStart.toISOString().split("T")[0];
+  const [debtsResult, metaResult] = await Promise.all([
+    supabase.from("habit_debt").select("*").eq("user_id", user.id),
+    supabase.from("habit_debt_meta").select("*").eq("user_id", user.id).single(),
+  ]);
 
-  const [debtsResult, metaResult, unsettledMonthsResult, liveEventsResult] =
-    await Promise.all([
-      supabase.from("habit_debt").select("*").eq("user_id", user.id),
-      supabase.from("habit_debt_meta").select("*").eq("user_id", user.id).single(),
-      supabase
-        .from("penalty_months")
-        .select("*")
-        .eq("user_id", user.id)
-        .is("settled_at", null)
-        .order("month", { ascending: true }),
-      supabase
-        .from("penalty_events")
-        .select("cents, reason")
-        .eq("user_id", user.id)
-        .gte("event_date", monthStartStr),
-    ]);
+  const debts = (debtsResult.data as HabitDebt[]) || [];
+  const meta = metaResult.data as HabitDebtMeta | null;
 
-  const liveEvents = (liveEventsResult.data || []) as { cents: number; reason: string }[];
-  const liveMonthChargedCents = liveEvents
-    .filter((e) => e.reason === "miss")
-    .reduce((sum, e) => sum + e.cents, 0);
-  const liveMonthForgivenCents = Math.abs(
-    liveEvents
-      .filter((e) => e.reason === "forgiven")
-      .reduce((sum, e) => sum + e.cents, 0)
+  const currentWeekTotalCents = debts.reduce(
+    (sum, d) => sum + (d.current_week_unpaid_cents || 0),
+    0
   );
+  const totalDebtCents = meta?.total_debt_cents ?? 0;
 
-  return {
-    debts: (debtsResult.data as HabitDebt[]) || [],
-    meta: metaResult.data as HabitDebtMeta | null,
-    unsettledMonths: (unsettledMonthsResult.data as PenaltyMonth[]) || [],
-    liveMonthChargedCents,
-    liveMonthForgivenCents,
-  };
+  return { debts, currentWeekTotalCents, totalDebtCents };
 }
 
 /**
- * Enters Recovery Mode (pauses charges for 14 days).
+ * Marks all total debt as paid (resets to $0).
  */
-export async function enterRecoveryMode(): Promise<{ error?: string }> {
-  const supabase = createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!user) return { error: "Unauthorized" };
-
-  const today = new Date().toISOString().split("T")[0];
-
-  // Check cooldown
-  const { data: meta } = await supabase
-    .from("habit_debt_meta")
-    .select("*")
-    .eq("user_id", user.id)
-    .single();
-
-  if (meta?.recovery_cooldown_until && meta.recovery_cooldown_until >= today) {
-    return { error: `Recovery mode available after ${meta.recovery_cooldown_until}` };
-  }
-
-  if (meta?.recovery_mode_active) {
-    return { error: "Recovery mode already active" };
-  }
-
-  const deadline = addDays(today, 14);
-
-  await supabase.from("habit_debt_meta").upsert(
-    {
-      user_id: user.id,
-      recovery_mode_active: true,
-      recovery_mode_start: today,
-      recovery_mode_deadline: deadline,
-      recovery_streak: 0,
-      recovery_cooldown_until: null,
-      updated_at: new Date().toISOString(),
-    },
-    { onConflict: "user_id" }
-  );
-
-  revalidatePath("/dashboard");
-  revalidatePath("/goals");
-  return {};
-}
-
-/**
- * Exits Recovery Mode.
- */
-export async function exitRecoveryMode(forced: boolean): Promise<{ error?: string }> {
-  const supabase = createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!user) return { error: "Unauthorized" };
-
-  const today = new Date().toISOString().split("T")[0];
-
-  const update: Record<string, unknown> = {
-    recovery_mode_active: false,
-    recovery_mode_start: null,
-    recovery_mode_deadline: null,
-    recovery_streak: 0,
-    updated_at: new Date().toISOString(),
-  };
-
-  if (forced) {
-    update.recovery_cooldown_until = addDays(today, 3);
-  }
-
-  await supabase.from("habit_debt_meta").update(update).eq("user_id", user.id);
-
-  revalidatePath("/dashboard");
-  revalidatePath("/goals");
-  return {};
-}
-
-/**
- * Settles a penalty month (marks as paid).
- */
-export async function settlePenaltyMonth(
-  penaltyMonthId: string
-): Promise<{ error?: string }> {
+export async function payOffTotalDebt(): Promise<{ error?: string }> {
   const supabase = createClient();
   const {
     data: { user },
@@ -675,25 +355,23 @@ export async function settlePenaltyMonth(
   if (!user) return { error: "Unauthorized" };
 
   const { error } = await supabase
-    .from("penalty_months")
-    .update({ settled_at: new Date().toISOString() })
-    .eq("id", penaltyMonthId)
+    .from("habit_debt_meta")
+    .update({ total_debt_cents: 0, updated_at: new Date().toISOString() })
     .eq("user_id", user.id);
 
   if (error) return { error: error.message };
 
-  revalidatePath("/goals");
+  revalidatePath("/analytics");
+  revalidatePath("/dashboard");
   return {};
 }
 
 /**
  * Updates NR settings for a built-in habit.
- * Upserts a fresh habit_debt row when enabled.
  */
 export async function updateBuiltinHabitNRSettings(
   habitType: "creatine" | "magnesium" | "gym",
-  enabled: boolean,
-  isHard: boolean
+  enabled: boolean
 ): Promise<{ error?: string }> {
   const supabase = createClient();
   const {
@@ -703,21 +381,17 @@ export async function updateBuiltinHabitNRSettings(
 
   const today = new Date().toISOString().split("T")[0];
 
-  const update: Record<string, unknown> = {
-    [`${habitType}_nr_enabled`]: enabled,
-    [`${habitType}_nr_is_hard`]: isHard,
-    updated_at: new Date().toISOString(),
-  };
-
   const { error } = await supabase
     .from("profiles")
-    .update(update)
+    .update({
+      [`${habitType}_nr_enabled`]: enabled,
+      updated_at: new Date().toISOString(),
+    })
     .eq("id", user.id);
 
   if (error) return { error: error.message };
 
   if (enabled) {
-    // Upsert fresh debt row
     await supabase.from("habit_debt").upsert(
       {
         user_id: user.id,
@@ -728,7 +402,7 @@ export async function updateBuiltinHabitNRSettings(
         completions_pending: 0,
         scheduled_clean_streak: 0,
         consecutive_miss_days: 0,
-        lifetime_unpaid_cents: 0,
+        current_week_unpaid_cents: 0,
         debt_computed_through: today,
         updated_at: new Date().toISOString(),
       },
@@ -743,12 +417,10 @@ export async function updateBuiltinHabitNRSettings(
 
 /**
  * Updates NR settings for a custom habit.
- * Upserts a fresh habit_debt row when enabled.
  */
 export async function updateCustomHabitNRSettings(
   habitId: string,
-  enabled: boolean,
-  isHard: boolean
+  enabled: boolean
 ): Promise<{ error?: string }> {
   const supabase = createClient();
   const {
@@ -758,7 +430,6 @@ export async function updateCustomHabitNRSettings(
 
   const today = new Date().toISOString().split("T")[0];
 
-  // Ownership check
   const { data: habit } = await supabase
     .from("custom_habits")
     .select("id")
@@ -772,7 +443,6 @@ export async function updateCustomHabitNRSettings(
     .from("custom_habits")
     .update({
       nr_enabled: enabled,
-      nr_is_hard: isHard,
       updated_at: new Date().toISOString(),
     })
     .eq("id", habitId)
@@ -791,7 +461,7 @@ export async function updateCustomHabitNRSettings(
         completions_pending: 0,
         scheduled_clean_streak: 0,
         consecutive_miss_days: 0,
-        lifetime_unpaid_cents: 0,
+        current_week_unpaid_cents: 0,
         debt_computed_through: today,
         updated_at: new Date().toISOString(),
       },

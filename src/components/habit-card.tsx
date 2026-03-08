@@ -108,21 +108,9 @@ export function HabitCard({ habitType, currentValue, goal, date, isFallingBehind
           <p className="text-xs text-muted-foreground mt-1">
             {value >= goal ? "Goal reached" : `${goal - value} ${config.unit} remaining`}
           </p>
-          {debt && debt.lifetime_unpaid_cents > 0 && (
-            <div className="mt-2 space-y-1">
-              <div className="flex items-center justify-between text-xs">
-                <span className="text-red-600 dark:text-red-400 font-medium">
-                  {formatCents(debt.lifetime_unpaid_cents)} owed · {debt.debt_count} debt
-                </span>
-              </div>
-              {debt.completions_pending > 0 && (
-                <div className="w-full h-1 bg-muted rounded-full overflow-hidden">
-                  <div
-                    className="h-full bg-emerald-500 rounded-full transition-all"
-                    style={{ width: `${(debt.completions_pending / (debt.consecutive_miss_days > 0 ? 1 : 1)) * 100}%` }}
-                  />
-                </div>
-              )}
+          {debt && debt.current_week_unpaid_cents > 0 && (
+            <div className="mt-2 text-xs text-red-600 dark:text-red-400 font-medium">
+              {formatCents(debt.current_week_unpaid_cents)} this week · {debt.debt_count} miss{debt.debt_count !== 1 ? "es" : ""}
             </div>
           )}
         </CardContent>
@@ -160,9 +148,9 @@ export function HabitCard({ habitType, currentValue, goal, date, isFallingBehind
             "Mark as done"
           )}
         </Button>
-        {debt && debt.lifetime_unpaid_cents > 0 && (
+        {debt && debt.current_week_unpaid_cents > 0 && (
           <div className="mt-2 text-xs text-red-600 dark:text-red-400 font-medium">
-            {formatCents(debt.lifetime_unpaid_cents)} owed · {debt.debt_count} debt
+            {formatCents(debt.current_week_unpaid_cents)} this week · {debt.debt_count} miss{debt.debt_count !== 1 ? "es" : ""}
           </div>
         )}
       </CardContent>

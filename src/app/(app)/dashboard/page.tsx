@@ -110,9 +110,7 @@ export default async function DashboardPage({
           weeklyHabitEntries={weeklyHabitEntries}
           weeklyCustomHabitEntries={weeklyCustomHabitEntries}
           debts={debtState.debts}
-          meta={debtState.meta}
-          liveMonthChargedCents={debtState.liveMonthChargedCents}
-          liveMonthForgivenCents={debtState.liveMonthForgivenCents}
+          currentWeekTotalCents={debtState.currentWeekTotalCents}
         />
       )}
 

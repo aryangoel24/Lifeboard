@@ -3,7 +3,6 @@
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { updateHabitStreak } from "@/lib/actions/habits";
-import { applyHabitCompletion } from "@/lib/actions/habit-debt";
 import { getToday, getNow } from "@/lib/timezone";
 import type { CustomHabit, HabitEntry } from "@/types/database";
 import { suggestHabitIcon } from "@/lib/ai-utils";
@@ -233,7 +232,7 @@ export async function logCustomHabit(
   // Ownership check
   const { data: habit } = await supabase
     .from("custom_habits")
-    .select("id, nr_enabled, nr_is_hard, tracking_type, target_value, frequency, frequency_days")
+    .select("id, nr_enabled, tracking_type, target_value, frequency, frequency_days")
     .eq("id", customHabitId)
     .eq("user_id", user.id)
     .single();
@@ -269,12 +268,6 @@ export async function logCustomHabit(
   }
 
   await updateHabitStreak(user.id, `custom:${customHabitId}`, loggedAt, value, supabase);
-
-  // Apply NR forgiveness if this habit has NR enabled and value > 0
-  if (value > 0 && (habit as CustomHabit).nr_enabled) {
-    const isHard = (habit as CustomHabit).nr_is_hard ?? false;
-    await applyHabitCompletion("custom", customHabitId, isHard, loggedAt);
-  }
 
   revalidatePath("/dashboard");
   return {};

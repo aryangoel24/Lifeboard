@@ -7,7 +7,7 @@ import { HabitCard } from "@/components/habit-card";
 import { CustomHabitCard } from "@/components/custom-habit-card";
 import { DebtBanner } from "@/components/debt-banner";
 import { isHabitScheduledForDate, computeHabitFallingBehind } from "@/lib/habit-utils";
-import type { CustomHabit, HabitDebt, HabitDebtMeta, HabitEntry, Profile } from "@/types/database";
+import type { CustomHabit, HabitDebt, HabitEntry, Profile } from "@/types/database";
 
 interface HabitsSectionProps {
   date: string;
@@ -19,9 +19,7 @@ interface HabitsSectionProps {
   weeklyHabitEntries: HabitEntry[];
   weeklyCustomHabitEntries: HabitEntry[];
   debts: HabitDebt[];
-  meta: HabitDebtMeta | null;
-  liveMonthChargedCents: number;
-  liveMonthForgivenCents: number;
+  currentWeekTotalCents: number;
 }
 
 export function HabitsSection({
@@ -34,9 +32,7 @@ export function HabitsSection({
   weeklyHabitEntries,
   weeklyCustomHabitEntries,
   debts,
-  meta,
-  liveMonthChargedCents,
-  liveMonthForgivenCents,
+  currentWeekTotalCents,
 }: HabitsSectionProps) {
   const [expanded, setExpanded] = useState(true);
 
@@ -52,12 +48,10 @@ export function HabitsSection({
   const magnesiumEntry = todayHabits.find((h) => h.habit_type === "magnesium");
   const gymEntry = todayHabits.find((h) => h.habit_type === "gym");
 
-  // Filter custom habits scheduled for this date
   const scheduledHabits = customHabits.filter((h) =>
     isHabitScheduledForDate(h, date)
   );
 
-  // Count completions
   const hardcodedDone = [
     creatineEntry && creatineEntry.value >= (profile.creatine_goal ?? 2),
     magnesiumEntry && magnesiumEntry.value >= 1,
@@ -76,7 +70,6 @@ export function HabitsSection({
   const totalDone = hardcodedDone + customDone;
   const totalHabits = 3 + scheduledHabits.length;
 
-  // Build per-habit debt lookup
   const getDebt = (habitType: string, customHabitId?: string): HabitDebt | undefined => {
     return debts.find((d) =>
       customHabitId
@@ -85,17 +78,13 @@ export function HabitsSection({
     );
   };
 
-  const hasActiveDebt = debts.some((d) => d.lifetime_unpaid_cents > 0 || meta?.recovery_mode_active);
-
   return (
     <div className="space-y-3">
-      {hasActiveDebt && (
+      {currentWeekTotalCents > 0 && (
         <DebtBanner
           debts={debts}
-          meta={meta}
           customHabits={customHabits}
-          liveMonthChargedCents={liveMonthChargedCents}
-          liveMonthForgivenCents={liveMonthForgivenCents}
+          currentWeekTotalCents={currentWeekTotalCents}
           today={today}
         />
       )}
