@@ -122,22 +122,6 @@ export type BudgetGoal = {
   created_at: string;
 };
 
-export type GroceryList = {
-  id: string;
-  user_id: string;
-  name: string;
-  created_at: string;
-};
-
-export type GroceryItem = {
-  id: string;
-  list_id: string;
-  name: string;
-  quantity: number | null;
-  unit: string | null;
-  estimated_cost: number | null;
-  checked: boolean;
-};
 
 export type UserAchievement = {
   id: string;
@@ -216,7 +200,7 @@ export type ExpenseEntry = {
   amount: number;
   description: string | null;
   expense_date: string;
-  source: "receipt" | "manual" | "plaid";
+  source: "receipt" | "manual";
   raw_text: string | null;
   category: string | null;
   merchant_name: string | null;
@@ -370,14 +354,6 @@ export type HabitDebtMeta = {
   updated_at: string;
 };
 
-export type PenaltyMonth = {
-  id: string;
-  user_id: string;
-  month: string;
-  total_cents: number;
-  settled_at: string | null;
-  created_at: string;
-};
 
 export type PenaltyEventReason = 'miss';
 
