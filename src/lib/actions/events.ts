@@ -122,7 +122,7 @@ export async function getEvents() {
   return { data, error: null };
 }
 
-export async function updateEvent(id: string, updates: { title?: string, summary?: string, raw_text?: string }) {
+export async function updateEvent(id: string, updates: { title?: string, summary?: string, raw_text?: string, happened_at?: string }) {
   const supabase = createClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return { success: false, error: "Unauthorized" };

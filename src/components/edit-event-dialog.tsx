@@ -16,8 +16,8 @@ interface EditEventDialogProps {
 export function EditEventDialog({ event }: EditEventDialogProps) {
     const [open, setOpen] = useState(false);
     const [title, setTitle] = useState(event.title || "");
-    const [summary, setSummary] = useState(event.summary || "");
     const [rawText, setRawText] = useState(event.raw_text || "");
+    const [happenedAt, setHappenedAt] = useState(event.happened_at ? new Date(event.happened_at).toISOString().split('T')[0] : "");
     const [isPending, startTransition] = useTransition();
     const [error, setError] = useState<string | null>(null);
 
@@ -27,8 +27,8 @@ export function EditEventDialog({ event }: EditEventDialogProps) {
         startTransition(async () => {
             const res = await updateEvent(event.id as string, {
                 title,
-                summary,
                 raw_text: rawText,
+                ...(happenedAt ? { happened_at: new Date(happenedAt).toISOString() } : {})
             });
             if (!res.success) {
                 setError(res.error || "Failed to update event");
@@ -52,13 +52,23 @@ export function EditEventDialog({ event }: EditEventDialogProps) {
                 <div className="space-y-4 py-4">
                     {error && <div className="text-sm text-destructive">{error}</div>}
 
-                    <div className="space-y-2">
-                        <label className="text-sm font-medium">Title</label>
-                        <Input
-                            value={title}
-                            onChange={(e) => setTitle(e.target.value)}
-                            placeholder="Event title"
-                        />
+                    <div className="grid grid-cols-2 gap-4">
+                        <div className="space-y-2">
+                            <label className="text-sm font-medium">Title</label>
+                            <Input
+                                value={title}
+                                onChange={(e) => setTitle(e.target.value)}
+                                placeholder="Event title"
+                            />
+                        </div>
+                        <div className="space-y-2">
+                            <label className="text-sm font-medium">Date</label>
+                            <Input
+                                type="date"
+                                value={happenedAt}
+                                onChange={(e) => setHappenedAt(e.target.value)}
+                            />
+                        </div>
                     </div>
 
                     <div className="space-y-2">
@@ -68,16 +78,6 @@ export function EditEventDialog({ event }: EditEventDialogProps) {
                             onChange={(e) => setRawText(e.target.value)}
                             placeholder="What happened?"
                             className="min-h-[150px]"
-                        />
-                    </div>
-
-                    <div className="space-y-2">
-                        <label className="text-sm font-medium">AI Summary</label>
-                        <Textarea
-                            value={summary}
-                            onChange={(e) => setSummary(e.target.value)}
-                            placeholder="Summary"
-                            className="font-mono text-sm min-h-[100px]"
                         />
                     </div>
                 </div>

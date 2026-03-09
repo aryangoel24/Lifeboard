@@ -3,6 +3,7 @@ import { format } from "date-fns";
 import { MapPin, Users, BrainCircuit, Clock } from "lucide-react";
 import Link from "next/link";
 import { EditEventDialog } from "@/components/edit-event-dialog";
+import { ExpandableText } from "@/components/expandable-text";
 
 export const metadata = {
     title: "Journal | Lifeboard",
@@ -52,7 +53,7 @@ export default async function JournalPage() {
                             <div className="w-[calc(100%-4rem)] md:w-[calc(50%-2.5rem)] glass p-6 rounded-2xl shadow-sm hover:shadow-md transition-all">
                                 <div className="flex items-center gap-3">
                                     <h3 className="font-bold text-xl">{event.title}</h3>
-                                    <div className="md:hidden group-hover:block transition-opacity opacity-0 group-hover:opacity-100">
+                                    <div className="opacity-0 group-hover:opacity-100 transition-opacity">
                                         <EditEventDialog event={event} />
                                     </div>
                                 </div>
@@ -60,22 +61,13 @@ export default async function JournalPage() {
                                     {event.happened_at && (
                                         <time className="text-xs font-medium text-muted-foreground flex items-center gap-1">
                                             {event.time_precision === 'approximate' && '~'}
-                                            {format(new Date(event.happened_at), "MMM d, yyyy")}
+                                            {format(new Date(event.happened_at.substring(0, 10) + 'T12:00:00'), "MMM d, yyyy")}
                                         </time>
                                     )}
-                                    <div className="hidden md:block opacity-0 group-hover:opacity-100 transition-opacity">
-                                        <EditEventDialog event={event} />
-                                    </div>
                                 </div>
 
-                                <div className="prose prose-sm dark:prose-invert text-muted-foreground line-clamp-3 mb-4 mt-4">
-                                    {event.raw_text}
-                                </div>
-
-                                {/* AI Summary view */}
-                                <div className="bg-muted/50 rounded-lg p-3 text-sm border border-border/50 mb-4">
-                                    <span className="font-semibold text-xs text-foreground/70 uppercase tracking-widest mb-1 block">AI Summary</span>
-                                    {event.summary}
+                                <div className="mt-4 mb-4">
+                                    <ExpandableText text={event.raw_text || ""} />
                                 </div>
 
                                 {/* Metadata Tags */}
