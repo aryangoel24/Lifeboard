@@ -146,7 +146,7 @@ export async function getEvents() {
     for (const event of data) {
       if (event.event_media && event.event_media.length > 0) {
         // Sort by sort_order
-        event.event_media.sort((a: any, b: any) => a.sort_order - b.sort_order);
+        event.event_media.sort((a: { sort_order: number }, b: { sort_order: number }) => a.sort_order - b.sort_order);
         for (const media of event.event_media) {
           const res = await getSignedUrl(media.storage_path, "journal-media");
           if (!("error" in res) && res.signedUrl) {

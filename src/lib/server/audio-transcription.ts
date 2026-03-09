@@ -25,8 +25,8 @@ export async function transcribeAudio(
         });
 
         return { text: transcription.text };
-    } catch (error: any) {
+    } catch (error) {
         console.error("Audio transcription error:", error);
-        return { error: error.message || "Unknown transcription error" };
+        return { error: error instanceof Error ? error.message : "Unknown transcription error" };
     }
 }

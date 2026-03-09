@@ -486,13 +486,11 @@ async function handleVoiceMessage(chatId: string, voice: { file_id: string }): P
 
   const { ingestEvent } = await import("@/lib/actions/events");
   let rawText = "";
-  let title = "";
-  let source = "telegram_voice";
+  const source = "telegram_voice";
 
   if ("error" in transcriptionResult) {
     console.error("Transcription failed:", transcriptionResult.error);
     rawText = "[transcription failed]";
-    title = "Voice Note"; // Let ingestEvent extract metadata, although it will fail from brackets so it will default
   } else {
     rawText = transcriptionResult.text;
   }

@@ -1,6 +1,6 @@
 import { getEvents } from "@/lib/actions/events";
 import { format } from "date-fns";
-import { MapPin, Users, BrainCircuit, Clock, Mic, MessageSquare } from "lucide-react";
+import { MapPin, Users, BrainCircuit, Clock, Mic } from "lucide-react";
 import Link from "next/link";
 import { EditEventDialog } from "@/components/edit-event-dialog";
 import { ExpandableText } from "@/components/expandable-text";
@@ -73,7 +73,7 @@ export default async function JournalPage() {
                                 {/* Media Rendering */}
                                 {event.event_media && event.event_media.length > 0 && (
                                     <div className="flex flex-col gap-3 my-4">
-                                        {event.event_media.map((media: any) => {
+                                        {event.event_media.map((media: { id: string; type: string; signed_url?: string }) => {
                                             if (!media.signed_url) return null;
                                             if (media.type === 'photo') {
                                                 /* eslint-disable-next-line @next/next/no-img-element */
