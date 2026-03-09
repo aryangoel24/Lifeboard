@@ -1,12 +1,12 @@
 "use client";
 
 import { useState, useTransition } from "react";
-import { updateEvent } from "@/lib/actions/events";
+import { updateEvent, deleteEvent } from "@/lib/actions/events";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
-import { Loader2, Pencil } from "lucide-react";
+import { Loader2, Pencil, Trash2 } from "lucide-react";
 import type { Event } from "@/types/database";
 
 interface EditEventDialogProps {
@@ -20,6 +20,8 @@ export function EditEventDialog({ event }: EditEventDialogProps) {
     const [happenedAt, setHappenedAt] = useState(event.happened_at ? new Date(event.happened_at).toISOString().split('T')[0] : "");
     const [isPending, startTransition] = useTransition();
     const [error, setError] = useState<string | null>(null);
+
+    const [isDeleting, setIsDeleting] = useState(false);
 
     const handleSave = () => {
         if (!event.id) return;
@@ -36,6 +38,22 @@ export function EditEventDialog({ event }: EditEventDialogProps) {
                 setOpen(false);
             }
         });
+    };
+
+    const handleDelete = async () => {
+        if (!event.id) return;
+        if (!confirm("Are you sure you want to delete this memory? This cannot be undone.")) return;
+
+        setError(null);
+        setIsDeleting(true);
+        const res = await deleteEvent(event.id as string);
+        setIsDeleting(false);
+
+        if (!res.success) {
+            setError(res.error || "Failed to delete event");
+        } else {
+            setOpen(false);
+        }
     };
 
     return (
@@ -81,14 +99,25 @@ export function EditEventDialog({ event }: EditEventDialogProps) {
                         />
                     </div>
                 </div>
-                <div className="flex justify-end gap-3 pb-2">
-                    <Button variant="outline" onClick={() => setOpen(false)} disabled={isPending}>
-                        Cancel
+                <div className="flex justify-between items-center pb-2">
+                    <Button
+                        variant="destructive"
+                        onClick={handleDelete}
+                        disabled={isPending || isDeleting}
+                        title="Delete this memory"
+                    >
+                        {isDeleting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4 mr-2" />}
+                        Delete
                     </Button>
-                    <Button onClick={handleSave} disabled={isPending}>
-                        {isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                        Save Changes
-                    </Button>
+                    <div className="flex gap-3">
+                        <Button variant="outline" onClick={() => setOpen(false)} disabled={isPending || isDeleting}>
+                            Cancel
+                        </Button>
+                        <Button onClick={handleSave} disabled={isPending || isDeleting}>
+                            {isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                            Save Changes
+                        </Button>
+                    </div>
                 </div>
             </DialogContent>
         </Dialog>

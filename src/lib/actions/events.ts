@@ -148,7 +148,8 @@ export async function getEvents() {
         // Sort by sort_order
         event.event_media.sort((a: { sort_order: number }, b: { sort_order: number }) => a.sort_order - b.sort_order);
         for (const media of event.event_media) {
-          const res = await getSignedUrl(media.storage_path, "journal-media");
+          const bucket = media.type === 'photo' ? 'food-photos' : 'journal-media';
+          const res = await getSignedUrl(media.storage_path, bucket);
           if (!("error" in res) && res.signedUrl) {
             media.signed_url = res.signedUrl;
           }
@@ -174,6 +175,26 @@ export async function updateEvent(id: string, updates: { title?: string, summary
   if (error) {
     console.error("Failed to update event:", error);
     return { success: false, error: "Failed to update event." };
+  }
+
+  revalidatePath("/journal");
+  return { success: true };
+}
+
+export async function deleteEvent(id: string) {
+  const supabase = createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return { success: false, error: "Unauthorized" };
+
+  const { error } = await supabase
+    .from("events")
+    .delete()
+    .eq("id", id)
+    .eq("user_id", user.id);
+
+  if (error) {
+    console.error("Failed to delete event:", error);
+    return { success: false, error: "Failed to delete event." };
   }
 
   revalidatePath("/journal");
