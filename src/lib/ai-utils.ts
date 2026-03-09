@@ -1,42 +1,43 @@
+
 import OpenAI from "openai";
 import crypto from "crypto";
-import type { KnowledgeNode } from "@/types/database";
+import type { KnowledgeNode, Event } from "@/types/database";
 
-const NUTRITION_SYSTEM_PROMPT = `You are a nutrition estimation assistant. Given a food description, estimate the nutritional content.
+const NUTRITION_SYSTEM_PROMPT = `You are a nutrition estimation assistant.Given a food description, estimate the nutritional content.
 
-Rules:
+  Rules:
 - Return a JSON object with these exact fields: name, calories, protein, carbs, fat, meal_category
-- "name" should be a clean, capitalized food name (e.g. "Grilled Chicken with Rice and Broccoli")
-- "calories" is a number (kcal)
-- "protein", "carbs", "fat" are numbers in grams, rounded to 1 decimal
-- "meal_category" must be one of: "breakfast", "lunch", "dinner", "snack" — infer from the food or time context
-- If multiple items are described, combine them into one entry with summed macros
-- Be reasonably accurate but err on the side of slightly overestimating calories
-- Only return the JSON object, no other text`;
+  - "name" should be a clean, capitalized food name(e.g. "Grilled Chicken with Rice and Broccoli")
+    - "calories" is a number(kcal)
+      - "protein", "carbs", "fat" are numbers in grams, rounded to 1 decimal
+        - "meal_category" must be one of: "breakfast", "lunch", "dinner", "snack" — infer from the food or time context
+          - If multiple items are described, combine them into one entry with summed macros
+            - Be reasonably accurate but err on the side of slightly overestimating calories
+              - Only return the JSON object, no other text`;
 
-const PHOTO_SYSTEM_PROMPT = `You are a nutrition estimation assistant. Given a photo of food, identify what it is and estimate the nutritional content.
+const PHOTO_SYSTEM_PROMPT = `You are a nutrition estimation assistant.Given a photo of food, identify what it is and estimate the nutritional content.
 
-Rules:
+  Rules:
 - Return a JSON object with these exact fields: name, calories, protein, carbs, fat, meal_category
-- "name" should be a clean, capitalized food name (e.g. "Grilled Chicken with Rice and Broccoli")
-- "calories" is a number (kcal)
-- "protein", "carbs", "fat" are numbers in grams, rounded to 1 decimal
-- "meal_category" must be one of: "breakfast", "lunch", "dinner", "snack" — infer from the food type
-- Estimate portion sizes from the photo and calculate macros accordingly
-- Be reasonably accurate but err on the side of slightly overestimating calories
-- Only return the JSON object, no other text`;
+  - "name" should be a clean, capitalized food name(e.g. "Grilled Chicken with Rice and Broccoli")
+    - "calories" is a number(kcal)
+      - "protein", "carbs", "fat" are numbers in grams, rounded to 1 decimal
+        - "meal_category" must be one of: "breakfast", "lunch", "dinner", "snack" — infer from the food type
+          - Estimate portion sizes from the photo and calculate macros accordingly
+            - Be reasonably accurate but err on the side of slightly overestimating calories
+              - Only return the JSON object, no other text`;
 
-const LABEL_SYSTEM_PROMPT = `You are a nutrition label reader. Given an image of a nutrition label, extract the nutritional information.
+const LABEL_SYSTEM_PROMPT = `You are a nutrition label reader.Given an image of a nutrition label, extract the nutritional information.
 
-Rules:
+  Rules:
 - Return a JSON object with these exact fields: name, serving_amount, serving_unit, calories, protein, carbs, fat
-- "name" should be the product name if visible, otherwise a reasonable description
-- "serving_amount" is the numeric serving size (e.g. 100, 28, 240)
-- "serving_unit" is the unit (e.g. "g", "ml", "oz")
-- "calories" is a number (kcal per serving)
-- "protein", "carbs", "fat" are numbers in grams per serving, rounded to 1 decimal
-- If you cannot read certain values, use 0
-- Only return the JSON object, no other text`;
+  - "name" should be the product name if visible, otherwise a reasonable description
+    - "serving_amount" is the numeric serving size(e.g. 100, 28, 240)
+      - "serving_unit" is the unit(e.g. "g", "ml", "oz")
+        - "calories" is a number(kcal per serving)
+          - "protein", "carbs", "fat" are numbers in grams per serving, rounded to 1 decimal
+            - If you cannot read certain values, use 0
+              - Only return the JSON object, no other text`;
 
 export interface NutritionEstimate {
   name: string;
@@ -336,40 +337,53 @@ export function hashContent(content: string): string {
   return crypto.createHash("sha256").update(content).digest("hex");
 }
 
-const RAG_SYNTHESIS_PROMPT = `You are a precision knowledge retrieval assistant. Your job is to answer the user's question using ONLY the provided context nodes.
+const RAG_SYNTHESIS_PROMPT = `You are a precision knowledge retrieval assistant.Your job is to answer the user's question using ONLY the provided context nodes.
 
 Strict Constraints:
-1. ONLY use information present in the Context given. Do NOT hallucinate or invent facts.
-2. If the Context contains the answer (even if it is just a mathematical formula, code snippet, or a terse technical note), provide it and explain it simply if you can.
+1. ONLY use information present in the Context given.Do NOT hallucinate or invent facts.
+2. If the Context contains the answer(even if it is just a mathematical formula, code snippet, or a terse technical note), provide it and explain it simply if you can.
 3. Only if the Context is completely irrelevant to the question should you explicitly say: "I couldn't find information about this in your graph."
-4. Cite your sources clearly by mentioning the node title (e.g., "According to [Node Title]...").
-5. Be concise, direct, and helpful. Format your answer in markdown for readability.`;
+4. Cite your sources clearly by mentioning the node title(e.g., "According to [Node Title]...").
+5. Be concise, direct, and helpful.Format your answer in markdown for readability.`;
 
 /**
  * Synthesizes a natural language answer based exclusively on retrieved nodes.
  */
 export async function synthesizeRagResponse(
   query: string,
-  contextNodes: Partial<KnowledgeNode>[]
+  contextNodes: Partial<KnowledgeNode>[],
+  contextEvents: Partial<Event>[] = []
 ): Promise<{ text: string | null; error: string | null }> {
   const openai = getOpenAIClient();
   if (!openai) {
     return { text: null, error: "OpenAI API key not configured." };
   }
 
-  if (contextNodes.length === 0) {
-    return { text: "I couldn't find any relevant information in your knowledge graph.", error: null };
+  if (contextNodes.length === 0 && contextEvents.length === 0) {
+    return { text: "I couldn't find any relevant information in your knowledge graph or journal.", error: null };
   }
 
   // Build the strict structured context block from the nodes
-  const contextString = contextNodes
+  const nodeContextString = contextNodes
     .map(
       (n, i) =>
-        `--- Node ${i + 1} ---\nTitle: ${n.title}\nType: ${n.node_type}\nPath: Parent(${n.parent_id || 'Root'}) -> Root(${n.root_id})\nDescription: ${n.description || "None"}\nKey Facts:\n${Array.isArray(n.key_facts) ? n.key_facts.slice(0, 10).map((f: unknown) => "- " + String(f)).join("\n") : "None"
-        }\nUser Facts:\n${Array.isArray(n.user_facts) ? n.user_facts.slice(0, 10).map((f: unknown) => "- " + String(f)).join("\n") : "None"
-        }\nEvidence: ${n.ai_evidence ? n.ai_evidence.substring(0, 500) + '...' : "None"}`
+        `-- - Knowledge Node ${i + 1} ---\nTitle: ${n.title} \nType: ${n.node_type} \nPath: Parent(${n.parent_id || 'Root'}) -> Root(${n.root_id}) \nDescription: ${n.description || "None"} \nKey Facts: \n${Array.isArray(n.key_facts) ? n.key_facts.slice(0, 10).map((f: unknown) => "- " + String(f)).join("\n") : "None"
+        } \nUser Facts: \n${Array.isArray(n.user_facts) ? n.user_facts.slice(0, 10).map((f: unknown) => "- " + String(f)).join("\n") : "None"
+        } \nEvidence: ${n.ai_evidence ? n.ai_evidence.substring(0, 500) + '...' : "None"} `
     )
     .join("\n\n");
+
+  const eventContextString = contextEvents
+    .map(
+      (e, i) =>
+        `-- - Logged Event / Memory ${i + 1} ---\nTitle: ${e.title} \nDates: ${e.happened_at ? String(e.happened_at).substring(0, 10) : 'Unknown'} (Precision: ${e.time_precision}) \nSummary: ${e.summary} \nRaw Narrative: ${e.raw_text} `
+    )
+    .join("\n\n");
+
+  const combinedContext = [
+    nodeContextString ? "=== KNOWLEDGE NODES ===\n" + nodeContextString : "",
+    eventContextString ? "=== MEMORIES & EVENTS ===\n" + eventContextString : ""
+  ].filter(Boolean).join("\n\n\n");
 
   try {
     const response = await openai.chat.completions.create({
@@ -378,7 +392,7 @@ export async function synthesizeRagResponse(
         { role: "system", content: RAG_SYNTHESIS_PROMPT },
         {
           role: "user",
-          content: `Question: ${query}\n\n=== CONTEXT NODES ===\n${contextString}`,
+          content: `Question: ${query} \n\n${combinedContext} `,
         },
       ],
       temperature: 0.1, // Keep it highly deterministic and grounded
@@ -419,11 +433,11 @@ The user will send you a short text message, often typed quickly on the go.
 Your job is to determine the intent and extract relevant structured data.
 
 Valid intents:
-1. "food": The user is describing something they just ate or a meal (e.g., "I just had a slice of pizza", "2 eggs and toast").
-2. "expense": The user is logging a purchase or money spent (e.g., "Spent $15 at Starbucks", "Bought groceries for 40.50").
-3. "pantry": The user is noting an item they ran out of or need to buy (e.g., "We are out of milk", "Add eggs to the shopping list").
-4. "knowledge": The user is saving an article, thought, or extraction, usually comprising a URL or a long informative note (e.g., "Read this: https://example.com/ai-article").
-5. "event": The user is describing a personal story, event, or memory (e.g., "Went to Post Malone tonight with Yash, it was awesome").
+1. "food": The user is describing something they just ate or a meal(e.g., "I just had a slice of pizza", "2 eggs and toast").
+2. "expense": The user is logging a purchase or money spent(e.g., "Spent $15 at Starbucks", "Bought groceries for 40.50").
+3. "pantry": The user is noting an item they ran out of or need to buy(e.g., "We are out of milk", "Add eggs to the shopping list").
+4. "knowledge": The user is saving an article, thought, or extraction, usually comprising a URL or a long informative note(e.g., "Read this: https://example.com/ai-article").
+5. "event": The user is describing a personal story, event, or memory(e.g., "Went to Post Malone tonight with Yash, it was awesome").
 6. "mixed": The user's message contains both a story/event AND explicitly learned knowledge/facts (e.g., "Went to a talk tonight and learned a lot about transformers").
 7. "unknown": If it's just a greeting, a random string, or something completely unrelated to the above categories.
 
@@ -431,28 +445,28 @@ Output strictly in JSON format.
 Example Expense:
 {
   "intent": "expense",
-  "data": {
+    "data": {
     "amount": 15.00,
-    "merchant": "Starbucks",
-    "expense_category": "dining",
-    "description": "Morning coffee"
+      "merchant": "Starbucks",
+        "expense_category": "dining",
+          "description": "Morning coffee"
   }
 }
 
 Example Pantry:
 {
   "intent": "pantry",
-  "data": {
+    "data": {
     "pantry_name": "Milk",
-    "pantry_category": "dairy",
-    "assumed_size": "1 gallon"
+      "pantry_category": "dairy",
+        "assumed_size": "1 gallon"
   }
 }
 
 Example Knowledge:
 {
   "intent": "knowledge",
-  "data": {
+    "data": {
     "url": "https://example.com/article"
   }
 }

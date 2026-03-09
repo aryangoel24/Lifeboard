@@ -138,6 +138,37 @@ export function RagSearchDialog() {
                                             </div>
                                         </div>
                                     )}
+
+                                    {result.contextEvents && result.contextEvents.length > 0 && (
+                                        <div className="pt-4 mt-4 border-t border-border/50">
+                                            <h4 className="text-xs font-semibold tracking-wider text-muted-foreground uppercase mb-3 px-1">
+                                                Journal Memories
+                                            </h4>
+                                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                                                {result.contextEvents.map((event, i) => (
+                                                    <motion.div
+                                                        initial={{ opacity: 0, scale: 0.95 }}
+                                                        animate={{ opacity: 1, scale: 1 }}
+                                                        transition={{ delay: i * 0.05 }}
+                                                        key={event.id}
+                                                        className="p-3 rounded-lg bg-indigo-50/50 dark:bg-indigo-950/20 border border-indigo-100 dark:border-indigo-900/30 hover:bg-indigo-50 dark:hover:bg-indigo-950/40 transition-colors flex flex-col gap-2 cursor-default group"
+                                                    >
+                                                        <div className="flex items-start justify-between">
+                                                            <span className="text-sm font-semibold truncate text-foreground/90 group-hover:text-indigo-600 dark:group-hover:text-indigo-400 transition-colors">
+                                                                {event.title}
+                                                            </span>
+                                                            <Badge variant="secondary" className="text-[10px] py-0 px-1.5 h-4 ml-2 shrink-0 opacity-80 bg-indigo-100 text-indigo-700 dark:bg-indigo-900/50 dark:text-indigo-300">
+                                                                Memory
+                                                            </Badge>
+                                                        </div>
+                                                        <p className="text-xs text-muted-foreground line-clamp-2 leading-relaxed">
+                                                            {event.summary || event.raw_text}
+                                                        </p>
+                                                    </motion.div>
+                                                ))}
+                                            </div>
+                                        </div>
+                                    )}
                                 </motion.div>
                             )}
 

@@ -2,6 +2,7 @@ import { getEvents } from "@/lib/actions/events";
 import { format } from "date-fns";
 import { MapPin, Users, BrainCircuit, Clock } from "lucide-react";
 import Link from "next/link";
+import { EditEventDialog } from "@/components/edit-event-dialog";
 
 export const metadata = {
     title: "Journal | Lifeboard",
@@ -49,17 +50,25 @@ export default async function JournalPage() {
 
                             {/* Card */}
                             <div className="w-[calc(100%-4rem)] md:w-[calc(50%-2.5rem)] glass p-6 rounded-2xl shadow-sm hover:shadow-md transition-all">
-                                <div className="flex items-center justify-between mb-2">
+                                <div className="flex items-center gap-3">
                                     <h3 className="font-bold text-xl">{event.title}</h3>
+                                    <div className="md:hidden group-hover:block transition-opacity opacity-0 group-hover:opacity-100">
+                                        <EditEventDialog event={event} />
+                                    </div>
+                                </div>
+                                <div className="flex items-center gap-3 mt-1">
                                     {event.happened_at && (
                                         <time className="text-xs font-medium text-muted-foreground flex items-center gap-1">
                                             {event.time_precision === 'approximate' && '~'}
                                             {format(new Date(event.happened_at), "MMM d, yyyy")}
                                         </time>
                                     )}
+                                    <div className="hidden md:block opacity-0 group-hover:opacity-100 transition-opacity">
+                                        <EditEventDialog event={event} />
+                                    </div>
                                 </div>
 
-                                <div className="prose prose-sm dark:prose-invert text-muted-foreground line-clamp-3 mb-4">
+                                <div className="prose prose-sm dark:prose-invert text-muted-foreground line-clamp-3 mb-4 mt-4">
                                     {event.raw_text}
                                 </div>
 
@@ -93,16 +102,14 @@ export default async function JournalPage() {
                                             Linked Knowledge
                                         </div>
                                         <div className="flex flex-wrap gap-2">
-                                            {/* Note: In a real app we'd join table to fetch node titles. 
-                          For now, just linking ID as an example or fetching via nested select in action, 
-                          but the action only selects node_id. We'll show a generic badge for now to reflect the architecture. */}
-                                            {event.event_knowledge_links?.map((link: { node_id: string; why: string | null }, idx: number) => (
+                                            {/* We fetch knowledge_nodes(title) from the query */}
+                                            {event.event_knowledge_links?.map((link: { node_id: string; why: string | null; knowledge_nodes?: { title: string } | null }, idx: number) => (
                                                 <Link
-                                                    href={"/learn/hub"}
+                                                    href={`/learn/hub?nodeId=${link.node_id}`}
                                                     key={idx}
-                                                    className="text-xs hover:bg-muted bg-background border px-2 py-1 rounded-md transition-colors"
+                                                    className="text-xs hover:bg-muted bg-background border px-2 py-1 rounded-md transition-colors text-indigo-600 dark:text-indigo-400 font-medium"
                                                 >
-                                                    Node Ref
+                                                    {link.knowledge_nodes?.title || "Node Ref"}
                                                 </Link>
                                             ))}
                                         </div>
@@ -113,7 +120,7 @@ export default async function JournalPage() {
                     ))
                 )}
             </div>
-        </div>
+        </div >
     );
 }
 
