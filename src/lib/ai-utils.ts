@@ -398,7 +398,7 @@ export async function synthesizeRagResponse(
 }
 
 export interface TelegramIntentAnalysis {
-  intent: "food" | "expense" | "pantry" | "knowledge" | "unknown";
+  intent: "food" | "expense" | "pantry" | "knowledge" | "event" | "mixed" | "unknown";
   data?: {
     // For expense
     amount?: number;
@@ -423,7 +423,9 @@ Valid intents:
 2. "expense": The user is logging a purchase or money spent (e.g., "Spent $15 at Starbucks", "Bought groceries for 40.50").
 3. "pantry": The user is noting an item they ran out of or need to buy (e.g., "We are out of milk", "Add eggs to the shopping list").
 4. "knowledge": The user is saving an article, thought, or extraction, usually comprising a URL or a long informative note (e.g., "Read this: https://example.com/ai-article").
-5. "unknown": If it's just a greeting, a random string, or something completely unrelated to the above categories.
+5. "event": The user is describing a personal story, event, or memory (e.g., "Went to Post Malone tonight with Yash, it was awesome").
+6. "mixed": The user's message contains both a story/event AND explicitly learned knowledge/facts (e.g., "Went to a talk tonight and learned a lot about transformers").
+7. "unknown": If it's just a greeting, a random string, or something completely unrelated to the above categories.
 
 Output strictly in JSON format.
 Example Expense:
@@ -499,5 +501,73 @@ export async function analyzeTelegramIntent(
   } catch (err) {
     console.error("Error parsing Telegram intent:", err);
     return { result: null, error: "Failed to analyze message content." };
+  }
+}
+
+export interface ExtractedEventDetails {
+  title: string;
+  happened_at: string | null; // ISO string if available
+  time_precision: "exact" | "day" | "approximate" | "unknown";
+  summary: string;
+  extracted_people: string[];
+  extracted_places: string[];
+  fact_suggestions: string[];
+}
+
+const EVENT_EXTRACTION_PROMPT = `You are an AI assisting in organizing personal episodic memory.
+The user has provided a raw text dump describing an event, story, or interaction.
+Your task is to extract meaningful metadata from this raw text.
+
+You must:
+1. Generate a short, descriptive \`title\`.
+2. Determine \`happened_at\` if possible, relative to the provided CURRENT_DATE. If only a day is known, provide the ISO string for that day.
+3. Set \`time_precision\` based on your confidence ("exact" if a specific time is mentioned, "day" if 'today' or 'yesterday' is used, "approximate" for vague ranges, "unknown" if no time context exists).
+4. Write a concise \`summary\` (1-2 sentences).
+5. Extract a list of \`extracted_people\` (names of individuals mentioned).
+6. Extract a list of \`extracted_places\` (locations, cities, venues).
+7. Propose \`fact_suggestions\` ONLY IF there are highly durable, important takeaways (e.g., "Yash is allergic to peanuts"). Do NOT suggest trivial details like "User ate a hotdog." Keep this array empty if there are no universally durable facts to suggest for the knowledge graph.
+
+Return STRICTLY valid JSON matching the following structure:
+{
+  "title": "str",
+  "happened_at": "ISO string or null",
+  "time_precision": "exact|day|approximate|unknown",
+  "summary": "str",
+  "extracted_people": ["str"],
+  "extracted_places": ["str"],
+  "fact_suggestions": ["str"]
+}
+`;
+
+export async function extractEventDetails(
+  rawText: string
+): Promise<{ result: ExtractedEventDetails | null; error: string | null }> {
+  const openai = getOpenAIClient();
+  if (!openai) {
+    return { result: null, error: "OpenAI API key not configured." };
+  }
+
+  const currentDateStr = new Date().toISOString();
+  try {
+    const response = await openai.chat.completions.create({
+      model: "gpt-4o",
+      response_format: { type: "json_object" },
+      messages: [
+        { role: "system", content: EVENT_EXTRACTION_PROMPT },
+        { role: "user", content: `CURRENT_DATE: ${currentDateStr}\n\nRAW TEXT: ${rawText}` },
+      ],
+      temperature: 0.2, // Low temp for reliable formatting
+    });
+
+    const content = response.choices[0]?.message?.content;
+    if (!content) {
+      return { result: null, error: "Failed to parse event details." };
+    }
+
+    const parsed = JSON.parse(content) as ExtractedEventDetails;
+    return { result: parsed, error: null };
+  } catch (err) {
+    console.error("Error extracting event details:", err);
+    return { result: null, error: "Failed to extract event." };
   }
 }

@@ -367,3 +367,43 @@ export type PenaltyEvent = {
   reason: PenaltyEventReason;
   created_at: string;
 };
+
+// Episodic Memory / Stories Domain
+
+export type TimePrecision = 'exact' | 'day' | 'approximate' | 'unknown';
+export type ProcessingStatus = 'pending' | 'complete' | 'failed';
+
+export type Event = {
+  id: string;
+  user_id: string;
+  title: string;
+  happened_at: string | null;
+  time_precision: TimePrecision;
+  processing_status: ProcessingStatus;
+  raw_text: string;
+  summary: string;
+  source: string;
+  source_ref: string | null;
+  extracted_people: string[] | null;
+  extracted_places: string[] | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export type EventKnowledgeLink = {
+  event_id: string;
+  node_id: string;
+  why: string | null;
+};
+
+export type FactSuggestionStatus = 'pending' | 'applied' | 'dismissed';
+
+export type EventFactSuggestion = {
+  id: string;
+  event_id: string;
+  target_node_id: string | null;
+  fact_text: string;
+  status: FactSuggestionStatus;
+  created_at: string;
+  updated_at: string;
+};

@@ -21,6 +21,10 @@ const navGroups = [
     items: [{ href: "/dashboard", label: "Dashboard" }],
   },
   {
+    label: "Journal",
+    items: [{ href: "/journal", label: "Journal" }],
+  },
+  {
     label: "Food",
     items: [
       { href: "/calendar", label: "Calendar" },
@@ -127,7 +131,7 @@ export function Header() {
                           href={item.href}
                           className={cn(
                             pathname === item.href &&
-                              "text-emerald-700 dark:text-emerald-400 font-medium"
+                            "text-emerald-700 dark:text-emerald-400 font-medium"
                           )}
                         >
                           {item.label}

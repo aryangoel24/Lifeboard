@@ -149,6 +149,24 @@ async function handleTextMessage(chatId: string, text: string): Promise<void> {
 
   const { intent, data } = intentResponse;
 
+  // --- EVENT & MIXED INTENT ---
+  if (intent === "event" || intent === "mixed") {
+    await sendMessage(chatId, `📖 Saving to your Journal...`);
+
+    // Import dynamically to avoid top-level issues
+    const { ingestEvent } = await import("@/lib/actions/events");
+
+    // The event extraction prompt handles facts natively and places them in pending queue
+    const ingestRes = await ingestEvent(text, "telegram", user.id);
+
+    if (ingestRes && ingestRes.error) {
+      await sendMessage(chatId, `❌ Failed to save event: ${ingestRes.error}`);
+    } else {
+      await sendMessage(chatId, `✅ Saved to your Journal!`);
+    }
+    return;
+  }
+
   // --- KNOWLEDGE INTENT ---
   if (intent === "knowledge") {
     const isUrl = !!data?.url;

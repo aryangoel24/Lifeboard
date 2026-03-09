@@ -1,0 +1,123 @@
+"use server";
+
+import { revalidatePath } from "next/cache";
+import { createClient } from "@/lib/supabase/server";
+import { createAdminClient } from "@/lib/supabase/admin";
+import { extractEventDetails, generateEmbedding } from "@/lib/ai-utils";
+
+export async function ingestEvent(
+  rawText: string,
+  source: string,
+  overrideUserId?: string
+) {
+  let supabase;
+  let userId: string;
+
+  if (overrideUserId) {
+    supabase = createAdminClient();
+    userId = overrideUserId;
+  } else {
+    supabase = createClient();
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return { error: "Unauthorized" };
+    userId = user.id;
+  }
+
+  // 1. Ask AI to analyze the raw story
+  const { result: extracted, error: extractErr } = await extractEventDetails(rawText);
+  if (extractErr || !extracted) {
+    return { error: extractErr || "Failed to extract event." };
+  }
+
+  // 2. Generate embedding for semantic search
+  let embeddingVector = null;
+  const embedInput = `${extracted.title}\n\n${extracted.summary}\n\nRaw: ${rawText}`;
+  const embedRes = await generateEmbedding(embedInput);
+  if (embedRes && !embedRes.error && embedRes.embedding) {
+    embeddingVector = embedRes.embedding;
+  }
+
+  // 3. Save the event
+  const { data: event, error: eventErr } = await supabase
+    .from("events")
+    .insert({
+      user_id: userId,
+      title: extracted.title,
+      happened_at: extracted.happened_at,
+      time_precision: extracted.time_precision,
+      raw_text: rawText,
+      summary: extracted.summary,
+      source: source,
+      extracted_people: extracted.extracted_people,
+      extracted_places: extracted.extracted_places,
+      embedding: embeddingVector,
+      processing_status: "complete"
+    })
+    .select("id")
+    .single();
+
+  if (eventErr || !event) {
+    console.error("Failed to insert event:", eventErr);
+    return { error: "Failed to save event to database." };
+  }
+
+  const eventId = event.id;
+
+  // 4. Save any fact suggestions
+  if (extracted.fact_suggestions && extracted.fact_suggestions.length > 0) {
+    const suggestionRows = extracted.fact_suggestions.map(fact => ({
+      event_id: eventId,
+      fact_text: fact,
+      status: "pending" as const,
+    }));
+    const { error: sugErr } = await supabase
+      .from("event_fact_suggestions")
+      .insert(suggestionRows);
+
+    if (sugErr) {
+      console.error("Failed to insert fact suggestions:", sugErr);
+      // We don't fail the whole request for this
+    }
+  }
+
+  // 5. Attempt auto-linking (Naive match: if an exact node title exists matching an extracted person/place)
+  const combinedEntities = [...extracted.extracted_people, ...extracted.extracted_places];
+  if (combinedEntities.length > 0) {
+    const { data: matchedNodes } = await supabase
+      .from("knowledge_nodes")
+      .select("id, title")
+      .eq("user_id", userId)
+      .in("title", combinedEntities);
+
+    if (matchedNodes && matchedNodes.length > 0) {
+      const linkRows = matchedNodes.map(n => ({
+        event_id: eventId,
+        node_id: n.id,
+        why: "Auto-linked by name match",
+      }));
+      await supabase.from("event_knowledge_links").insert(linkRows);
+    }
+  }
+
+  revalidatePath("/journal");
+  return { success: true, eventId };
+}
+
+export async function getEvents() {
+  const supabase = createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return { data: null, error: "Unauthorized" };
+
+  const { data, error } = await supabase
+    .from("events")
+    .select("*, event_knowledge_links(node_id, why)")
+    .eq("user_id", user.id)
+    .order("happened_at", { ascending: false });
+
+  if (error) {
+    console.error("Failed to fetch events:", error);
+    return { data: null, error: "Failed to fetch events." };
+  }
+
+  return { data, error: null };
+}
