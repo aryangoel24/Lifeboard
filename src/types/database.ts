@@ -373,6 +373,17 @@ export type PenaltyEvent = {
 export type TimePrecision = 'exact' | 'day' | 'approximate' | 'unknown';
 export type ProcessingStatus = 'pending' | 'complete' | 'failed';
 
+export type EventMedia = {
+  id: string;
+  event_id: string;
+  user_id: string;
+  type: 'photo' | 'audio';
+  storage_path: string;
+  sort_order: number;
+  created_at: string;
+  signed_url?: string; // added dynamically by getEvents
+};
+
 export type Event = {
   id: string;
   user_id: string;
@@ -388,6 +399,9 @@ export type Event = {
   extracted_places: string[] | null;
   created_at: string;
   updated_at: string;
+
+  // Relations mapped by postgrest
+  event_media?: EventMedia[] | null;
 };
 
 export type EventKnowledgeLink = {

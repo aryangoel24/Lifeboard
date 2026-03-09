@@ -1,6 +1,6 @@
 import { getEvents } from "@/lib/actions/events";
 import { format } from "date-fns";
-import { MapPin, Users, BrainCircuit, Clock } from "lucide-react";
+import { MapPin, Users, BrainCircuit, Clock, Mic, MessageSquare } from "lucide-react";
 import Link from "next/link";
 import { EditEventDialog } from "@/components/edit-event-dialog";
 import { ExpandableText } from "@/components/expandable-text";
@@ -70,6 +70,23 @@ export default async function JournalPage() {
                                     <ExpandableText text={event.raw_text || ""} />
                                 </div>
 
+                                {/* Media Rendering */}
+                                {event.event_media && event.event_media.length > 0 && (
+                                    <div className="flex flex-col gap-3 my-4">
+                                        {event.event_media.map((media: any) => {
+                                            if (!media.signed_url) return null;
+                                            if (media.type === 'photo') {
+                                                /* eslint-disable-next-line @next/next/no-img-element */
+                                                return <img key={media.id} src={media.signed_url} alt="Memory" className="rounded-xl w-full max-h-96 object-cover border dark:border-border/50" />;
+                                            }
+                                            if (media.type === 'audio') {
+                                                return <audio key={media.id} controls src={media.signed_url} className="w-full h-10" />;
+                                            }
+                                            return null;
+                                        })}
+                                    </div>
+                                )}
+
                                 {/* Metadata Tags */}
                                 <div className="flex flex-wrap gap-2 mt-4">
                                     {(event.extracted_people?.length ?? 0) > 0 && (
@@ -82,6 +99,12 @@ export default async function JournalPage() {
                                         <div className="flex items-center gap-1.5 text-xs bg-blue-500/10 text-blue-700 dark:text-blue-400 px-2.5 py-1 rounded-full font-medium">
                                             <MapPin className="w-3.5 h-3.5" />
                                             {event.extracted_places?.join(", ")}
+                                        </div>
+                                    )}
+                                    {event.source === 'telegram_voice' && (
+                                        <div className="flex items-center gap-1.5 text-xs bg-purple-500/10 text-purple-700 dark:text-purple-400 px-2.5 py-1 rounded-full font-medium">
+                                            <Mic className="w-3.5 h-3.5" />
+                                            Transcribed Voice Note
                                         </div>
                                     )}
                                 </div>

@@ -56,6 +56,42 @@ export async function uploadBase64Photo(
   return { photoPath, signedUrl: signedUrlResult.signedUrl };
 }
 
+export async function uploadBase64Audio(
+  userId: string,
+  base64Data: string,
+  bucket: string = "journal-media"
+): Promise<{ audioPath: string; signedUrl: string } | UploadError> {
+  const buffer = Buffer.from(base64Data, "base64");
+
+  if (buffer.length > MAX_PHOTO_SIZE_BYTES) {
+    return {
+      error: `Audio exceeds maximum size of ${MAX_PHOTO_SIZE_BYTES / (1024 * 1024)}MB`,
+    };
+  }
+
+  const audioPath = `${userId}/${randomUUID()}.ogg`;
+  const supabase = createAdminClient();
+
+  const { error } = await supabase.storage
+    .from(bucket)
+    .upload(audioPath, buffer, {
+      contentType: "audio/ogg",
+      upsert: false,
+    });
+
+  if (error) {
+    console.error("Audio upload error:", error);
+    return { error: "Failed to upload audio" };
+  }
+
+  const signedUrlResult = await getSignedUrl(audioPath, bucket);
+  if ("error" in signedUrlResult) {
+    return signedUrlResult;
+  }
+
+  return { audioPath, signedUrl: signedUrlResult.signedUrl };
+}
+
 export async function getSignedUrl(
   photoPath: string,
   bucket: string = "food-photos"

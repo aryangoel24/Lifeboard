@@ -8,7 +8,8 @@ import { extractEventDetails, generateEmbedding } from "@/lib/ai-utils";
 export async function ingestEvent(
   rawText: string,
   source: string,
-  overrideUserId?: string
+  overrideUserId?: string,
+  media?: { type: 'photo' | 'audio', storagePath: string }[]
 ) {
   let supabase;
   let userId: string;
@@ -63,6 +64,26 @@ export async function ingestEvent(
 
   const eventId = event.id;
 
+  // 4. Save any media
+  if (media && media.length > 0) {
+    const mediaInserts = media.map((m, index) => ({
+      event_id: eventId,
+      user_id: userId,
+      type: m.type,
+      storage_path: m.storagePath,
+      sort_order: index
+    }));
+
+    const { error: mediaErr } = await supabase
+      .from("event_media")
+      .insert(mediaInserts);
+
+    if (mediaErr) {
+      console.error("Failed to insert event media:", mediaErr);
+      // We don't fail the whole request just for media
+    }
+  }
+
   // 4. Save any fact suggestions
   if (extracted.fact_suggestions && extracted.fact_suggestions.length > 0) {
     const suggestionRows = extracted.fact_suggestions.map(fact => ({
@@ -110,13 +131,30 @@ export async function getEvents() {
 
   const { data, error } = await supabase
     .from("events")
-    .select("*, event_knowledge_links(node_id, why, knowledge_nodes(title))")
+    .select("*, event_knowledge_links(node_id, why, knowledge_nodes(title)), event_media(*)")
     .eq("user_id", user.id)
     .order("happened_at", { ascending: false });
 
   if (error) {
     console.error("Failed to fetch events:", error);
     return { data: null, error: "Failed to fetch events." };
+  }
+
+  // Resolve signed URLs for media
+  const { getSignedUrl } = await import("@/lib/storage-utils");
+  if (data) {
+    for (const event of data) {
+      if (event.event_media && event.event_media.length > 0) {
+        // Sort by sort_order
+        event.event_media.sort((a: any, b: any) => a.sort_order - b.sort_order);
+        for (const media of event.event_media) {
+          const res = await getSignedUrl(media.storage_path, "journal-media");
+          if (!("error" in res) && res.signedUrl) {
+            media.signed_url = res.signedUrl;
+          }
+        }
+      }
+    }
   }
 
   return { data, error: null };

@@ -21,7 +21,8 @@ import {
   estimateNutritionFromPhoto,
   analyzeTelegramIntent,
 } from "@/lib/ai-utils";
-import { uploadBase64Photo } from "@/lib/storage-utils";
+import { uploadBase64Photo, uploadBase64Audio } from "@/lib/storage-utils";
+import { transcribeAudio } from "@/lib/server/audio-transcription";
 import { getDefaultMealCategory } from "@/lib/utils";
 import type { MealCategory } from "@/types/database";
 
@@ -60,7 +61,9 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
         await handleTextMessage(chatId, message.text).catch(console.error);
       }
     } else if (message.photo) {
-      await handlePhotoMessage(chatId, message.photo).catch(console.error);
+      await handlePhotoMessage(chatId, message.photo, message.caption).catch(console.error);
+    } else if (message.voice) {
+      await handleVoiceMessage(chatId, message.voice).catch(console.error);
     }
   }
 
@@ -358,14 +361,12 @@ interface TelegramPhotoSize {
   file_size?: number;
 }
 
-async function handlePhotoMessage(chatId: string, photos: TelegramPhotoSize[]): Promise<void> {
+async function handlePhotoMessage(chatId: string, photos: TelegramPhotoSize[], caption?: string): Promise<void> {
   const user = await getUserByChatId(chatId);
   if (!user) {
     await sendMessage(chatId, "❌ Account not linked. Use /link <token> to connect your account.");
     return;
   }
-
-  await sendMessage(chatId, "🔍 Analysing your photo…");
 
   // Use the largest photo size
   const largestPhoto = photos.reduce((a, b) => (a.file_size ?? 0) > (b.file_size ?? 0) ? a : b);
@@ -383,6 +384,37 @@ async function handlePhotoMessage(chatId: string, photos: TelegramPhotoSize[]): 
     return;
   }
 
+  // Default intent to 'food' unless caption strongly signals otherwise
+  let intentType = "food";
+  if (caption) {
+    const { result: intentResponse } = await analyzeTelegramIntent(caption);
+    if (intentResponse && (intentResponse.intent === "event" || intentResponse.intent === "mixed")) {
+      // If it's a mixed intent, default to event to capture the rich memory
+      intentType = "event";
+    }
+  }
+
+  if (intentType === "event") {
+    await sendMessage(chatId, "📖 Saving photo to your Journal...");
+    const { ingestEvent } = await import("@/lib/actions/events");
+
+    const ingestRes = await ingestEvent(
+      caption || "Photo memory",
+      "telegram_photo_caption",
+      user.id,
+      [{ type: 'photo', storagePath: uploadResult.photoPath }]
+    );
+
+    if (ingestRes && ingestRes.error) {
+      await sendMessage(chatId, `❌ Failed to log event: ${ingestRes.error}`);
+    } else {
+      await sendMessage(chatId, `✅ Photo saved to Journal!`);
+    }
+    return;
+  }
+
+  // Default Food Processing
+  await sendMessage(chatId, "🔍 Analysing your food photo…");
   const { data: estimate, error } = await estimateNutritionFromPhoto(uploadResult.signedUrl);
   if (error || !estimate) {
     await sendMessage(chatId, `❌ Failed to analyse photo: ${error || "Unknown error"}`);
@@ -418,6 +450,69 @@ async function handlePhotoMessage(chatId: string, photos: TelegramPhotoSize[]): 
       ]),
     }
   );
+}
+
+// --- Voice message handler ---
+
+async function handleVoiceMessage(chatId: string, voice: { file_id: string }): Promise<void> {
+  const user = await getUserByChatId(chatId);
+  if (!user) {
+    await sendMessage(chatId, "❌ Account not linked.");
+    return;
+  }
+
+  await sendMessage(chatId, "🎤 Listening to your voice note...");
+
+  const base64 = await downloadTelegramFile(voice.file_id);
+  if (!base64) {
+    await sendMessage(chatId, "❌ Failed to download audio.");
+    return;
+  }
+
+  // Upload raw audio
+  const uploadResult = await uploadBase64Audio(user.id, base64);
+  let audioPath: string | undefined;
+  if ("audioPath" in uploadResult) {
+    audioPath = uploadResult.audioPath;
+  } else {
+    console.error("Audio upload failed:", uploadResult.error);
+    // We will gracefully continue and attempt transcription anyway, but without saving the memory URL
+  }
+
+  // Transcribe
+  const buffer = Buffer.from(base64, "base64");
+  const filename = `${voice.file_id}.ogg`;
+  const transcriptionResult = await transcribeAudio(buffer, filename);
+
+  const { ingestEvent } = await import("@/lib/actions/events");
+  let rawText = "";
+  let title = "";
+  let source = "telegram_voice";
+
+  if ("error" in transcriptionResult) {
+    console.error("Transcription failed:", transcriptionResult.error);
+    rawText = "[transcription failed]";
+    title = "Voice Note"; // Let ingestEvent extract metadata, although it will fail from brackets so it will default
+  } else {
+    rawText = transcriptionResult.text;
+  }
+
+  await sendMessage(chatId, "📖 Adding to your Journal...");
+
+  const mediaObj = audioPath ? [{ type: "audio" as const, storagePath: audioPath }] : undefined;
+
+  const ingestRes = await ingestEvent(
+    rawText,
+    source,
+    user.id,
+    mediaObj
+  );
+
+  if (ingestRes && ingestRes.error) {
+    await sendMessage(chatId, `❌ Failed to log voice note: ${ingestRes.error}`);
+  } else {
+    await sendMessage(chatId, `✅ Voice note logged!${"error" in transcriptionResult ? " (Transcription failed but audio saved)" : ""}`);
+  }
 }
 
 // --- Callback query handler ---
@@ -616,6 +711,8 @@ interface TelegramMessage {
   chat: { id: number };
   text?: string;
   photo?: TelegramPhotoSize[];
+  caption?: string;
+  voice?: { file_id: string };
 }
 
 interface TelegramUpdate {
