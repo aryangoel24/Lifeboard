@@ -480,7 +480,7 @@ async function handleAlbumPhoto(chatId: string, photos: TelegramPhotoSize[], med
   const supabase = createAdminClient();
 
   // Atomic "claim" — only the first INSERT for this media_group_id will succeed (unique index)
-  const { data: claimed, error: claimError } = await supabase
+  const { data: claimed, error: _claimError } = await supabase
     .from("telegram_sessions")
     .insert({
       user_id: user.id,
