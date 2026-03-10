@@ -35,8 +35,8 @@ export function EventCarousel({ children, count }: EventCarouselProps) {
                             key={i}
                             onClick={() => setIndex(i)}
                             className={`rounded-full transition-all ${i === index
-                                    ? "w-6 h-2 bg-primary"
-                                    : "w-2 h-2 bg-muted-foreground/30 hover:bg-muted-foreground/50"
+                                ? "w-6 h-2 bg-primary"
+                                : "w-2 h-2 bg-muted-foreground/30 hover:bg-muted-foreground/50"
                                 }`}
                             aria-label={`Go to event ${i + 1}`}
                         />
