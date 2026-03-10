@@ -458,7 +458,8 @@ async function handlePhotoMessage(chatId: string, photos: TelegramPhotoSize[], c
 }
 
 // --- Album photo handler (for Telegram media groups) ---
-// Buffer-and-flush: all instances upload + buffer, leader sleeps 7s then collects and creates one event.
+// Fast buffer-only approach: upload the photo, save to pending_album_photos, return immediately.
+// Actual event creation happens lazily when the journal page loads (in getEvents).
 
 async function handleAlbumPhoto(
   chatId: string,
@@ -473,7 +474,7 @@ async function handleAlbumPhoto(
     return;
   }
 
-  // 1. Download and upload this photo (all instances do this in parallel)
+  // 1. Download and upload this photo
   const largestPhoto = photos.reduce((a, b) => (a.file_size ?? 0) > (b.file_size ?? 0) ? a : b);
   const base64 = await downloadTelegramFile(largestPhoto.file_id);
   if (!base64) return;
@@ -483,8 +484,8 @@ async function handleAlbumPhoto(
 
   const supabase = createAdminClient();
 
-  // 2. Buffer this photo — the unique index on (media_group_id, telegram_file_id) prevents dupes on retries
-  await supabase.from("pending_album_photos").upsert(
+  // 2. Buffer this photo
+  const { error: bufferError } = await supabase.from("pending_album_photos").upsert(
     {
       media_group_id: mediaGroupId,
       user_id: user.id,
@@ -497,8 +498,14 @@ async function handleAlbumPhoto(
     { onConflict: "media_group_id,telegram_file_id" }
   );
 
-  // 3. Try to claim leader role — only the first INSERT for this media_group_id succeeds
-  const { data: claimed } = await supabase
+  if (bufferError) {
+    console.error("[album] Failed to buffer photo:", bufferError);
+    return;
+  }
+
+  // 3. Only the first photo in the album sends a confirmation message
+  //    Use telegram_sessions unique constraint as leader election (just for the message)
+  const { data: isFirst } = await supabase
     .from("telegram_sessions")
     .insert({
       user_id: user.id,
@@ -509,54 +516,9 @@ async function handleAlbumPhoto(
     .select("id")
     .single();
 
-  if (!claimed) {
-    // We are a FOLLOWER — our photo is buffered, return immediately
-    return;
+  if (isFirst) {
+    await sendMessage(chatId, "📷 Album received! Photos will appear in your Journal shortly.");
   }
-
-  // 4. We are the LEADER — wait for all album photos to arrive and buffer
-  await sendMessage(chatId, "📖 Saving album to your Journal...");
-  await new Promise((resolve) => setTimeout(resolve, 7000));
-
-  // 5. Collect all buffered photos for this album, ordered by created_at
-  const { data: bufferedPhotos } = await supabase
-    .from("pending_album_photos")
-    .select("storage_path, caption, created_at")
-    .eq("media_group_id", mediaGroupId)
-    .order("created_at", { ascending: true });
-
-  if (!bufferedPhotos || bufferedPhotos.length === 0) {
-    await sendMessage(chatId, "❌ No photos found for album.");
-    return;
-  }
-
-  // 6. Deterministic caption: use the first non-empty caption (earliest row)
-  const albumCaption = bufferedPhotos.find((p) => p.caption)?.caption || "Photo album";
-
-  // 7. Create one event with all photos
-  const { ingestEvent } = await import("@/lib/actions/events");
-  const media = bufferedPhotos.map((p) => ({ type: "photo" as const, storagePath: p.storage_path }));
-
-  const ingestRes = await ingestEvent(
-    albumCaption,
-    "telegram_photo_caption",
-    user.id,
-    media
-  );
-
-  if (ingestRes && ingestRes.error) {
-    // Do NOT delete buffer on failure — photos are preserved for retry
-    await sendMessage(chatId, `❌ Failed to save album: ${ingestRes.error}`);
-    return;
-  }
-
-  // 8. Success — clean up the buffer
-  await supabase
-    .from("pending_album_photos")
-    .delete()
-    .eq("media_group_id", mediaGroupId);
-
-  await sendMessage(chatId, `✅ Album with ${bufferedPhotos.length} photos saved to Journal!`);
 }
 
 // --- Voice message handler ---

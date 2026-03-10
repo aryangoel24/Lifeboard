@@ -161,10 +161,61 @@ export async function addMediaToEvent(
   return { success: true };
 }
 
+async function processPendingAlbums(userId: string) {
+  const adminSupabase = createAdminClient();
+
+  // Find all pending album photos for this user that are older than 10 seconds
+  const cutoff = new Date(Date.now() - 10_000).toISOString();
+  const { data: pendingPhotos } = await adminSupabase
+    .from("pending_album_photos")
+    .select("*")
+    .eq("user_id", userId)
+    .lt("created_at", cutoff)
+    .order("created_at", { ascending: true });
+
+  if (!pendingPhotos || pendingPhotos.length === 0) return;
+
+  // Group by media_group_id
+  interface PendingPhoto { media_group_id: string; storage_path: string; caption: string | null; }
+  const groups: Record<string, PendingPhoto[]> = {};
+  for (const photo of pendingPhotos) {
+    const gid = photo.media_group_id as string;
+    if (!groups[gid]) groups[gid] = [];
+    groups[gid].push(photo as PendingPhoto);
+  }
+
+  // Process each album group
+  for (const mediaGroupId of Object.keys(groups)) {
+    const photos = groups[mediaGroupId];
+    // Deterministic caption: first non-empty caption
+    const caption = photos.find((p: PendingPhoto) => p.caption)?.caption || "Photo album";
+    const media = photos.map((p: PendingPhoto) => ({ type: "photo" as const, storagePath: p.storage_path }));
+
+    try {
+      const result = await ingestEvent(caption, "telegram_photo_caption", userId, media);
+
+      if (result && !result.error) {
+        // Success — delete buffer rows for this album
+        await adminSupabase
+          .from("pending_album_photos")
+          .delete()
+          .eq("media_group_id", mediaGroupId);
+      } else {
+        console.error(`[album] Failed to process album ${mediaGroupId}:`, result?.error);
+      }
+    } catch (err) {
+      console.error(`[album] Error processing album ${mediaGroupId}:`, err);
+    }
+  }
+}
+
 export async function getEvents() {
   const supabase = createClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return { data: null, error: "Unauthorized" };
+
+  // Lazily process any pending album photos (older than 10s = album is complete)
+  await processPendingAlbums(user.id);
 
   const { data, error } = await supabase
     .from("events")
