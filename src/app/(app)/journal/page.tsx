@@ -4,11 +4,19 @@ import { MapPin, Users, BrainCircuit, Clock, Mic } from "lucide-react";
 import Link from "next/link";
 import { EditEventDialog } from "@/components/edit-event-dialog";
 import { ExpandableText } from "@/components/expandable-text";
+import { PhotoCarousel } from "@/components/photo-carousel";
+import { EventCarousel } from "@/components/event-carousel";
 
 export const metadata = {
     title: "Journal | Lifeboard",
     description: "Your episodic memory timeline.",
 };
+
+type Event = NonNullable<Awaited<ReturnType<typeof getEvents>>["data"]>[number];
+
+function getDay(event: Event): string {
+    return event.happened_at?.substring(0, 10) ?? "unknown";
+}
 
 export default async function JournalPage() {
     const { data: events, error } = await getEvents();
@@ -23,9 +31,18 @@ export default async function JournalPage() {
         );
     }
 
+    // Group events by day, preserving sort order (newest first within each day too)
+    const grouped = new Map<string, Event[]>();
+    for (const event of events ?? []) {
+        const day = getDay(event);
+        if (!grouped.has(day)) grouped.set(day, []);
+        grouped.get(day)!.push(event);
+    }
+    const sortedDays = Array.from(grouped.keys()).sort((a, b) => b.localeCompare(a));
+
     return (
         <div className="container mx-auto max-w-4xl p-4 sm:p-6 lg:p-8">
-            <div className="mb-8 relative">
+            <div className="mb-8">
                 <h1 className="text-4xl font-black tracking-tight flex items-center gap-3">
                     <BookOpenIcon className="w-10 h-10 text-primary/80" />
                     Journal
@@ -34,7 +51,7 @@ export default async function JournalPage() {
             </div>
 
             <div className="space-y-8 relative before:absolute before:inset-0 before:ml-5 before:-translate-x-px md:before:mx-auto md:before:translate-x-0 before:h-full before:w-0.5 before:bg-gradient-to-b before:from-transparent before:via-border before:to-transparent">
-                {!events?.length ? (
+                {sortedDays.length === 0 ? (
                     <div className="text-center py-20 relative z-10 glass rounded-2xl">
                         <h3 className="text-xl font-semibold mb-2">Your journal is empty</h3>
                         <p className="text-muted-foreground">
@@ -42,100 +59,116 @@ export default async function JournalPage() {
                         </p>
                     </div>
                 ) : (
-                    events.map((event) => (
-                        <div key={event.id} className="relative flex items-center justify-between md:justify-normal md:odd:flex-row-reverse group is-active">
-                            {/* Timeline dot */}
-                            <div className="flex items-center justify-center w-10 h-10 rounded-full border-4 border-background bg-primary shadow shrink-0 md:order-1 md:group-odd:-translate-x-1/2 md:group-even:translate-x-1/2 z-10">
-                                <Clock className="w-4 h-4 text-primary-foreground" />
-                            </div>
+                    sortedDays.map((day) => {
+                        const dayEvents = grouped.get(day)!;
+                        const displayDate = day !== "unknown"
+                            ? format(new Date(day + "T12:00:00"), "MMM d, yyyy")
+                            : "Unknown date";
 
-                            {/* Card */}
-                            <div className="w-[calc(100%-4rem)] md:w-[calc(50%-2.5rem)] glass p-6 rounded-2xl shadow-sm hover:shadow-md transition-all">
-                                <div className="flex items-center gap-3">
-                                    <h3 className="font-bold text-xl">{event.title}</h3>
-                                    <div className="opacity-0 group-hover:opacity-100 transition-opacity">
-                                        <EditEventDialog event={event} />
+                        return (
+                            <div key={day} className="relative flex items-start justify-between md:justify-normal md:odd:flex-row-reverse group is-active">
+                                {/* Timeline dot */}
+                                <div className="flex items-center justify-center w-10 h-10 rounded-full border-4 border-background bg-primary shadow shrink-0 md:order-1 md:group-odd:-translate-x-1/2 md:group-even:translate-x-1/2 z-10 mt-1">
+                                    <Clock className="w-4 h-4 text-primary-foreground" />
+                                </div>
+
+                                {/* Day card */}
+                                <div className="w-[calc(100%-4rem)] md:w-[calc(50%-2.5rem)] glass rounded-2xl shadow-sm hover:shadow-md transition-all overflow-hidden">
+                                    {/* Date header */}
+                                    <div className="px-5 py-3 border-b border-border/50 bg-muted/30">
+                                        <time className="text-sm font-semibold text-muted-foreground">{displayDate}</time>
                                     </div>
-                                </div>
-                                <div className="flex items-center gap-3 mt-1">
-                                    {event.happened_at && (
-                                        <time className="text-xs font-medium text-muted-foreground flex items-center gap-1">
-                                            {event.time_precision === 'approximate' && '~'}
-                                            {format(new Date(event.happened_at.substring(0, 10) + 'T12:00:00'), "MMM d, yyyy")}
-                                        </time>
-                                    )}
-                                </div>
 
-                                <div className="mt-4 mb-4">
-                                    <ExpandableText text={event.raw_text || ""} />
-                                </div>
+                                    {/* Events within the day — carousel if multiple */}
+                                    <EventCarousel count={dayEvents.length}>
+                                        {dayEvents.map((event) => {
+                                            const photos = (event.event_media ?? []).filter(
+                                                (m: { type: string; signed_url?: string }) => m.type === "photo" && m.signed_url
+                                            ) as { id: string; signed_url: string }[];
+                                            const audios = (event.event_media ?? []).filter(
+                                                (m: { type: string; signed_url?: string }) => m.type === "audio" && m.signed_url
+                                            ) as { id: string; signed_url: string }[];
 
-                                {/* Media Rendering */}
-                                {event.event_media && event.event_media.length > 0 && (
-                                    <div className="flex flex-col gap-3 my-4">
-                                        {event.event_media.map((media: { id: string; type: string; signed_url?: string }) => {
-                                            if (!media.signed_url) return null;
-                                            if (media.type === 'photo') {
-                                                /* eslint-disable-next-line @next/next/no-img-element */
-                                                return <img key={media.id} src={media.signed_url} alt="Memory" className="rounded-xl w-full max-h-96 object-cover border dark:border-border/50" />;
-                                            }
-                                            if (media.type === 'audio') {
-                                                return <audio key={media.id} controls src={media.signed_url} className="w-full h-10" />;
-                                            }
-                                            return null;
+                                            return (
+                                                <div key={event.id} className="p-5 group/event">
+                                                    {/* Title row */}
+                                                    <div className="flex items-center gap-2">
+                                                        <h3 className="font-bold text-base leading-snug flex-1">{event.title}</h3>
+                                                        <div className="opacity-0 group-hover/event:opacity-100 transition-opacity shrink-0">
+                                                            <EditEventDialog event={event} />
+                                                        </div>
+                                                    </div>
+
+                                                    {/* Description */}
+                                                    <div className="mt-2">
+                                                        <ExpandableText text={event.raw_text || ""} />
+                                                    </div>
+
+                                                    {/* Photo carousel */}
+                                                    {photos.length > 0 && (
+                                                        <div className="mt-3">
+                                                            <PhotoCarousel photos={photos} />
+                                                        </div>
+                                                    )}
+
+                                                    {/* Audio */}
+                                                    {audios.map((a) => (
+                                                        <audio key={a.id} controls src={a.signed_url} className="w-full h-10 mt-3" />
+                                                    ))}
+
+                                                    {/* Metadata tags */}
+                                                    <div className="flex flex-wrap gap-2 mt-3">
+                                                        {(event.extracted_people?.length ?? 0) > 0 && (
+                                                            <div className="flex items-center gap-1.5 text-xs bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 px-2.5 py-1 rounded-full font-medium">
+                                                                <Users className="w-3.5 h-3.5" />
+                                                                {event.extracted_people?.join(", ")}
+                                                            </div>
+                                                        )}
+                                                        {(event.extracted_places?.length ?? 0) > 0 && (
+                                                            <div className="flex items-center gap-1.5 text-xs bg-blue-500/10 text-blue-700 dark:text-blue-400 px-2.5 py-1 rounded-full font-medium">
+                                                                <MapPin className="w-3.5 h-3.5" />
+                                                                {event.extracted_places?.join(", ")}
+                                                            </div>
+                                                        )}
+                                                        {event.source === "telegram_voice" && (
+                                                            <div className="flex items-center gap-1.5 text-xs bg-purple-500/10 text-purple-700 dark:text-purple-400 px-2.5 py-1 rounded-full font-medium">
+                                                                <Mic className="w-3.5 h-3.5" />
+                                                                Transcribed Voice Note
+                                                            </div>
+                                                        )}
+                                                    </div>
+
+                                                    {/* Knowledge links */}
+                                                    {(event.event_knowledge_links?.length ?? 0) > 0 && (
+                                                        <div className="mt-3 pt-3 border-t border-border/40">
+                                                            <div className="flex items-center gap-2 mb-2 text-xs font-semibold text-muted-foreground uppercase tracking-wider">
+                                                                <BrainCircuit className="w-3.5 h-3.5" />
+                                                                Linked Knowledge
+                                                            </div>
+                                                            <div className="flex flex-wrap gap-2">
+                                                                {event.event_knowledge_links?.map((link: { node_id: string; why: string | null; knowledge_nodes?: { title: string } | null }, idx: number) => (
+                                                                    <Link
+                                                                        href={`/learn/hub?nodeId=${link.node_id}`}
+                                                                        key={idx}
+                                                                        className="text-xs hover:bg-muted bg-background border px-2 py-1 rounded-md transition-colors text-indigo-600 dark:text-indigo-400 font-medium"
+                                                                    >
+                                                                        {link.knowledge_nodes?.title || "Node Ref"}
+                                                                    </Link>
+                                                                ))}
+                                                            </div>
+                                                        </div>
+                                                    )}
+                                                </div>
+                                            );
                                         })}
-                                    </div>
-                                )}
-
-                                {/* Metadata Tags */}
-                                <div className="flex flex-wrap gap-2 mt-4">
-                                    {(event.extracted_people?.length ?? 0) > 0 && (
-                                        <div className="flex items-center gap-1.5 text-xs bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 px-2.5 py-1 rounded-full font-medium">
-                                            <Users className="w-3.5 h-3.5" />
-                                            {event.extracted_people?.join(", ")}
-                                        </div>
-                                    )}
-                                    {(event.extracted_places?.length ?? 0) > 0 && (
-                                        <div className="flex items-center gap-1.5 text-xs bg-blue-500/10 text-blue-700 dark:text-blue-400 px-2.5 py-1 rounded-full font-medium">
-                                            <MapPin className="w-3.5 h-3.5" />
-                                            {event.extracted_places?.join(", ")}
-                                        </div>
-                                    )}
-                                    {event.source === 'telegram_voice' && (
-                                        <div className="flex items-center gap-1.5 text-xs bg-purple-500/10 text-purple-700 dark:text-purple-400 px-2.5 py-1 rounded-full font-medium">
-                                            <Mic className="w-3.5 h-3.5" />
-                                            Transcribed Voice Note
-                                        </div>
-                                    )}
+                                    </EventCarousel>
                                 </div>
-
-                                {/* Links */}
-                                {(event.event_knowledge_links?.length ?? 0) > 0 && (
-                                    <div className="mt-4 pt-4 border-t border-border/50">
-                                        <div className="flex items-center gap-2 mb-2 text-xs font-semibold text-muted-foreground uppercase tracking-wider">
-                                            <BrainCircuit className="w-3.5 h-3.5" />
-                                            Linked Knowledge
-                                        </div>
-                                        <div className="flex flex-wrap gap-2">
-                                            {/* We fetch knowledge_nodes(title) from the query */}
-                                            {event.event_knowledge_links?.map((link: { node_id: string; why: string | null; knowledge_nodes?: { title: string } | null }, idx: number) => (
-                                                <Link
-                                                    href={`/learn/hub?nodeId=${link.node_id}`}
-                                                    key={idx}
-                                                    className="text-xs hover:bg-muted bg-background border px-2 py-1 rounded-md transition-colors text-indigo-600 dark:text-indigo-400 font-medium"
-                                                >
-                                                    {link.knowledge_nodes?.title || "Node Ref"}
-                                                </Link>
-                                            ))}
-                                        </div>
-                                    </div>
-                                )}
                             </div>
-                        </div>
-                    ))
+                        );
+                    })
                 )}
             </div>
-        </div >
+        </div>
     );
 }
 

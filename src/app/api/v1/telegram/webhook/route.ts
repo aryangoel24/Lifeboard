@@ -26,6 +26,17 @@ import { transcribeAudio } from "@/lib/server/audio-transcription";
 import { getDefaultMealCategory } from "@/lib/utils";
 import type { MealCategory } from "@/types/database";
 
+// --- Album buffering for Telegram media groups ---
+interface AlbumBuffer {
+  chatId: string;
+  userId: string;
+  caption?: string;
+  photoPaths: string[];
+  timer: ReturnType<typeof setTimeout>;
+}
+const albumBuffers = new Map<string, AlbumBuffer>();
+const ALBUM_FLUSH_DELAY_MS = 1500; // Wait 1.5s for more photos in the album
+
 // Always return 200 to Telegram regardless of errors
 export async function POST(request: NextRequest): Promise<NextResponse> {
   // Verify secret token
@@ -61,7 +72,12 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
         await handleTextMessage(chatId, message.text).catch(console.error);
       }
     } else if (message.photo) {
-      await handlePhotoMessage(chatId, message.photo, message.caption).catch(console.error);
+      if (message.media_group_id) {
+        // Album photo — buffer it
+        await handleAlbumPhoto(chatId, message.photo, message.media_group_id, message.caption).catch(console.error);
+      } else {
+        await handlePhotoMessage(chatId, message.photo, message.caption).catch(console.error);
+      }
     } else if (message.voice) {
       await handleVoiceMessage(chatId, message.voice).catch(console.error);
     }
@@ -452,6 +468,68 @@ async function handlePhotoMessage(chatId: string, photos: TelegramPhotoSize[], c
   );
 }
 
+// --- Album photo handler (for Telegram media groups) ---
+
+async function handleAlbumPhoto(chatId: string, photos: TelegramPhotoSize[], mediaGroupId: string, caption?: string): Promise<void> {
+  const user = await getUserByChatId(chatId);
+  if (!user) {
+    await sendMessage(chatId, "❌ Account not linked.");
+    return;
+  }
+
+  // Download and upload this photo immediately
+  const largestPhoto = photos.reduce((a, b) => (a.file_size ?? 0) > (b.file_size ?? 0) ? a : b);
+  const base64 = await downloadTelegramFile(largestPhoto.file_id);
+  if (!base64) return; // silently skip failed downloads in albums
+
+  const uploadResult = await uploadBase64Photo(user.id, base64);
+  if ("error" in uploadResult) return;
+
+  const existing = albumBuffers.get(mediaGroupId);
+  if (existing) {
+    // Add this photo to the existing buffer and reset the timer
+    existing.photoPaths.push(uploadResult.photoPath);
+    if (caption && !existing.caption) existing.caption = caption;
+    clearTimeout(existing.timer);
+    existing.timer = setTimeout(() => flushAlbum(mediaGroupId), ALBUM_FLUSH_DELAY_MS);
+  } else {
+    // First photo in this album — send a status message and start the buffer
+    await sendMessage(chatId, "📖 Saving album to your Journal...");
+    const timer = setTimeout(() => flushAlbum(mediaGroupId), ALBUM_FLUSH_DELAY_MS);
+    albumBuffers.set(mediaGroupId, {
+      chatId,
+      userId: user.id,
+      caption: caption,
+      photoPaths: [uploadResult.photoPath],
+      timer,
+    });
+  }
+}
+
+async function flushAlbum(mediaGroupId: string): Promise<void> {
+  const buffer = albumBuffers.get(mediaGroupId);
+  if (!buffer) return;
+  albumBuffers.delete(mediaGroupId);
+
+  const { chatId, userId, caption, photoPaths } = buffer;
+  const { ingestEvent } = await import("@/lib/actions/events");
+
+  const media = photoPaths.map((storagePath) => ({ type: 'photo' as const, storagePath }));
+
+  const ingestRes = await ingestEvent(
+    caption || "Photo album",
+    "telegram_photo_caption",
+    userId,
+    media
+  );
+
+  if (ingestRes && ingestRes.error) {
+    await sendMessage(chatId, `❌ Failed to save album: ${ingestRes.error}`);
+  } else {
+    await sendMessage(chatId, `✅ Album with ${photoPaths.length} photos saved to Journal!`);
+  }
+}
+
 // --- Voice message handler ---
 
 async function handleVoiceMessage(chatId: string, voice: { file_id: string }): Promise<void> {
@@ -711,6 +789,7 @@ interface TelegramMessage {
   photo?: TelegramPhotoSize[];
   caption?: string;
   voice?: { file_id: string };
+  media_group_id?: string;
 }
 
 interface TelegramUpdate {
