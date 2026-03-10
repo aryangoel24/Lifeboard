@@ -488,18 +488,15 @@ async function handleAlbumPhoto(
 
   // 2. Buffer this photo
   console.log(`[album] Buffering photo for group=${mediaGroupId}, file_id=${largestPhoto.file_id}, user=${user.id}`);
-  const { error: bufferError } = await supabase.from("pending_album_photos").upsert(
-    {
-      media_group_id: mediaGroupId,
-      user_id: user.id,
-      chat_id: chatId,
-      storage_path: uploadResult.photoPath,
-      caption: caption || null,
-      telegram_file_id: largestPhoto.file_id,
-      telegram_message_id: messageId ?? null,
-    },
-    { onConflict: "media_group_id,telegram_file_id" }
-  );
+  const { error: bufferError } = await supabase.from("pending_album_photos").insert({
+    media_group_id: mediaGroupId,
+    user_id: user.id,
+    chat_id: chatId,
+    storage_path: uploadResult.photoPath,
+    caption: caption || null,
+    telegram_file_id: largestPhoto.file_id,
+    telegram_message_id: messageId ?? null,
+  });
 
   if (bufferError) {
     console.error("[album] Failed to buffer photo:", JSON.stringify(bufferError));
