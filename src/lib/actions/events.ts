@@ -124,6 +124,43 @@ export async function ingestEvent(
   return { success: true, eventId };
 }
 
+export async function addMediaToEvent(
+  eventId: string,
+  userId: string,
+  media: { type: string; storagePath: string }[]
+) {
+  const supabase = createAdminClient();
+
+  // Get the current max sort_order for this event
+  const { data: existing } = await supabase
+    .from("event_media")
+    .select("sort_order")
+    .eq("event_id", eventId)
+    .order("sort_order", { ascending: false })
+    .limit(1);
+
+  const startOrder = (existing && existing.length > 0 ? existing[0].sort_order + 1 : 0);
+
+  const mediaInserts = media.map((m, index) => ({
+    event_id: eventId,
+    user_id: userId,
+    type: m.type,
+    storage_path: m.storagePath,
+    sort_order: startOrder + index,
+  }));
+
+  const { error } = await supabase
+    .from("event_media")
+    .insert(mediaInserts);
+
+  if (error) {
+    console.error("Failed to add media to event:", error);
+    return { error: "Failed to add media." };
+  }
+
+  return { success: true };
+}
+
 export async function getEvents() {
   const supabase = createClient();
   const { data: { user } } = await supabase.auth.getUser();

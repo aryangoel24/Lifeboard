@@ -26,17 +26,6 @@ import { transcribeAudio } from "@/lib/server/audio-transcription";
 import { getDefaultMealCategory } from "@/lib/utils";
 import type { MealCategory } from "@/types/database";
 
-// --- Album buffering for Telegram media groups ---
-interface AlbumBuffer {
-  chatId: string;
-  userId: string;
-  caption?: string;
-  photoPaths: string[];
-  timer: ReturnType<typeof setTimeout>;
-}
-const albumBuffers = new Map<string, AlbumBuffer>();
-const ALBUM_FLUSH_DELAY_MS = 1500; // Wait 1.5s for more photos in the album
-
 // Always return 200 to Telegram regardless of errors
 export async function POST(request: NextRequest): Promise<NextResponse> {
   // Verify secret token
@@ -469,6 +458,8 @@ async function handlePhotoMessage(chatId: string, photos: TelegramPhotoSize[], c
 }
 
 // --- Album photo handler (for Telegram media groups) ---
+// Uses the database (telegram_sessions) to coordinate across serverless instances.
+// Strategy: first photo creates the event; subsequent photos append media to it.
 
 async function handleAlbumPhoto(chatId: string, photos: TelegramPhotoSize[], mediaGroupId: string, caption?: string): Promise<void> {
   const user = await getUserByChatId(chatId);
@@ -480,54 +471,60 @@ async function handleAlbumPhoto(chatId: string, photos: TelegramPhotoSize[], med
   // Download and upload this photo immediately
   const largestPhoto = photos.reduce((a, b) => (a.file_size ?? 0) > (b.file_size ?? 0) ? a : b);
   const base64 = await downloadTelegramFile(largestPhoto.file_id);
-  if (!base64) return; // silently skip failed downloads in albums
+  if (!base64) return;
 
   const uploadResult = await uploadBase64Photo(user.id, base64);
   if ("error" in uploadResult) return;
 
-  const existing = albumBuffers.get(mediaGroupId);
-  if (existing) {
-    // Add this photo to the existing buffer and reset the timer
-    existing.photoPaths.push(uploadResult.photoPath);
-    if (caption && !existing.caption) existing.caption = caption;
-    clearTimeout(existing.timer);
-    existing.timer = setTimeout(() => flushAlbum(mediaGroupId), ALBUM_FLUSH_DELAY_MS);
-  } else {
-    // First photo in this album — send a status message and start the buffer
-    await sendMessage(chatId, "📖 Saving album to your Journal...");
-    const timer = setTimeout(() => flushAlbum(mediaGroupId), ALBUM_FLUSH_DELAY_MS);
-    albumBuffers.set(mediaGroupId, {
-      chatId,
-      userId: user.id,
-      caption: caption,
-      photoPaths: [uploadResult.photoPath],
-      timer,
-    });
+  // Check if another instance already created an event for this album
+  const supabase = createAdminClient();
+
+  const { data: existingSession } = await supabase
+    .from("telegram_sessions")
+    .select("id, data")
+    .eq("chat_id", chatId)
+    .eq("user_id", user.id)
+    .filter("data->>album_group_id", "eq", mediaGroupId)
+    .maybeSingle();
+
+  if (existingSession && existingSession.data?.event_id) {
+    // Another photo already created the event — just append this photo
+    const { addMediaToEvent } = await import("@/lib/actions/events");
+    await addMediaToEvent(
+      existingSession.data.event_id,
+      user.id,
+      [{ type: "photo", storagePath: uploadResult.photoPath }]
+    );
+    return;
   }
-}
 
-async function flushAlbum(mediaGroupId: string): Promise<void> {
-  const buffer = albumBuffers.get(mediaGroupId);
-  if (!buffer) return;
-  albumBuffers.delete(mediaGroupId);
-
-  const { chatId, userId, caption, photoPaths } = buffer;
+  // First photo in this album — create the event
+  await sendMessage(chatId, "📖 Saving album to your Journal...");
   const { ingestEvent } = await import("@/lib/actions/events");
-
-  const media = photoPaths.map((storagePath) => ({ type: 'photo' as const, storagePath }));
 
   const ingestRes = await ingestEvent(
     caption || "Photo album",
     "telegram_photo_caption",
-    userId,
-    media
+    user.id,
+    [{ type: "photo", storagePath: uploadResult.photoPath }]
   );
 
   if (ingestRes && ingestRes.error) {
     await sendMessage(chatId, `❌ Failed to save album: ${ingestRes.error}`);
-  } else {
-    await sendMessage(chatId, `✅ Album with ${photoPaths.length} photos saved to Journal!`);
+    return;
   }
+
+  // Store the event_id so subsequent album photos can find it
+  await supabase.from("telegram_sessions").insert({
+    user_id: user.id,
+    chat_id: chatId,
+    data: {
+      album_group_id: mediaGroupId,
+      event_id: ingestRes.eventId,
+    },
+  });
+
+  await sendMessage(chatId, `✅ Album saved to Journal!`);
 }
 
 // --- Voice message handler ---
