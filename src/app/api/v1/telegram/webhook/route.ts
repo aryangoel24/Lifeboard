@@ -61,10 +61,12 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
         await handleTextMessage(chatId, message.text).catch(console.error);
       }
     } else if (message.photo) {
+      console.log(`[telegram] Photo received. media_group_id=${message.media_group_id || "NONE"}, caption="${message.caption || "NONE"}", message_id=${message.message_id}`);
       if (message.media_group_id) {
-        // Album photo — buffer it
-        await handleAlbumPhoto(chatId, message.photo, message.media_group_id, message.caption).catch(console.error);
+        console.log(`[telegram] → Routing to handleAlbumPhoto for group ${message.media_group_id}`);
+        await handleAlbumPhoto(chatId, message.photo, message.media_group_id, message.caption, message.message_id).catch(console.error);
       } else {
+        console.log(`[telegram] → Routing to handlePhotoMessage (no media_group_id)`);
         await handlePhotoMessage(chatId, message.photo, message.caption).catch(console.error);
       }
     } else if (message.voice) {
@@ -485,6 +487,7 @@ async function handleAlbumPhoto(
   const supabase = createAdminClient();
 
   // 2. Buffer this photo
+  console.log(`[album] Buffering photo for group=${mediaGroupId}, file_id=${largestPhoto.file_id}, user=${user.id}`);
   const { error: bufferError } = await supabase.from("pending_album_photos").upsert(
     {
       media_group_id: mediaGroupId,
@@ -499,9 +502,10 @@ async function handleAlbumPhoto(
   );
 
   if (bufferError) {
-    console.error("[album] Failed to buffer photo:", bufferError);
+    console.error("[album] Failed to buffer photo:", JSON.stringify(bufferError));
     return;
   }
+  console.log(`[album] Photo buffered successfully for group=${mediaGroupId}`);
 
   // 3. Only the first photo in the album sends a confirmation message
   //    Use telegram_sessions unique constraint as leader election (just for the message)
@@ -516,6 +520,7 @@ async function handleAlbumPhoto(
     .select("id")
     .single();
 
+  console.log(`[album] Leader election result: isFirst=${!!isFirst} for group=${mediaGroupId}`);
   if (isFirst) {
     await sendMessage(chatId, "📷 Album received! Photos will appear in your Journal shortly.");
   }
@@ -776,6 +781,7 @@ async function handleCallbackQuery(callbackQuery: TelegramCallbackQuery): Promis
 
 interface TelegramMessage {
   chat: { id: number };
+  message_id?: number;
   text?: string;
   photo?: TelegramPhotoSize[];
   caption?: string;
