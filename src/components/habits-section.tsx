@@ -52,10 +52,14 @@ export function HabitsSection({
     isHabitScheduledForDate(h, date)
   );
 
+  const creatineHidden = profile.creatine_hidden ?? false;
+  const magnesiumHidden = profile.magnesium_hidden ?? false;
+  const gymHidden = profile.gym_hidden ?? false;
+
   const hardcodedDone = [
-    creatineEntry && creatineEntry.value >= (profile.creatine_goal ?? 2),
-    magnesiumEntry && magnesiumEntry.value >= 1,
-    gymEntry && gymEntry.value >= 1,
+    !creatineHidden && creatineEntry && creatineEntry.value >= (profile.creatine_goal ?? 2),
+    !magnesiumHidden && magnesiumEntry && magnesiumEntry.value >= 1,
+    !gymHidden && gymEntry && gymEntry.value >= 1,
   ].filter(Boolean).length;
 
   const customDone = scheduledHabits.filter((h) => {
@@ -68,7 +72,8 @@ export function HabitsSection({
   }).length;
 
   const totalDone = hardcodedDone + customDone;
-  const totalHabits = 3 + scheduledHabits.length;
+  const hiddenCount = [creatineHidden, magnesiumHidden, gymHidden].filter(Boolean).length;
+  const totalHabits = (3 - hiddenCount) + scheduledHabits.length;
 
   const getDebt = (habitType: string, customHabitId?: string): HabitDebt | undefined => {
     return debts.find((d) =>
@@ -114,33 +119,42 @@ export function HabitsSection({
 
       {expanded && (
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          <HabitCard
-            key={`creatine-${date}`}
-            habitType="creatine"
-            currentValue={creatineEntry?.value ?? 0}
-            goal={profile.creatine_goal ?? 2}
-            date={date}
-            isFallingBehind={fallingBehindMap["creatine"]}
-            debt={getDebt("creatine")}
-          />
-          <HabitCard
-            key={`magnesium-${date}`}
-            habitType="magnesium"
-            currentValue={magnesiumEntry?.value ?? 0}
-            goal={1}
-            date={date}
-            isFallingBehind={fallingBehindMap["magnesium"]}
-            debt={getDebt("magnesium")}
-          />
-          <HabitCard
-            key={`gym-${date}`}
-            habitType="gym"
-            currentValue={gymEntry?.value ?? 0}
-            goal={1}
-            date={date}
-            isFallingBehind={fallingBehindMap["gym"]}
-            debt={getDebt("gym")}
-          />
+          {!creatineHidden && (
+            <HabitCard
+              key={`creatine-${date}`}
+              habitType="creatine"
+              currentValue={creatineEntry?.value ?? 0}
+              goal={profile.creatine_goal ?? 2}
+              date={date}
+              isFallingBehind={fallingBehindMap["creatine"]}
+              debt={getDebt("creatine")}
+              label={profile.creatine_label ?? undefined}
+            />
+          )}
+          {!magnesiumHidden && (
+            <HabitCard
+              key={`magnesium-${date}`}
+              habitType="magnesium"
+              currentValue={magnesiumEntry?.value ?? 0}
+              goal={1}
+              date={date}
+              isFallingBehind={fallingBehindMap["magnesium"]}
+              debt={getDebt("magnesium")}
+              label={profile.magnesium_label ?? undefined}
+            />
+          )}
+          {!gymHidden && (
+            <HabitCard
+              key={`gym-${date}`}
+              habitType="gym"
+              currentValue={gymEntry?.value ?? 0}
+              goal={1}
+              date={date}
+              isFallingBehind={fallingBehindMap["gym"]}
+              debt={getDebt("gym")}
+              label={profile.gym_label ?? undefined}
+            />
+          )}
           {scheduledHabits.map((habit) => (
             <CustomHabitCard
               key={`custom-${habit.id}-${date}`}

@@ -89,3 +89,49 @@ export async function updateBuiltinHabitGoal(
   revalidatePath("/dashboard");
   return {};
 }
+
+export async function updateBuiltinHabitLabel(
+  type: "creatine" | "magnesium" | "gym",
+  label: string
+): Promise<{ error?: string }> {
+  const supabase = createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  if (!user) return { error: "Unauthorized" };
+
+  const { error } = await supabase
+    .from("profiles")
+    .update({ [`${type}_label`]: label || null, updated_at: new Date().toISOString() })
+    .eq("id", user.id);
+
+  if (error) return { error: error.message };
+
+  revalidatePath("/goals");
+  revalidatePath("/dashboard");
+  return {};
+}
+
+export async function toggleBuiltinHabitHidden(
+  type: "creatine" | "magnesium" | "gym",
+  hidden: boolean
+): Promise<{ error?: string }> {
+  const supabase = createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  if (!user) return { error: "Unauthorized" };
+
+  const { error } = await supabase
+    .from("profiles")
+    .update({ [`${type}_hidden`]: hidden, updated_at: new Date().toISOString() })
+    .eq("id", user.id);
+
+  if (error) return { error: error.message };
+
+  revalidatePath("/goals");
+  revalidatePath("/dashboard");
+  return {};
+}

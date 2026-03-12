@@ -22,6 +22,7 @@ interface HabitCardProps {
   date: string;
   isFallingBehind?: boolean;
   debt?: HabitDebt;
+  label?: string;
 }
 
 const HABIT_CONFIG = {
@@ -45,11 +46,12 @@ const HABIT_CONFIG = {
   },
 } as const;
 
-export function HabitCard({ habitType, currentValue, goal, date, isFallingBehind, debt }: HabitCardProps) {
+export function HabitCard({ habitType, currentValue, goal, date, isFallingBehind, debt, label }: HabitCardProps) {
   const [value, setValue] = useState(currentValue);
   const [saving, setSaving] = useState(false);
   const config = HABIT_CONFIG[habitType];
   const Icon = config.icon;
+  const displayLabel = label ?? config.label;
 
   async function handleUpdate(newValue: number) {
     setSaving(true);
@@ -70,7 +72,7 @@ export function HabitCard({ habitType, currentValue, goal, date, isFallingBehind
         <CardHeader className="pb-2">
           <CardTitle className="text-sm font-medium flex items-center gap-2">
             <Icon className={`h-4 w-4 ${config.iconColor}`} />
-            {config.label}
+            {displayLabel}
             {isFallingBehind && !creatineDone && (
               <span className="ml-auto text-xs text-amber-600 dark:text-amber-400 font-medium">Falling behind</span>
             )}
@@ -126,7 +128,7 @@ export function HabitCard({ habitType, currentValue, goal, date, isFallingBehind
       <CardHeader className="pb-2">
         <CardTitle className="text-sm font-medium flex items-center gap-2">
           <Icon className={`h-4 w-4 ${config.iconColor}`} />
-          {config.label}
+          {displayLabel}
           {isFallingBehind && !isDone && (
             <span className="ml-auto text-xs text-amber-600 dark:text-amber-400 font-medium">Falling behind</span>
           )}

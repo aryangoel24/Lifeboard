@@ -16,6 +16,12 @@ export type Profile = {
   magnesium_nr_is_hard: boolean;
   gym_nr_enabled: boolean;
   gym_nr_is_hard: boolean;
+  creatine_label: string | null;
+  magnesium_label: string | null;
+  gym_label: string | null;
+  creatine_hidden: boolean;
+  magnesium_hidden: boolean;
+  gym_hidden: boolean;
   created_at: string;
   updated_at: string;
 };
