@@ -1,4 +1,5 @@
 import { getEvents } from "@/lib/actions/events";
+import { createClient } from "@/lib/supabase/server";
 import { format } from "date-fns";
 import { MapPin, Users, BrainCircuit, Clock, Mic } from "lucide-react";
 import Link from "next/link";
@@ -6,6 +7,7 @@ import { EditEventDialog } from "@/components/edit-event-dialog";
 import { ExpandableText } from "@/components/expandable-text";
 import { PhotoCarousel } from "@/components/photo-carousel";
 import { EventCarousel } from "@/components/event-carousel";
+import { AddJournalEntryDialog } from "@/components/add-journal-entry-dialog";
 
 export const metadata = {
     title: "Journal | Lifeboard",
@@ -19,6 +21,8 @@ function getDay(event: Event): string {
 }
 
 export default async function JournalPage() {
+    const supabase = createClient();
+    const { data: { user } } = await supabase.auth.getUser();
     const { data: events, error } = await getEvents();
 
     if (error) {
@@ -42,12 +46,15 @@ export default async function JournalPage() {
 
     return (
         <div className="container mx-auto max-w-4xl p-4 sm:p-6 lg:p-8">
-            <div className="mb-8">
-                <h1 className="text-4xl font-black tracking-tight flex items-center gap-3">
-                    <BookOpenIcon className="w-10 h-10 text-primary/80" />
-                    Journal
-                </h1>
-                <p className="text-muted-foreground mt-2 text-lg">Your episodic memory timeline.</p>
+            <div className="mb-8 flex items-start justify-between gap-4">
+                <div>
+                    <h1 className="text-4xl font-black tracking-tight flex items-center gap-3">
+                        <BookOpenIcon className="w-10 h-10 text-primary/80" />
+                        Journal
+                    </h1>
+                    <p className="text-muted-foreground mt-2 text-lg">Your episodic memory timeline.</p>
+                </div>
+                {user && <AddJournalEntryDialog userId={user.id} />}
             </div>
 
             <div className="space-y-8 relative before:absolute before:inset-0 before:ml-5 before:-translate-x-px md:before:mx-auto md:before:translate-x-0 before:h-full before:w-0.5 before:bg-gradient-to-b before:from-transparent before:via-border before:to-transparent">
@@ -55,7 +62,7 @@ export default async function JournalPage() {
                     <div className="text-center py-20 relative z-10 glass rounded-2xl">
                         <h3 className="text-xl font-semibold mb-2">Your journal is empty</h3>
                         <p className="text-muted-foreground">
-                            Send a message to your Telegram bot describing your day to create your first entry.
+                            Click <strong>New Entry</strong> to create your first memory.
                         </p>
                     </div>
                 ) : (

@@ -9,7 +9,8 @@ export async function ingestEvent(
   rawText: string,
   source: string,
   overrideUserId?: string,
-  media?: { type: 'photo' | 'audio', storagePath: string }[]
+  media?: { type: 'photo' | 'audio', storagePath: string }[],
+  overrideDate?: string // ISO date string YYYY-MM-DD
 ) {
   let supabase;
   let userId: string;
@@ -44,7 +45,7 @@ export async function ingestEvent(
     .insert({
       user_id: userId,
       title: extracted.title,
-      happened_at: extracted.happened_at,
+      happened_at: overrideDate ?? extracted.happened_at,
       time_precision: extracted.time_precision,
       raw_text: rawText,
       summary: extracted.summary,
