@@ -1,13 +1,7 @@
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
-import { getFoodEntries } from "@/lib/actions/food-entries";
-import { getStreaks } from "@/lib/actions/achievements";
-import { getMealTemplates } from "@/lib/actions/meal-templates";
-import { getWeightEntries } from "@/lib/actions/weight";
-import { getTodayHabits, getHabitEntries } from "@/lib/actions/habits";
-import { getCustomHabits, getTodayCustomHabitEntries, getCustomHabitEntries } from "@/lib/actions/custom-habits";
-import { computeAndUpdateDebt, getDebtState } from "@/lib/actions/habit-debt";
-import { getTodaySteps } from "@/lib/actions/steps";
+import { getDashboardData } from "@/lib/actions/dashboard";
+import { computeAndUpdateDebt } from "@/lib/actions/habit-debt";
 import { getToday, getNow } from "@/lib/timezone";
 import { FoodEntryList } from "@/components/food-entry-list";
 import { DailySummary } from "@/components/daily-summary";
@@ -36,32 +30,30 @@ export default async function DashboardPage({
   const date = searchParams.date || getToday();
   const today = getToday();
 
-  // Fire debt computation for yesterday (non-blocking for today's view)
-  // We don't await it here — it runs alongside other fetches
+  // Fire debt computation (write side-effect) in parallel with all reads
   const debtComputePromise = computeAndUpdateDebt(today);
 
-  const [entries, profileResult, streaks, templates, recentWeights, todayHabits, customHabits, customHabitEntries, weeklyHabitEntries, weeklyCustomHabitEntries, todaySteps] =
-    await Promise.all([
-      getFoodEntries(date),
-      supabase.from("profiles").select("*").eq("id", user.id).single(),
-      getStreaks(),
-      getMealTemplates(),
-      getWeightEntries(7),
-      getTodayHabits(date),
-      getCustomHabits(),
-      getTodayCustomHabitEntries(date),
-      getHabitEntries(7),
-      getCustomHabitEntries(7),
-      getTodaySteps(date),
-    ]);
+  const [dashboardData] = await Promise.all([
+    getDashboardData(date),
+    debtComputePromise,
+  ]);
 
-  // Wait for debt computation to complete, then fetch state
-  await debtComputePromise;
-  const debtState = await getDebtState();
+  const {
+    entries,
+    profile,
+    streaks,
+    templates,
+    recentWeights,
+    todayHabits,
+    customHabits,
+    customHabitEntries,
+    weeklyHabitEntries,
+    weeklyCustomHabitEntries,
+    todaySteps,
+    debtState,
+  } = dashboardData;
 
   const todayWeight = recentWeights.find((w) => w.logged_at === date) ?? null;
-
-  const profile = profileResult.data;
 
   return (
     <div className="max-w-3xl mx-auto space-y-5">

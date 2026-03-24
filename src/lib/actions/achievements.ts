@@ -3,6 +3,7 @@
 import { createClient } from "@/lib/supabase/server";
 import { getToday } from "@/lib/timezone";
 import type { UserStreak, UserAchievement } from "@/types/database";
+import { updateHabitStreak } from "@/lib/actions/habits";
 
 export async function getStreaks(): Promise<UserStreak[]> {
     const supabase = createClient();
@@ -62,65 +63,12 @@ export async function updateStreaks() {
     // Update logging streak and cooking streak in parallel
     const hasHomemade = todayEntries.some((e) => e.meal_source === "homemade");
     const streakUpdates: Promise<void>[] = [
-        updateSingleStreak(supabase, user.id, "logging", today),
+        updateHabitStreak(user.id, "logging", today, 1, supabase),
     ];
     if (hasHomemade) {
-        streakUpdates.push(updateSingleStreak(supabase, user.id, "cooking", today));
+        streakUpdates.push(updateHabitStreak(user.id, "cooking", today, 1, supabase));
     }
     await Promise.all(streakUpdates);
-}
-
-async function updateSingleStreak(
-    supabase: ReturnType<typeof createClient>,
-    userId: string,
-    streakType: string,
-    today: string
-) {
-    const { data: existing } = await supabase
-        .from("user_streaks")
-        .select("*")
-        .eq("user_id", userId)
-        .eq("streak_type", streakType)
-        .single();
-
-    if (existing) {
-        const lastDate = existing.last_logged_date;
-        const yesterday = new Date(new Date(today).getTime() - 86400000)
-            .toISOString()
-            .split("T")[0];
-
-        let newCount = existing.current_count;
-        if (lastDate === today) {
-            // Already updated today
-            return;
-        } else if (lastDate === yesterday) {
-            // Consecutive day
-            newCount += 1;
-        } else {
-            // Streak broken, start fresh
-            newCount = 1;
-        }
-
-        const longestCount = Math.max(existing.longest_count, newCount);
-
-        await supabase
-            .from("user_streaks")
-            .update({
-                current_count: newCount,
-                longest_count: longestCount,
-                last_logged_date: today,
-                updated_at: new Date().toISOString(),
-            })
-            .eq("id", existing.id);
-    } else {
-        await supabase.from("user_streaks").insert({
-            user_id: userId,
-            streak_type: streakType,
-            current_count: 1,
-            longest_count: 1,
-            last_logged_date: today,
-        });
-    }
 }
 
 export async function checkAndUnlockAchievements() {
