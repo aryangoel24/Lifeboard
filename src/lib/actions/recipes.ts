@@ -221,7 +221,12 @@ export async function updateRecipe(id: string, formData: FormData) {
     return { success: true };
 }
 
-export async function logFromRecipe(recipeId: string, servings: number, date: string) {
+export async function logFromRecipe(
+    recipeId: string,
+    servings: number,
+    date: string,
+    overrideMacros?: { calories: number; protein: number; carbs: number; fat: number }
+) {
     const supabase = createClient();
     const {
         data: { user },
@@ -241,13 +246,17 @@ export async function logFromRecipe(recipeId: string, servings: number, date: st
     const perServingMultiplier = servings / recipe.servings;
     const name = servings === 1 ? recipe.name : `${recipe.name} × ${servings}`;
 
-    const entry = {
-        user_id: user.id,
-        name,
+    const macros = overrideMacros ?? {
         calories: Math.round(recipe.total_calories * perServingMultiplier),
         protein: Math.round(recipe.total_protein * perServingMultiplier),
         carbs: Math.round(recipe.total_carbs * perServingMultiplier),
         fat: Math.round(recipe.total_fat * perServingMultiplier),
+    };
+
+    const entry = {
+        user_id: user.id,
+        name,
+        ...macros,
         meal_category: getDefaultMealCategory(getNow().getHours()),
         meal_source: "homemade",
         logged_at: new Date(date + "T12:00:00").toISOString(),

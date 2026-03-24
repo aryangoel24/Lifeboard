@@ -91,6 +91,7 @@ export function RecipesClient({
     const [templateDialogOpen, setTemplateDialogOpen] = useState(false);
     const [logDialogRecipe, setLogDialogRecipe] = useState<(Recipe & { ingredients: RecipeIngredient[] }) | null>(null);
     const [logServings, setLogServings] = useState(1);
+    const [ingredientOverrides, setIngredientOverrides] = useState<Record<string, string>>({});
     const [ingredients, setIngredients] = useState<IngredientInput[]>([
         { ...EMPTY_INGREDIENT },
     ]);
@@ -247,13 +248,42 @@ export function RecipesClient({
         if (!logDialogRecipe) return;
         setLoading(true);
         const today = formatDate(new Date());
-        const result = await logFromRecipe(logDialogRecipe.id, logServings, today);
+
+        const hasOverrides = logDialogRecipe.ingredients.some(
+            ing => ing.amount !== null && parseFloat(ingredientOverrides[ing.id]) !== ing.amount
+        );
+
+        let overrideMacros: { calories: number; protein: number; carbs: number; fat: number } | undefined;
+        if (hasOverrides && logDialogRecipe.ingredients.length > 0) {
+            const servingMultiplier = logServings / logDialogRecipe.servings;
+            const overriddenTotals = logDialogRecipe.ingredients.reduce((acc, ing) => {
+                const parsedOverride = parseFloat(ingredientOverrides[ing.id]);
+                const scale = (ing.amount && !isNaN(parsedOverride))
+                    ? parsedOverride / ing.amount
+                    : 1;
+                return {
+                    calories: acc.calories + ing.calories * scale,
+                    protein: acc.protein + ing.protein * scale,
+                    carbs: acc.carbs + ing.carbs * scale,
+                    fat: acc.fat + ing.fat * scale,
+                };
+            }, { calories: 0, protein: 0, carbs: 0, fat: 0 });
+            overrideMacros = {
+                calories: Math.round(overriddenTotals.calories * servingMultiplier),
+                protein: Math.round(overriddenTotals.protein * servingMultiplier),
+                carbs: Math.round(overriddenTotals.carbs * servingMultiplier),
+                fat: Math.round(overriddenTotals.fat * servingMultiplier),
+            };
+        }
+
+        const result = await logFromRecipe(logDialogRecipe.id, logServings, today, overrideMacros);
         if (result?.error) {
             toast.error(result.error);
         } else {
             toast.success("Logged from recipe!");
             setLogDialogRecipe(null);
             setLogServings(1);
+            setIngredientOverrides({});
         }
         setLoading(false);
     }
@@ -469,6 +499,13 @@ export function RecipesClient({
                                                         onClick={() => {
                                                             setLogDialogRecipe(recipe);
                                                             setLogServings(1);
+                                                            setIngredientOverrides(
+                                                                Object.fromEntries(
+                                                                    recipe.ingredients
+                                                                        .filter(i => i.amount !== null)
+                                                                        .map(i => [i.id, String(i.amount)])
+                                                                )
+                                                            );
                                                         }}
                                                     >
                                                         <UtensilsCrossed className="h-3 w-3 mr-1" />
@@ -707,42 +744,99 @@ export function RecipesClient({
             </Tabs>
 
             {/* Log from Recipe Dialog */}
-            <Dialog open={!!logDialogRecipe} onOpenChange={(open) => { if (!open) setLogDialogRecipe(null); }}>
+            <Dialog open={!!logDialogRecipe} onOpenChange={(open) => { if (!open) { setLogDialogRecipe(null); setIngredientOverrides({}); } }}>
                 <DialogContent>
                     <DialogHeader>
                         <DialogTitle>Log from Recipe</DialogTitle>
                     </DialogHeader>
                     {logDialogRecipe && (() => {
-                        const perServing = {
-                            calories: Math.round(logDialogRecipe.total_calories / logDialogRecipe.servings),
-                            protein: Math.round(logDialogRecipe.total_protein / logDialogRecipe.servings),
-                            carbs: Math.round(logDialogRecipe.total_carbs / logDialogRecipe.servings),
-                            fat: Math.round(logDialogRecipe.total_fat / logDialogRecipe.servings),
+                        const overriddenTotals = logDialogRecipe.ingredients.reduce((acc, ing) => {
+                            const parsedOverride = parseFloat(ingredientOverrides[ing.id]);
+                            const scale = (ing.amount && !isNaN(parsedOverride))
+                                ? parsedOverride / ing.amount
+                                : 1;
+                            return {
+                                calories: acc.calories + ing.calories * scale,
+                                protein: acc.protein + ing.protein * scale,
+                                carbs: acc.carbs + ing.carbs * scale,
+                                fat: acc.fat + ing.fat * scale,
+                            };
+                        }, { calories: 0, protein: 0, carbs: 0, fat: 0 });
+
+                        const hasIngredients = logDialogRecipe.ingredients.length > 0;
+                        const servingMultiplier = logServings / logDialogRecipe.servings;
+                        const loggedMacros = hasIngredients ? {
+                            calories: Math.round(overriddenTotals.calories * servingMultiplier),
+                            protein: Math.round(overriddenTotals.protein * servingMultiplier),
+                            carbs: Math.round(overriddenTotals.carbs * servingMultiplier),
+                            fat: Math.round(overriddenTotals.fat * servingMultiplier),
+                        } : {
+                            calories: Math.round(logDialogRecipe.total_calories * servingMultiplier),
+                            protein: Math.round(logDialogRecipe.total_protein * servingMultiplier),
+                            carbs: Math.round(logDialogRecipe.total_carbs * servingMultiplier),
+                            fat: Math.round(logDialogRecipe.total_fat * servingMultiplier),
                         };
+
+                        const hasOverrides = logDialogRecipe.ingredients.some(
+                            ing => ing.amount !== null && parseFloat(ingredientOverrides[ing.id]) !== ing.amount
+                        );
+
                         return (
                             <div className="space-y-4">
                                 <div>
                                     <p className="font-medium">{logDialogRecipe.name}</p>
-                                    <p className="text-sm text-muted-foreground">
-                                        Per serving: {perServing.calories} cal {"\u2022"} {perServing.protein}g P {"\u2022"} {perServing.carbs}g C {"\u2022"} {perServing.fat}g F
-                                    </p>
                                 </div>
 
-                                {/* Ingredient list in log dialog */}
+                                {/* Ingredient list in log dialog — editable */}
                                 {logDialogRecipe.ingredients.length > 0 && (
-                                    <div className="text-xs space-y-1 border rounded-lg p-3 bg-muted/50">
-                                        <p className="font-medium text-sm mb-1">Ingredients</p>
-                                        {logDialogRecipe.ingredients.map((ing) => (
-                                            <div key={ing.id} className="flex justify-between text-muted-foreground">
-                                                <span>
-                                                    {ing.amount ? `${ing.amount}${ing.unit ? ` ${ing.unit}` : ""} ` : ""}
-                                                    {ing.name}
-                                                </span>
-                                                <span className="shrink-0 ml-2">
-                                                    {ing.calories}cal {"\u2022"} {Math.round(ing.protein)}g P
-                                                </span>
-                                            </div>
-                                        ))}
+                                    <div className="space-y-1.5 border rounded-lg p-3 bg-muted/50">
+                                        <div className="flex items-center justify-between mb-1">
+                                            <p className="font-medium text-sm">Ingredients</p>
+                                            {hasOverrides && (
+                                                <button
+                                                    className="text-xs text-muted-foreground underline"
+                                                    onClick={() => setIngredientOverrides(
+                                                        Object.fromEntries(
+                                                            logDialogRecipe.ingredients
+                                                                .filter(i => i.amount !== null)
+                                                                .map(i => [i.id, String(i.amount)])
+                                                        )
+                                                    )}
+                                                >
+                                                    Reset to original
+                                                </button>
+                                            )}
+                                        </div>
+                                        {logDialogRecipe.ingredients.map((ing) => {
+                                            const isEditable = ing.amount !== null;
+                                            const currentAmount = ingredientOverrides[ing.id] ?? ing.amount?.toString() ?? "";
+                                            const parsedCurrent = parseFloat(currentAmount);
+                                            const scale = (ing.amount && !isNaN(parsedCurrent)) ? parsedCurrent / ing.amount : 1;
+                                            return (
+                                                <div key={ing.id} className="flex items-center justify-between gap-2 text-sm">
+                                                    <div className="flex items-center gap-1.5 min-w-0">
+                                                        {isEditable ? (
+                                                            <Input
+                                                                type="text"
+                                                                inputMode="decimal"
+                                                                value={currentAmount}
+                                                                onChange={(e) => setIngredientOverrides(prev => ({
+                                                                    ...prev,
+                                                                    [ing.id]: e.target.value
+                                                                }))}
+                                                                className="w-16 h-6 text-xs px-1"
+                                                            />
+                                                        ) : null}
+                                                        <span className="text-muted-foreground truncate">
+                                                            {ing.unit ? `${ing.unit} ` : ""}{ing.name}
+                                                        </span>
+                                                    </div>
+                                                    <span className="shrink-0 text-xs text-muted-foreground">
+                                                        {Math.round(ing.calories * scale)}cal {"\u2022"} {Math.round(ing.protein * scale)}g P
+                                                    </span>
+                                                </div>
+                                            );
+                                        })}
                                     </div>
                                 )}
 
@@ -760,19 +854,19 @@ export function RecipesClient({
                                 <div className="grid grid-cols-4 gap-2 text-sm rounded-lg bg-muted p-3">
                                     <div>
                                         <p className="text-muted-foreground text-xs">Calories</p>
-                                        <p className="font-medium">{Math.round(perServing.calories * logServings)}</p>
+                                        <p className="font-medium">{loggedMacros.calories}</p>
                                     </div>
                                     <div>
                                         <p className="text-muted-foreground text-xs">Protein</p>
-                                        <p className="font-medium">{Math.round(perServing.protein * logServings)}g</p>
+                                        <p className="font-medium">{loggedMacros.protein}g</p>
                                     </div>
                                     <div>
                                         <p className="text-muted-foreground text-xs">Carbs</p>
-                                        <p className="font-medium">{Math.round(perServing.carbs * logServings)}g</p>
+                                        <p className="font-medium">{loggedMacros.carbs}g</p>
                                     </div>
                                     <div>
                                         <p className="text-muted-foreground text-xs">Fat</p>
-                                        <p className="font-medium">{Math.round(perServing.fat * logServings)}g</p>
+                                        <p className="font-medium">{loggedMacros.fat}g</p>
                                     </div>
                                 </div>
                                 <Button className="w-full" onClick={handleLogRecipe} disabled={loading}>
