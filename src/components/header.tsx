@@ -53,6 +53,10 @@ const navGroups = [
       { href: "/learn/extract", label: "Extract" },
     ],
   },
+  {
+    label: "Chat",
+    items: [{ href: "/chat", label: "Chat" }],
+  },
 ];
 
 export { navGroups };

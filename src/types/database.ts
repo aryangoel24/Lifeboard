@@ -427,3 +427,31 @@ export type EventFactSuggestion = {
   created_at: string;
   updated_at: string;
 };
+
+// Chat / AI Agent Domain
+
+export type ChatMessage = {
+  id: string;
+  user_id: string;
+  role: "user" | "assistant";
+  content: string;
+  metadata?: {
+    tool_events?: Array<{ name: string; input: unknown; state: string; output: unknown }>;
+    model?: string;
+    step_count?: number;
+    tokens_used?: number;
+  };
+  created_at: string;
+};
+
+export type UserMemory = {
+  id: string;
+  user_id: string;
+  memory_source: "explicit" | "inferred";
+  type: "preference" | "pattern" | "fact";
+  content: string;
+  confidence: number;
+  observation_count: number;
+  created_at: string;
+  updated_at: string;
+};
