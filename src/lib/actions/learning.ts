@@ -128,38 +128,38 @@ export async function generateNewsBriefing(topics: NewsTopic[], force = false): 
   yesterday.setDate(yesterday.getDate() - 1);
   const yesterdayStr = yesterday.toISOString().split("T")[0];
 
-  const yesterdayHeadlines: Partial<Record<NewsTopic, string>> = {};
-  const { data: yesterdayRow } = await supabase
-    .from("daily_content")
-    .select("content")
-    .eq("user_id", user.id)
-    .eq("content_date", yesterdayStr)
-    .eq("content_type", "news_briefing")
-    .single();
+  // Phase 1: fire yesterday DB query and all RSS fetches in parallel
+  const [yesterdayRow, ...xmlTexts] = await Promise.all([
+    supabase
+      .from("daily_content")
+      .select("content")
+      .eq("user_id", user.id)
+      .eq("content_date", yesterdayStr)
+      .eq("content_type", "news_briefing")
+      .single()
+      .then(r => r.data),
+    ...topics.map(topic =>
+      fetch(RSS_FEEDS[topic], { headers: { "User-Agent": "Lifeboard/1.0" }, next: { revalidate: 3600 } })
+        .then(r => r.text())
+        .catch(() => "")
+    ),
+  ]);
 
+  const yesterdayHeadlines: Partial<Record<NewsTopic, string>> = {};
   if (yesterdayRow) {
-    const yesterdayBriefing = yesterdayRow.content as NewsBriefingContent;
+    const yesterdayBriefing = (yesterdayRow as { content: NewsBriefingContent }).content;
     for (const b of yesterdayBriefing.briefings) {
       yesterdayHeadlines[b.topic] = b.headlines.map((h) => h.title).join("; ");
     }
   }
 
-  // Fetch RSS feeds and summarize
-  const briefings: TopicBriefing[] = [];
-
-  for (const topic of topics) {
-    try {
-      const url = RSS_FEEDS[topic];
-      const response = await fetch(url, {
-        headers: { "User-Agent": "Lifeboard/1.0" },
-        next: { revalidate: 3600 },
-      });
-      const xml = await response.text();
-      const headlines = parseRSSFeed(xml);
+  // Phase 2: run all per-topic OpenAI calls in parallel
+  const briefings = await Promise.all(
+    topics.map(async (topic, i) => {
+      const headlines = parseRSSFeed(xmlTexts[i] ?? "");
 
       if (headlines.length === 0) {
-        briefings.push({ topic, headlines: [], summary: "No headlines available." });
-        continue;
+        return { topic, headlines: [], summary: "No headlines available." } as TopicBriefing;
       }
 
       const fallbackSummary = headlines.map((h) => h.title).join("; ");
@@ -185,24 +185,21 @@ export async function generateNewsBriefing(topics: NewsTopic[], force = false): 
           });
           const raw = completion.choices[0]?.message?.content || "";
           const parsed = JSON.parse(raw);
-          briefings.push({
+          return {
             topic,
             headlines,
             summary: parsed.summary || fallbackSummary,
             analysis: parsed.analysis || undefined,
             continuing: parsed.continuing || undefined,
-          });
-          continue;
+          } as TopicBriefing;
         } catch {
           // fallback below
         }
       }
 
-      briefings.push({ topic, headlines, summary: fallbackSummary });
-    } catch {
-      briefings.push({ topic, headlines: [], summary: "Failed to fetch headlines." });
-    }
-  }
+      return { topic, headlines, summary: fallbackSummary } as TopicBriefing;
+    })
+  );
 
   const content: NewsBriefingContent = {
     briefings,

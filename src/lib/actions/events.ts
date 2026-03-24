@@ -185,29 +185,31 @@ async function processPendingAlbums(userId: string) {
     groups[gid].push(photo as PendingPhoto);
   }
 
-  // Process each album group
-  for (const mediaGroupId of Object.keys(groups)) {
-    const photos = groups[mediaGroupId];
-    // Deterministic caption: first non-empty caption
-    const caption = photos.find((p: PendingPhoto) => p.caption)?.caption || "Photo album";
-    const media = photos.map((p: PendingPhoto) => ({ type: "photo" as const, storagePath: p.storage_path }));
+  // Process each album group in parallel
+  await Promise.all(
+    Object.keys(groups).map(async (mediaGroupId) => {
+      const photos = groups[mediaGroupId];
+      // Deterministic caption: first non-empty caption
+      const caption = photos.find((p: PendingPhoto) => p.caption)?.caption || "Photo album";
+      const media = photos.map((p: PendingPhoto) => ({ type: "photo" as const, storagePath: p.storage_path }));
 
-    try {
-      const result = await ingestEvent(caption, "telegram_photo_caption", userId, media);
+      try {
+        const result = await ingestEvent(caption, "telegram_photo_caption", userId, media);
 
-      if (result && !result.error) {
-        // Success — delete buffer rows for this album
-        await adminSupabase
-          .from("pending_album_photos")
-          .delete()
-          .eq("media_group_id", mediaGroupId);
-      } else {
-        console.error(`[album] Failed to process album ${mediaGroupId}:`, result?.error);
+        if (result && !result.error) {
+          // Success — delete buffer rows for this album
+          await adminSupabase
+            .from("pending_album_photos")
+            .delete()
+            .eq("media_group_id", mediaGroupId);
+        } else {
+          console.error(`[album] Failed to process album ${mediaGroupId}:`, result?.error);
+        }
+      } catch (err) {
+        console.error(`[album] Error processing album ${mediaGroupId}:`, err);
       }
-    } catch (err) {
-      console.error(`[album] Error processing album ${mediaGroupId}:`, err);
-    }
-  }
+    })
+  );
 }
 
 export async function getEvents() {
@@ -234,17 +236,21 @@ export async function getEvents() {
   if (data) {
     for (const event of data) {
       if (event.event_media && event.event_media.length > 0) {
-        // Sort by sort_order
         event.event_media.sort((a: { sort_order: number }, b: { sort_order: number }) => a.sort_order - b.sort_order);
-        for (const media of event.event_media) {
-          const bucket = media.type === 'photo' ? 'food-photos' : 'journal-media';
-          const res = await getSignedUrl(media.storage_path, bucket);
-          if (!("error" in res) && res.signedUrl) {
-            media.signed_url = res.signedUrl;
-          }
-        }
       }
     }
+
+    const allMedia = data.flatMap(event => event.event_media ?? []);
+
+    await Promise.all(
+      allMedia.map(async (media) => {
+        const bucket = media.type === 'photo' ? 'food-photos' : 'journal-media';
+        const res = await getSignedUrl(media.storage_path, bucket);
+        if (!("error" in res) && res.signedUrl) {
+          media.signed_url = res.signedUrl;
+        }
+      })
+    );
   }
 
   return { data, error: null };
