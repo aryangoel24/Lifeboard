@@ -13,9 +13,9 @@ import {
   FLAT_PENALTY_CENTS,
   getMondayOfWeek,
   isHabitCompletedForDate,
-  isHabitScheduledForDate,
   addDays,
 } from "@/lib/habit-debt-utils";
+import { isHabitScheduledForDate } from "@/lib/habit-utils";
 
 export type DebtState = {
   debts: HabitDebt[];

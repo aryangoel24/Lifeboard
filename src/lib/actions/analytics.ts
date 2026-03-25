@@ -3,12 +3,13 @@
 import { createClient } from "@/lib/supabase/server";
 import { subDays, format, startOfDay, endOfDay, parseISO } from "date-fns";
 import { getNow } from "@/lib/timezone";
-import type { WeightEntry, HabitEntry, CustomHabit } from "@/types/database";
+import type { WeightEntry, HabitEntry, CustomHabit, HabitDebt, HabitDebtMeta } from "@/types/database";
 import type { WeightStats, WeightCalorieData, TDEEResponse } from "@/lib/weight-utils";
 import { computeWeightStats, computeWeightCalorieCorrelation, computeTDEE } from "@/lib/weight-utils";
 import type { HabitWeeklyStats } from "@/lib/habit-utils";
 import { computeHabitWeeklyStats, computeDailyHabitData } from "@/lib/habit-utils";
 import type { DailyHabitData } from "@/lib/habit-utils";
+import type { DebtState } from "@/lib/actions/habit-debt";
 
 export type DailyMacroData = {
     date: string;
@@ -48,6 +49,7 @@ export interface AnalyticsData {
     customHabits: CustomHabit[];
     customHabitEntries: HabitEntry[];
     creatineGoal: number;
+    debtState: DebtState;
 }
 
 export async function getAnalyticsData(today?: string): Promise<AnalyticsData> {
@@ -70,6 +72,7 @@ export async function getAnalyticsData(today?: string): Promise<AnalyticsData> {
         customHabits: [],
         customHabitEntries: [],
         creatineGoal: 2,
+        debtState: { debts: [], currentWeekTotalCents: 0, totalDebtCents: 0 },
     };
 
     if (!user) return emptyResult;
@@ -80,8 +83,8 @@ export async function getAnalyticsData(today?: string): Promise<AnalyticsData> {
 
     const thirtyDaysAgoStr = thirtyDaysAgo.toISOString().split("T")[0];
 
-    // 6 parallel DB queries
-    const [foodResult, weightResult, profileResult, habitResult, customHabitsResult, customHabitEntriesResult] = await Promise.all([
+    // 8 parallel DB queries
+    const [foodResult, weightResult, profileResult, habitResult, customHabitsResult, customHabitEntriesResult, debtRowsResult, debtMetaResult] = await Promise.all([
         supabase
             .from("food_entries")
             .select("calories, protein, carbs, fat, meal_category, logged_at")
@@ -118,6 +121,8 @@ export async function getAnalyticsData(today?: string): Promise<AnalyticsData> {
             .eq("user_id", user.id)
             .not("custom_habit_id", "is", null)
             .gte("logged_at", thirtyDaysAgoStr),
+        supabase.from("habit_debt").select("*").eq("user_id", user.id),
+        supabase.from("habit_debt_meta").select("*").eq("user_id", user.id).single(),
     ]);
 
     const foodEntries = foodResult.data || [];
@@ -237,6 +242,15 @@ export async function getAnalyticsData(today?: string): Promise<AnalyticsData> {
     const habitWeeklyStats = computeHabitWeeklyStats(weekHabitEntries, creatineGoal, gymWeeklyGoal);
     const habitDailyData = computeDailyHabitData(habitEntries, 30);
 
+    // === Derive debt state ===
+    const debts = (debtRowsResult.data as HabitDebt[]) || [];
+    const debtMeta = debtMetaResult.data as HabitDebtMeta | null;
+    const debtState: DebtState = {
+        debts,
+        currentWeekTotalCents: debts.reduce((sum, d) => sum + (d.current_week_unpaid_cents || 0), 0),
+        totalDebtCents: debtMeta?.total_debt_cents ?? 0,
+    };
+
     return {
         trends,
         weeklySummary,
@@ -251,6 +265,7 @@ export async function getAnalyticsData(today?: string): Promise<AnalyticsData> {
         customHabits,
         customHabitEntries,
         creatineGoal,
+        debtState,
     };
 }
 

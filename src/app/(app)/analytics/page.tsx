@@ -1,5 +1,4 @@
 import { getAnalyticsData } from "@/lib/actions/analytics";
-import { getDebtState } from "@/lib/actions/habit-debt";
 import dynamic from "next/dynamic";
 import { getToday } from "@/lib/timezone";
 
@@ -31,14 +30,11 @@ export default async function AnalyticsPage({
 }: AnalyticsPageProps) {
     const viewDate = searchParams.date || getToday();
     const today = getToday();
-    const [analyticsData, debtState] = await Promise.all([
-        getAnalyticsData(viewDate),
-        getDebtState(),
-    ]);
+    const analyticsData = await getAnalyticsData(viewDate);
     const {
         trends, weeklySummary, mealBreakdown, weightEntries, weightStats,
         weightCalories, tdee, habitWeeklyStats, habitEntries,
-        customHabits, customHabitEntries, creatineGoal,
+        customHabits, customHabitEntries, creatineGoal, debtState,
     } = analyticsData;
 
     return (

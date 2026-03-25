@@ -1,11 +1,7 @@
 import { redirect } from "next/navigation";
-import { createClient } from "@/lib/supabase/server";
-import {
-  getFoodEntries,
-  getEntriesForMonth,
-  getMonthCaloriesByDay,
-} from "@/lib/actions/food-entries";
+import { getCalendarData } from "@/lib/actions/calendar";
 import { getToday } from "@/lib/timezone";
+import { getAuthUserId } from "@/lib/auth";
 import { FoodEntryList } from "@/components/food-entry-list";
 import { DailySummary } from "@/components/daily-summary";
 import { CalendarClient } from "@/components/calendar-client";
@@ -17,24 +13,16 @@ interface CalendarPageProps {
 export default async function CalendarPage({
   searchParams,
 }: CalendarPageProps) {
-  const supabase = createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-
-  if (!user) redirect("/login");
+  const userId = await getAuthUserId();
+  if (!userId) redirect("/login");
 
   const date = searchParams.date || getToday();
   const selectedDate = new Date(date + "T00:00:00");
+  const year = selectedDate.getFullYear();
+  const month = selectedDate.getMonth() + 1;
 
-  const [entries, datesWithEntries, caloriesByDay, profileResult] = await Promise.all([
-    getFoodEntries(date),
-    getEntriesForMonth(selectedDate.getFullYear(), selectedDate.getMonth() + 1),
-    getMonthCaloriesByDay(selectedDate.getFullYear(), selectedDate.getMonth() + 1),
-    supabase.from("profiles").select("*").eq("id", user.id).single(),
-  ]);
-
-  const profile = profileResult.data;
+  const { entries, datesWithEntries, caloriesByDay, profile } =
+    await getCalendarData(year, month, date);
 
   return (
     <div className="max-w-4xl mx-auto">
@@ -50,7 +38,7 @@ export default async function CalendarPage({
         </div>
         <div className="space-y-6">
           {profile && <DailySummary entries={entries} profile={profile} />}
-          <FoodEntryList entries={entries} userId={user.id} date={date} />
+          <FoodEntryList entries={entries} userId={userId} date={date} />
         </div>
       </div>
     </div>
