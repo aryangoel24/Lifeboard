@@ -4,7 +4,6 @@ import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import type { WeightEntry } from "@/types/database";
 import { getToday, getNow } from "@/lib/timezone";
-import { computeWeightStats, computeWeightCalorieCorrelation, computeTDEE, ANALYSIS_WINDOW } from "@/lib/weight-utils";
 import type { WeightStats, WeightCalorieData, TDEEResponse } from "@/lib/weight-utils";
 
 // Re-export types and pure functions for external consumers
@@ -109,100 +108,4 @@ export async function getTodayWeight(date?: string): Promise<WeightEntry | null>
         .single();
 
     return (data as WeightEntry) || null;
-}
-
-export async function getWeightStats(): Promise<WeightStats> {
-    const supabase = createClient();
-    const {
-        data: { user },
-    } = await supabase.auth.getUser();
-
-    if (!user) return computeWeightStats([]);
-
-    const startDate = getNow();
-    startDate.setDate(startDate.getDate() - 90);
-
-    const { data: entries } = await supabase
-        .from("weight_entries")
-        .select("*")
-        .eq("user_id", user.id)
-        .gte("logged_at", startDate.toISOString().split("T")[0])
-        .order("logged_at", { ascending: true });
-
-    return computeWeightStats((entries as WeightEntry[]) || []);
-}
-
-export async function getWeightCalorieCorrelation(
-    days: number = 30
-): Promise<WeightCalorieData[]> {
-    const supabase = createClient();
-    const {
-        data: { user },
-    } = await supabase.auth.getUser();
-
-    if (!user) return [];
-
-    const startDate = getNow();
-    startDate.setDate(startDate.getDate() - days);
-    const startStr = startDate.toISOString().split("T")[0];
-
-    const [weightResult, foodResult] = await Promise.all([
-        supabase
-            .from("weight_entries")
-            .select("weight, logged_at")
-            .eq("user_id", user.id)
-            .gte("logged_at", startStr)
-            .order("logged_at", { ascending: true }),
-        supabase
-            .from("food_entries")
-            .select("calories, logged_at")
-            .eq("user_id", user.id)
-            .gte("logged_at", startDate.toISOString())
-            .order("logged_at", { ascending: true }),
-    ]);
-
-    return computeWeightCalorieCorrelation(
-        weightResult.data || [],
-        foodResult.data || [],
-        days
-    );
-}
-
-export async function calculateTDEE(): Promise<TDEEResponse> {
-    const supabase = createClient();
-    const {
-        data: { user },
-    } = await supabase.auth.getUser();
-
-    if (!user) return { status: "insufficient", progress: { weightDays: 0, calorieDays: 0, bothDays: 0, requiredDays: 14 } };
-
-    const startDate = getNow();
-    startDate.setDate(startDate.getDate() - ANALYSIS_WINDOW);
-    const startStr = startDate.toISOString().split("T")[0];
-
-    const [weightResult, foodResult, profileResult] = await Promise.all([
-        supabase
-            .from("weight_entries")
-            .select("weight, logged_at")
-            .eq("user_id", user.id)
-            .gte("logged_at", startStr)
-            .order("logged_at", { ascending: true }),
-        supabase
-            .from("food_entries")
-            .select("calories, logged_at")
-            .eq("user_id", user.id)
-            .gte("logged_at", startDate.toISOString())
-            .order("logged_at", { ascending: true }),
-        supabase
-            .from("profiles")
-            .select("goal_weight")
-            .eq("id", user.id)
-            .single(),
-    ]);
-
-    return computeTDEE(
-        weightResult.data || [],
-        foodResult.data || [],
-        profileResult.data?.goal_weight as number | null
-    );
 }

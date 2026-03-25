@@ -45,19 +45,6 @@ export function isHabitCompletedForDate(
 }
 
 /**
- * Checks if a custom habit is scheduled for a given date.
- */
-export function isHabitScheduledForDate(habit: CustomHabit, dateStr: string): boolean {
-  if (habit.frequency === "daily") return true;
-  const dayOfWeek = new Date(dateStr + "T12:00:00").getDay();
-  if (habit.frequency === "weekdays") return dayOfWeek >= 1 && dayOfWeek <= 5;
-  if (habit.frequency === "custom" && habit.frequency_days) {
-    return habit.frequency_days.includes(dayOfWeek);
-  }
-  return true;
-}
-
-/**
  * Adds `days` days to a YYYY-MM-DD string.
  */
 export function addDays(dateStr: string, days: number): string {

@@ -6,27 +6,6 @@ import { getDefaultMealCategory, calcIngredientTotals } from "@/lib/utils";
 import { getNow } from "@/lib/timezone";
 import type { Recipe, RecipeIngredient } from "@/types/database";
 
-export async function getRecipes(): Promise<Recipe[]> {
-    const supabase = createClient();
-    const {
-        data: { user },
-    } = await supabase.auth.getUser();
-
-    if (!user) return [];
-
-    const { data, error } = await supabase
-        .from("recipes")
-        .select("*")
-        .eq("user_id", user.id)
-        .order("created_at", { ascending: false });
-
-    if (error) {
-        console.error("Error fetching recipes:", error);
-        return [];
-    }
-
-    return data as Recipe[];
-}
 
 export async function getRecipesWithIngredients(): Promise<
     (Recipe & { ingredients: RecipeIngredient[] })[]

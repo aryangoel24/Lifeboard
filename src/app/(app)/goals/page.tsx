@@ -1,6 +1,6 @@
-import { createClient } from "@/lib/supabase/server";
 import { getAuthUserId } from "@/lib/auth";
 import { redirect } from "next/navigation";
+import { getProfile } from "@/lib/actions/goals";
 import { GoalsForm } from "@/components/goals-form";
 import { ApiTokenCard } from "@/components/api-token-card";
 import { BuiltinHabitsCard } from "@/components/builtin-habits-card";
@@ -11,15 +11,10 @@ export default async function GoalsPage() {
   const userId = await getAuthUserId();
   if (!userId) redirect("/login");
 
-  const [supabaseResult, customHabits] = await Promise.all([
-    (async () => {
-      const supabase = createClient();
-      return supabase.from("profiles").select("*").eq("id", userId).single();
-    })(),
+  const [profile, customHabits] = await Promise.all([
+    getProfile(),
     getAllCustomHabits(),
   ]);
-
-  const profile = supabaseResult.data;
 
   if (!profile) {
     return (

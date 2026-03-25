@@ -1,4 +1,29 @@
-import type { CustomHabit, HabitEntry } from "@/types/database";
+import type { CustomHabit, HabitEntry, TrackingType, HabitFrequency } from "@/types/database";
+
+export type CustomHabitFormFields = {
+  name: string;
+  icon: string;
+  tracking_type: TrackingType;
+  target_value: number;
+  frequency: HabitFrequency;
+  frequency_days: number[] | null;
+  category: string | null;
+};
+
+export function parseCustomHabitFormData(formData: FormData): CustomHabitFormFields {
+  const name = formData.get("name") as string;
+  const icon = (formData.get("icon") as string) || "✅";
+  const tracking_type = ((formData.get("tracking_type") as string) || "checkbox") as TrackingType;
+  const target_value = Number(formData.get("target_value")) || 1;
+  const frequency = ((formData.get("frequency") as string) || "daily") as HabitFrequency;
+  const frequency_days_raw = formData.get("frequency_days") as string;
+  const category = (formData.get("category") as string) || null;
+  const frequency_days =
+    frequency === "custom" && frequency_days_raw
+      ? frequency_days_raw.split(",").map(Number)
+      : null;
+  return { name, icon, tracking_type, target_value, frequency, frequency_days, category };
+}
 
 export type HabitWeeklyStats = {
   creatineCompletionPct: number;

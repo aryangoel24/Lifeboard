@@ -6,6 +6,7 @@ import { updateHabitStreak } from "@/lib/actions/habits";
 import { getToday, getNow } from "@/lib/timezone";
 import type { CustomHabit, HabitEntry } from "@/types/database";
 import { suggestHabitIcon } from "@/lib/ai-utils";
+import { parseCustomHabitFormData } from "@/lib/habit-utils";
 
 export async function generateHabitIcon(
   name: string
@@ -70,19 +71,9 @@ export async function createCustomHabit(
 
   if (!user) return { error: "Unauthorized" };
 
-  const name = formData.get("name") as string;
-  const icon = (formData.get("icon") as string) || "✅";
-  const tracking_type = (formData.get("tracking_type") as string) || "checkbox";
-  const target_value = Number(formData.get("target_value")) || 1;
-  const frequency = (formData.get("frequency") as string) || "daily";
-  const frequency_days_raw = formData.get("frequency_days") as string;
-  const category = (formData.get("category") as string) || null;
+  const fields = parseCustomHabitFormData(formData);
 
-  if (!name?.trim()) return { error: "Name is required" };
-
-  const frequency_days = frequency === "custom" && frequency_days_raw
-    ? frequency_days_raw.split(",").map(Number)
-    : null;
+  if (!fields.name?.trim()) return { error: "Name is required" };
 
   // Auto-increment sort_order
   const { data: maxOrder } = await supabase
@@ -97,13 +88,13 @@ export async function createCustomHabit(
 
   const { error } = await supabase.from("custom_habits").insert({
     user_id: user.id,
-    name: name.trim(),
-    icon,
-    tracking_type,
-    target_value,
-    frequency,
-    frequency_days,
-    category,
+    name: fields.name.trim(),
+    icon: fields.icon,
+    tracking_type: fields.tracking_type,
+    target_value: fields.target_value,
+    frequency: fields.frequency,
+    frequency_days: fields.frequency_days,
+    category: fields.category,
     sort_order,
   });
 
@@ -135,30 +126,20 @@ export async function updateCustomHabit(
 
   if (!existing) return { error: "Habit not found" };
 
-  const name = formData.get("name") as string;
-  const icon = (formData.get("icon") as string) || "✅";
-  const tracking_type = (formData.get("tracking_type") as string) || "checkbox";
-  const target_value = Number(formData.get("target_value")) || 1;
-  const frequency = (formData.get("frequency") as string) || "daily";
-  const frequency_days_raw = formData.get("frequency_days") as string;
-  const category = (formData.get("category") as string) || null;
+  const fields = parseCustomHabitFormData(formData);
 
-  if (!name?.trim()) return { error: "Name is required" };
-
-  const frequency_days = frequency === "custom" && frequency_days_raw
-    ? frequency_days_raw.split(",").map(Number)
-    : null;
+  if (!fields.name?.trim()) return { error: "Name is required" };
 
   const { error } = await supabase
     .from("custom_habits")
     .update({
-      name: name.trim(),
-      icon,
-      tracking_type,
-      target_value,
-      frequency,
-      frequency_days,
-      category,
+      name: fields.name.trim(),
+      icon: fields.icon,
+      tracking_type: fields.tracking_type,
+      target_value: fields.target_value,
+      frequency: fields.frequency,
+      frequency_days: fields.frequency_days,
+      category: fields.category,
       updated_at: new Date().toISOString(),
     })
     .eq("id", habitId)

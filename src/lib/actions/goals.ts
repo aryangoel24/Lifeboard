@@ -64,7 +64,7 @@ export async function updateGoals(formData: FormData) {
   revalidatePath("/goals");
   revalidatePath("/dashboard");
   revalidatePath("/calendar");
-  return { success: true };
+  return {};
 }
 
 export async function updateBuiltinHabitGoal(

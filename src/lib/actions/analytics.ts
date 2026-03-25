@@ -3,12 +3,13 @@
 import { createClient } from "@/lib/supabase/server";
 import { subDays, format, startOfDay, endOfDay, parseISO } from "date-fns";
 import { getNow } from "@/lib/timezone";
-import type { WeightEntry, HabitEntry, CustomHabit } from "@/types/database";
+import type { WeightEntry, HabitEntry, CustomHabit, HabitDebt, HabitDebtMeta } from "@/types/database";
 import type { WeightStats, WeightCalorieData, TDEEResponse } from "@/lib/weight-utils";
 import { computeWeightStats, computeWeightCalorieCorrelation, computeTDEE } from "@/lib/weight-utils";
 import type { HabitWeeklyStats } from "@/lib/habit-utils";
 import { computeHabitWeeklyStats, computeDailyHabitData } from "@/lib/habit-utils";
 import type { DailyHabitData } from "@/lib/habit-utils";
+import type { DebtState } from "@/lib/actions/habit-debt";
 
 export type DailyMacroData = {
     date: string;
@@ -24,169 +25,6 @@ export type MealBreakdown = {
     calories: number;
     percentage: number;
 };
-
-export async function getMacroTrends(days: number = 30, today?: string): Promise<DailyMacroData[]> {
-    const supabase = createClient();
-    const {
-        data: { user },
-    } = await supabase.auth.getUser();
-
-    if (!user) return [];
-
-    const endDate = today ? parseISO(today) : getNow();
-    const startDate = subDays(endDate, days - 1);
-
-    const { data: entries } = await supabase
-        .from("food_entries")
-        .select("calories, protein, carbs, fat, logged_at")
-        .eq("user_id", user.id)
-        .gte("logged_at", startOfDay(startDate).toISOString())
-        .lte("logged_at", endOfDay(endDate).toISOString())
-        .order("logged_at", { ascending: true });
-
-    if (!entries || entries.length === 0) return [];
-
-    // Aggregate by day
-    const dailyMap = new Map<string, DailyMacroData>();
-
-    // Initialize all days
-    for (let i = 0; i < days; i++) {
-        const d = subDays(endDate, days - 1 - i);
-        const dateStr = format(d, "yyyy-MM-dd");
-        dailyMap.set(dateStr, {
-            date: dateStr,
-            calories: 0,
-            protein: 0,
-            carbs: 0,
-            fat: 0,
-            entryCount: 0,
-        });
-    }
-
-    for (const entry of entries) {
-        const dateStr = entry.logged_at.split("T")[0];
-        const day = dailyMap.get(dateStr);
-        if (day) {
-            day.calories += entry.calories || 0;
-            day.protein += Number(entry.protein) || 0;
-            day.carbs += Number(entry.carbs) || 0;
-            day.fat += Number(entry.fat) || 0;
-            day.entryCount += 1;
-        }
-    }
-
-    return Array.from(dailyMap.values());
-}
-
-export async function getMealBreakdown(date: string): Promise<MealBreakdown[]> {
-    const supabase = createClient();
-    const {
-        data: { user },
-    } = await supabase.auth.getUser();
-
-    if (!user) return [];
-
-    const dayStart = startOfDay(new Date(date + "T00:00:00")).toISOString();
-    const dayEnd = endOfDay(new Date(date + "T00:00:00")).toISOString();
-
-    const { data: entries } = await supabase
-        .from("food_entries")
-        .select("meal_category, calories")
-        .eq("user_id", user.id)
-        .gte("logged_at", dayStart)
-        .lte("logged_at", dayEnd);
-
-    if (!entries || entries.length === 0) return [];
-
-    const categoryMap = new Map<string, number>();
-    let total = 0;
-
-    for (const entry of entries) {
-        const cat = entry.meal_category || "snack";
-        categoryMap.set(cat, (categoryMap.get(cat) || 0) + (entry.calories || 0));
-        total += entry.calories || 0;
-    }
-
-    return Array.from(categoryMap.entries()).map(([category, calories]) => ({
-        category,
-        calories,
-        percentage: total > 0 ? Math.round((calories / total) * 100) : 0,
-    }));
-}
-
-export async function getWeeklySummary(today?: string) {
-    const supabase = createClient();
-    const {
-        data: { user },
-    } = await supabase.auth.getUser();
-
-    if (!user) return null;
-
-    const endDate = today ? parseISO(today) : getNow();
-    const startDate = subDays(endDate, 6);
-
-    const { data: entries } = await supabase
-        .from("food_entries")
-        .select("calories, protein, carbs, fat, logged_at")
-        .eq("user_id", user.id)
-        .gte("logged_at", startOfDay(startDate).toISOString())
-        .lte("logged_at", endOfDay(endDate).toISOString());
-
-    if (!entries || entries.length === 0) {
-        return {
-            avgCalories: 0,
-            avgProtein: 0,
-            avgCarbs: 0,
-            avgFat: 0,
-            totalEntries: 0,
-            daysLogged: 0,
-            bestDay: null as string | null,
-            worstDay: null as string | null,
-        };
-    }
-
-    // Aggregate by day
-    const dailyCalories = new Map<string, number>();
-    for (const entry of entries) {
-        const dateStr = entry.logged_at.split("T")[0];
-        dailyCalories.set(dateStr, (dailyCalories.get(dateStr) || 0) + (entry.calories || 0));
-    }
-
-    const daysLogged = dailyCalories.size;
-    const totalCalories = entries.reduce((sum, e) => sum + (e.calories || 0), 0);
-    const totalProtein = entries.reduce((sum, e) => sum + (Number(e.protein) || 0), 0);
-    const totalCarbs = entries.reduce((sum, e) => sum + (Number(e.carbs) || 0), 0);
-    const totalFat = entries.reduce((sum, e) => sum + (Number(e.fat) || 0), 0);
-
-    // Find best/worst days (closest to average vs furthest)
-    let bestDay: string | null = null;
-    let worstDay: string | null = null;
-    let minCals = Infinity;
-    let maxCals = 0;
-
-    const dailyEntries = Array.from(dailyCalories.entries());
-    for (const [date, cals] of dailyEntries) {
-        if (cals < minCals) {
-            minCals = cals;
-            worstDay = date;
-        }
-        if (cals > maxCals) {
-            maxCals = cals;
-            bestDay = date;
-        }
-    }
-
-    return {
-        avgCalories: Math.round(totalCalories / daysLogged),
-        avgProtein: Math.round(totalProtein / daysLogged),
-        avgCarbs: Math.round(totalCarbs / daysLogged),
-        avgFat: Math.round(totalFat / daysLogged),
-        totalEntries: entries.length,
-        daysLogged,
-        bestDay,
-        worstDay,
-    };
-}
 
 export interface AnalyticsData {
     trends: DailyMacroData[];
@@ -211,6 +49,7 @@ export interface AnalyticsData {
     customHabits: CustomHabit[];
     customHabitEntries: HabitEntry[];
     creatineGoal: number;
+    debtState: DebtState;
 }
 
 export async function getAnalyticsData(today?: string): Promise<AnalyticsData> {
@@ -233,6 +72,7 @@ export async function getAnalyticsData(today?: string): Promise<AnalyticsData> {
         customHabits: [],
         customHabitEntries: [],
         creatineGoal: 2,
+        debtState: { debts: [], currentWeekTotalCents: 0, totalDebtCents: 0 },
     };
 
     if (!user) return emptyResult;
@@ -243,8 +83,8 @@ export async function getAnalyticsData(today?: string): Promise<AnalyticsData> {
 
     const thirtyDaysAgoStr = thirtyDaysAgo.toISOString().split("T")[0];
 
-    // 6 parallel DB queries
-    const [foodResult, weightResult, profileResult, habitResult, customHabitsResult, customHabitEntriesResult] = await Promise.all([
+    // 8 parallel DB queries
+    const [foodResult, weightResult, profileResult, habitResult, customHabitsResult, customHabitEntriesResult, debtRowsResult, debtMetaResult] = await Promise.all([
         supabase
             .from("food_entries")
             .select("calories, protein, carbs, fat, meal_category, logged_at")
@@ -281,6 +121,8 @@ export async function getAnalyticsData(today?: string): Promise<AnalyticsData> {
             .eq("user_id", user.id)
             .not("custom_habit_id", "is", null)
             .gte("logged_at", thirtyDaysAgoStr),
+        supabase.from("habit_debt").select("*").eq("user_id", user.id),
+        supabase.from("habit_debt_meta").select("*").eq("user_id", user.id).single(),
     ]);
 
     const foodEntries = foodResult.data || [];
@@ -400,6 +242,15 @@ export async function getAnalyticsData(today?: string): Promise<AnalyticsData> {
     const habitWeeklyStats = computeHabitWeeklyStats(weekHabitEntries, creatineGoal, gymWeeklyGoal);
     const habitDailyData = computeDailyHabitData(habitEntries, 30);
 
+    // === Derive debt state ===
+    const debts = (debtRowsResult.data as HabitDebt[]) || [];
+    const debtMeta = debtMetaResult.data as HabitDebtMeta | null;
+    const debtState: DebtState = {
+        debts,
+        currentWeekTotalCents: debts.reduce((sum, d) => sum + (d.current_week_unpaid_cents || 0), 0),
+        totalDebtCents: debtMeta?.total_debt_cents ?? 0,
+    };
+
     return {
         trends,
         weeklySummary,
@@ -414,6 +265,7 @@ export async function getAnalyticsData(today?: string): Promise<AnalyticsData> {
         customHabits,
         customHabitEntries,
         creatineGoal,
+        debtState,
     };
 }
 

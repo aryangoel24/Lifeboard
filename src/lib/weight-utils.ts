@@ -48,7 +48,7 @@ export type TDEEResponse =
 // Constants
 // ──────────────────────────────────────────────
 
-export const ANALYSIS_WINDOW = 28;
+const ANALYSIS_WINDOW = 28;
 const MIN_ENTRIES = 14;
 const MIN_COMPLETENESS = 0.7;
 const MIN_CALORIE_DAY = 800;
