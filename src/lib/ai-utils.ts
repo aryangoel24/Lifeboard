@@ -1,6 +1,6 @@
 
-import OpenAI from "openai";
 import crypto from "crypto";
+import { getOpenAIClient, MODELS } from "@/lib/openai";
 import type { KnowledgeNode, Event } from "@/types/database";
 
 const NUTRITION_SYSTEM_PROMPT = `You are a nutrition estimation assistant.Given a food description, estimate the nutritional content.
@@ -58,12 +58,6 @@ export interface NutritionLabelData {
   fat: number;
 }
 
-function getOpenAIClient(): OpenAI | null {
-  const apiKey = process.env.OPENAI_API_KEY;
-  if (!apiKey) return null;
-  return new OpenAI({ apiKey });
-}
-
 function clampNutrition<T extends { calories: number; protein: number; carbs: number; fat: number }>(
   parsed: T
 ): T {
@@ -96,7 +90,7 @@ export async function estimateNutritionFromDescription(
 
   try {
     const response = await openai.chat.completions.create({
-      model: "gpt-4o-mini",
+      model: MODELS.gpt4oMini,
       messages: [
         { role: "system", content: NUTRITION_SYSTEM_PROMPT },
         { role: "user", content: description },
@@ -152,7 +146,7 @@ export async function estimateNutritionFromPhoto(
 
   try {
     const response = await openai.chat.completions.create({
-      model: "gpt-4o",
+      model: MODELS.gpt4o,
       messages: [
         { role: "system", content: PHOTO_SYSTEM_PROMPT },
         {
@@ -211,7 +205,7 @@ export async function suggestHabitIcon(
 
   try {
     const response = await openai.chat.completions.create({
-      model: "gpt-4o-mini",
+      model: MODELS.gpt4oMini,
       messages: [
         {
           role: "system",
@@ -248,7 +242,7 @@ export async function extractNutritionFromLabelImage(
 
   try {
     const response = await openai.chat.completions.create({
-      model: "gpt-4o",
+      model: MODELS.gpt4o,
       messages: [
         { role: "system", content: LABEL_SYSTEM_PROMPT },
         {
@@ -315,7 +309,7 @@ export async function generateEmbedding(text: string): Promise<{ embedding: numb
 
   try {
     const response = await openai.embeddings.create({
-      model: "text-embedding-3-small",
+      model: MODELS.textEmbedding3Small,
       input: text,
       encoding_format: "float",
     });
@@ -387,7 +381,7 @@ export async function synthesizeRagResponse(
 
   try {
     const response = await openai.chat.completions.create({
-      model: "gpt-4o",
+      model: MODELS.gpt4o,
       messages: [
         { role: "system", content: RAG_SYNTHESIS_PROMPT },
         {
@@ -496,7 +490,7 @@ export async function analyzeTelegramIntent(
 
   try {
     const response = await openai.chat.completions.create({
-      model: "gpt-4o",
+      model: MODELS.gpt4o,
       response_format: { type: "json_object" },
       messages: [
         { role: "system", content: TELEGRAM_ROUTER_PROMPT },
@@ -564,7 +558,7 @@ export async function extractEventDetails(
   const currentDateStr = new Date().toISOString();
   try {
     const response = await openai.chat.completions.create({
-      model: "gpt-4o",
+      model: MODELS.gpt4o,
       response_format: { type: "json_object" },
       messages: [
         { role: "system", content: EVENT_EXTRACTION_PROMPT },

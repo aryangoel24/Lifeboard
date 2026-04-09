@@ -11,13 +11,7 @@ import type {
   AISummaryContent,
   TopicBriefing,
 } from "@/types/learning";
-import OpenAI from "openai";
-
-function getOpenAIClient(): OpenAI | null {
-  const apiKey = process.env.OPENAI_API_KEY;
-  if (!apiKey) return null;
-  return new OpenAI({ apiKey });
-}
+import { getOpenAIClient, MODELS } from "@/lib/openai";
 
 export async function getLearningPreferences(): Promise<LearningPreferences | null> {
   const supabase = createClient();
@@ -168,7 +162,7 @@ export async function generateNewsBriefing(topics: NewsTopic[], force = false): 
         try {
           const yesterdayContext = yesterdayHeadlines[topic] || "None";
           const completion = await openai.chat.completions.create({
-            model: "gpt-4o-mini",
+            model: MODELS.gpt4oMini,
             messages: [
               {
                 role: "system",
@@ -283,7 +277,7 @@ ${newsContext}`
 Return only the JSON object.`;
 
   const completion = await openai.chat.completions.create({
-    model: "gpt-4o-mini",
+    model: MODELS.gpt4oMini,
     messages: [
       {
         role: "system",

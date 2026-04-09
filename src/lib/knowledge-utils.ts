@@ -1,11 +1,7 @@
-import OpenAI from "openai";
 import type { ExtractionResult, ExtractionNode, NodeType } from "@/types/database";
+import { getOpenAIClient, MODELS } from "@/lib/openai";
 
-export function getOpenAIClient(): OpenAI | null {
-  const apiKey = process.env.OPENAI_API_KEY;
-  if (!apiKey) return null;
-  return new OpenAI({ apiKey });
-}
+export { getOpenAIClient };
 
 export function buildSubtopicPrompt(title: string, ancestorChain: string[]): string {
   const context =
@@ -63,7 +59,7 @@ export async function generateSubtopics(
 
   async function tryParse(userMsg: string): Promise<string[] | null> {
     const response = await client.chat.completions.create({
-      model: "gpt-4o-mini",
+      model: MODELS.gpt4oMini,
       messages: [{ role: "user", content: userMsg }],
       temperature: 0.7,
       max_tokens: 300,
@@ -111,7 +107,7 @@ export async function generateNodeDetail(
 
   try {
     const response = await openai.chat.completions.create({
-      model: "gpt-4o-mini",
+      model: MODELS.gpt4oMini,
       messages: [{ role: "user", content: prompt }],
       response_format: { type: "json_object" },
       temperature: 0.3,
@@ -172,7 +168,7 @@ Return JSON:
 
   try {
     const response = await openai.chat.completions.create({
-      model: "gpt-4o-mini",
+      model: MODELS.gpt4oMini,
       messages: [{ role: "user", content: prompt }],
       response_format: { type: "json_object" },
       temperature: 0.4,
@@ -251,7 +247,7 @@ Use exact titles from the list above. Do not invent new titles in suggested_link
 
   try {
     const response = await openai.chat.completions.create({
-      model: "gpt-4o-mini",
+      model: MODELS.gpt4oMini,
       messages: [{ role: "user", content: prompt }],
       response_format: { type: "json_object" },
       temperature: 0.6,
@@ -483,7 +479,7 @@ Return JSON exactly:
 
   try {
     const response = await openai.chat.completions.create({
-      model: "gpt-4o",
+      model: MODELS.gpt4o,
       messages: [{ role: "user", content: prompt }],
       response_format: { type: "json_object" },
       temperature: 0.3,

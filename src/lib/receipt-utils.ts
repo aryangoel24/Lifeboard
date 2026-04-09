@@ -1,4 +1,4 @@
-import OpenAI from "openai";
+import { getOpenAIClient, MODELS } from "@/lib/openai";
 
 const SPENDING_CATEGORIES = [
   { id: "groceries", label: "Groceries" },
@@ -30,12 +30,6 @@ export interface ReceiptDetails {
   category: string | null;
 }
 
-function getOpenAIClient(): OpenAI | null {
-  const apiKey = process.env.OPENAI_API_KEY;
-  if (!apiKey) return null;
-  return new OpenAI({ apiKey });
-}
-
 export async function extractReceiptDetails(
   emailBody: string,
   merchantHint?: string | null,
@@ -50,7 +44,7 @@ export async function extractReceiptDetails(
 
   try {
     const response = await openai.chat.completions.create({
-      model: "gpt-4o-mini",
+      model: MODELS.gpt4oMini,
       messages: [
         { role: "system", content: RECEIPT_SYSTEM_PROMPT },
         { role: "user", content: prompt },

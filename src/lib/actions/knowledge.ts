@@ -14,8 +14,9 @@ import {
 } from "@/lib/knowledge-utils";
 import { generateEmbedding, hashContent } from "@/lib/ai-utils";
 import { SCAFFOLD_TEMPLATES } from "@/lib/scaffold-templates";
+import { MODELS } from "@/lib/openai";
 
-const DETAIL_MODEL = "gpt-4o-mini";
+const DETAIL_MODEL = MODELS.gpt4oMini;
 
 /**
  * Re-evaluates a node's embedding by hashing its content.

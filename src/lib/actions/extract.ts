@@ -6,6 +6,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { generateKnowledgeExtraction } from "@/lib/knowledge-utils";
 import { getOrCreateInboxNode, syncNodeEmbedding } from "@/lib/actions/knowledge";
 import type { ExtractionResult, NodeType } from "@/types/database";
+import { MODELS } from "@/lib/openai";
 
 export type ApprovedExtractionNode = {
   temp_id: string;
@@ -207,7 +208,7 @@ export async function extractKnowledgeFromSource(
 
       const response = await openai.audio.transcriptions.create({
         file: file,
-        model: "whisper-1",
+        model: MODELS.whisper1,
         language: "en",
       });
 

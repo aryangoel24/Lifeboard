@@ -1,5 +1,5 @@
-import OpenAI from "openai";
 import type { DigestPayload, DigestNodeUpdate, DigestNewNode, DigestUnassigned } from "@/types/database";
+import { getOpenAIClient, MODELS } from "@/lib/openai";
 
 export type CandidateNodeRef = {
   id: string;
@@ -23,12 +23,6 @@ const STOP_WORDS = new Set([
   "about", "more", "some", "like", "into", "than", "then", "also",
   "were", "your", "just", "its", "are", "was", "has", "had",
 ]);
-
-function getOpenAIClient(): OpenAI | null {
-  const apiKey = process.env.OPENAI_API_KEY;
-  if (!apiKey) return null;
-  return new OpenAI({ apiKey });
-}
 
 export function selectCandidateNodes(nodes: NodeRow[], journalText: string): NodeRow[] {
   const tokens = journalText
@@ -148,7 +142,7 @@ export async function generateDigestAnalysis(
 
   try {
     const response = await openai.chat.completions.create({
-      model: "gpt-4o",
+      model: MODELS.gpt4o,
       messages: [{ role: "user", content: prompt }],
       response_format: { type: "json_object" },
       temperature: 0.3,

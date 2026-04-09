@@ -4,13 +4,7 @@ import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { calculateNextReview } from "@/lib/learning-utils";
 import type { Flashcard, FlashcardDeck, ReviewQuality, NewsBriefingContent } from "@/types/learning";
-import OpenAI from "openai";
-
-function getOpenAIClient(): OpenAI | null {
-  const apiKey = process.env.OPENAI_API_KEY;
-  if (!apiKey) return null;
-  return new OpenAI({ apiKey });
-}
+import { getOpenAIClient, MODELS } from "@/lib/openai";
 
 export async function getDueFlashcards(limit = 5): Promise<Flashcard[]> {
   const supabase = createClient();
@@ -160,7 +154,7 @@ export async function generateFlashcardsFromBriefing(date: string) {
     .join("\n\n");
 
   const completion = await openai.chat.completions.create({
-    model: "gpt-4o-mini",
+    model: MODELS.gpt4oMini,
     messages: [
       {
         role: "system",

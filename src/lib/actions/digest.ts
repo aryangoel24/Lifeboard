@@ -10,6 +10,7 @@ import {
   type CandidateNodeRef,
 } from "@/lib/digest-utils";
 import { getOrCreateInboxNode } from "@/lib/actions/knowledge";
+import { MODELS } from "@/lib/openai";
 
 type ApprovedUpdate =
   | { type: "node_update"; nodeId: string; takeaways: string[] }
@@ -33,7 +34,7 @@ async function getDigestText(payload: { kind: "text"; text: string } | { kind: "
     if (!openai) return { error: "AI client not configured." };
     const response = await openai.audio.transcriptions.create({
       file: file,
-      model: "whisper-1",
+      model: MODELS.whisper1,
       language: "en",
     });
     if (!response.text || response.text.trim().length < 10) {

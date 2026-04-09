@@ -1,4 +1,5 @@
 import OpenAI, { toFile } from "openai";
+import { MODELS } from "@/lib/openai";
 
 // Define a separate module just for server-side audio processing
 // This keeps file logic isolated from general prompting utilities.
@@ -21,7 +22,7 @@ export async function transcribeAudio(
 
         const transcription = await openai.audio.transcriptions.create({
             file,
-            model: "whisper-1",
+            model: MODELS.whisper1,
         });
 
         return { text: transcription.text };
