@@ -546,3 +546,23 @@ export const ROOT_COLORS = [
 export function pickRootColor(existingCount: number): string {
   return ROOT_COLORS[existingCount % ROOT_COLORS.length];
 }
+
+/**
+ * Walks up the node tree from nodeId and returns an ordered array of ancestor titles
+ * (root first, immediate parent last). Used for AI context prompts.
+ */
+export function buildAncestorChain(
+  nodeId: string,
+  nodeById: Map<string, { parent_id: string | null; title: string }>
+): string[] {
+  const chain: string[] = [];
+  let cur = nodeById.get(nodeId);
+  while (cur?.parent_id) {
+    const parent = nodeById.get(cur.parent_id);
+    if (!parent) break;
+    chain.push(parent.title);
+    cur = parent;
+  }
+  chain.reverse();
+  return chain;
+}

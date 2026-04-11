@@ -2,6 +2,7 @@
 
 import { useState, useMemo, useCallback, useRef, useEffect } from "react";
 import { toast } from "sonner";
+import { formatRecordingTime } from "@/lib/utils";
 import { Loader2, ChevronDown, ChevronRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
@@ -71,7 +72,7 @@ export function DigestClient({ recentDigests: initialDigests }: DigestClientProp
   // Audio recording state
   const [isRecording, setIsRecording] = useState(false);
   const [recordingTime, setRecordingTime] = useState(0);
-  const [audioBlob, setAudioBlob] = useState<Blob | null>(null);
+  const [audioBlob, setAudioBlob] = useState<(Blob & { duration?: number }) | null>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<BlobPart[]>([]);
   const timerRef = useRef<NodeJS.Timeout>();
@@ -163,12 +164,6 @@ export function DigestClient({ recentDigests: initialDigests }: DigestClientProp
       setIsRecording(false);
       if (timerRef.current) clearInterval(timerRef.current);
     }
-  };
-
-  const formatTime = (seconds: number) => {
-    const m = Math.floor(seconds / 60);
-    const s = seconds % 60;
-    return `${m}:${s.toString().padStart(2, "0")}`;
   };
 
   async function handleAnalyze() {
@@ -456,7 +451,7 @@ export function DigestClient({ recentDigests: initialDigests }: DigestClientProp
                     {isRecording ? (
                       <>
                         <div className="animate-pulse w-8 h-8 rounded-sm bg-white" />
-                        <span className="font-mono">{formatTime(recordingTime)}</span>
+                        <span className="font-mono">{formatRecordingTime(recordingTime)}</span>
                         <div className="absolute inset-0 border-4 border-white/20 rounded-full animate-ping" />
                       </>
                     ) : (
@@ -471,7 +466,7 @@ export function DigestClient({ recentDigests: initialDigests }: DigestClientProp
                     <div className="bg-muted px-4 py-3 rounded-md w-full flex items-center justify-between">
                       <span className="text-sm font-medium">Recording saved</span>
                       {/* eslint-disable-next-line @typescript-eslint/no-explicit-any */}
-                      <span className="text-xs text-muted-foreground font-mono">{formatTime((audioBlob as any).duration || recordingTime)}</span>
+                      <span className="text-xs text-muted-foreground font-mono">{formatRecordingTime(audioBlob.duration ?? recordingTime)}</span>
                     </div>
                     <Button variant="outline" size="sm" onClick={() => { setAudioBlob(null); setRecordingTime(0); }} className="w-full">
                       Discard & Re-record

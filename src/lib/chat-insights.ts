@@ -8,6 +8,7 @@ import {
   getTodayFoodSummary,
   getProfile,
 } from "@/lib/services/chat-data";
+import { getToday, getStartOfWeek } from "@/lib/timezone";
 
 export type UserInsights = {
   tdee_estimate: number | null;
@@ -29,19 +30,6 @@ export type UserInsights = {
   today_calories: number;
   today_protein: number;
 };
-
-function getStartOfWeek(): string {
-  const d = new Date();
-  const day = d.getDay();
-  const diff = d.getDate() - day + (day === 0 ? -6 : 1);
-  d.setDate(diff);
-  d.setHours(0, 0, 0, 0);
-  return d.toISOString().split("T")[0];
-}
-
-function getToday(): string {
-  return new Date().toISOString().split("T")[0];
-}
 
 export async function computeInsights(
   supabase: SupabaseClient,

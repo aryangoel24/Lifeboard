@@ -26,13 +26,15 @@ import {
   deleteNode,
   deleteNodes,
   updateNodePositions,
-  suggestSubtopics,
-  synthesizeNodes,
   updateNodeTitle,
-  applyScaffold,
-  resetScaffold,
   setNodeCollapsed,
 } from "@/lib/actions/knowledge";
+import {
+  suggestSubtopics,
+  synthesizeNodes,
+  applyScaffold,
+  resetScaffold,
+} from "@/lib/actions/knowledge-ai";
 import { SCAFFOLD_TEMPLATES } from "@/lib/scaffold-templates";
 import type { KnowledgeNode, KnowledgeLink, NodeResource } from "@/types/database";
 import ELK from "elkjs/lib/elk.bundled.js";

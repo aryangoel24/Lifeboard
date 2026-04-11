@@ -50,3 +50,10 @@ export function getDefaultMealCategory(hour: number): MealCategory {
   if (hour < 17) return "snack";
   return "dinner";
 }
+
+/** Formats seconds as M:SS for audio recording timers. */
+export function formatRecordingTime(seconds: number): string {
+  const m = Math.floor(seconds / 60);
+  const s = seconds % 60;
+  return `${m}:${s.toString().padStart(2, "0")}`;
+}

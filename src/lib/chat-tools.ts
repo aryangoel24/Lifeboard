@@ -24,19 +24,7 @@ import {
   suggestMealsFromPantry,
 } from "@/lib/services/chat-data";
 import { findSimilarMemory } from "@/lib/services/memory-dedupe";
-
-function getStartOfWeek(): string {
-  const d = new Date();
-  const day = d.getDay();
-  const diff = d.getDate() - day + (day === 0 ? -6 : 1);
-  d.setDate(diff);
-  d.setHours(0, 0, 0, 0);
-  return d.toISOString().split("T")[0];
-}
-
-function getToday(): string {
-  return new Date().toISOString().split("T")[0];
-}
+import { getToday, getStartOfWeek } from "@/lib/timezone";
 
 export function buildChatTools(supabase: SupabaseClient, userId: string) {
   return {

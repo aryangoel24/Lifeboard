@@ -19,3 +19,14 @@ export function getNow(): Date {
   const tz = getServerTimezone();
   return new Date(new Date().toLocaleString("en-US", { timeZone: tz }));
 }
+
+/** Returns the Monday (YYYY-MM-DD) of the current ISO week in the user's timezone. */
+export function getStartOfWeek(): string {
+  const tz = getServerTimezone();
+  const todayStr = new Date().toLocaleDateString("en-CA", { timeZone: tz });
+  const d = new Date(todayStr + "T12:00:00");
+  const day = d.getDay();
+  const diff = d.getDate() - day + (day === 0 ? -6 : 1);
+  d.setDate(diff);
+  return d.toISOString().split("T")[0];
+}

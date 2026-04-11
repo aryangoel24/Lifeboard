@@ -10,11 +10,17 @@ import { updateStreaks, checkAndUnlockAchievements } from "./achievements";
 
 export async function getFoodEntries(date: string): Promise<FoodEntry[]> {
   const supabase = createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return [];
+
   const { start, end } = getDayRange(date);
 
   const { data, error } = await supabase
     .from("food_entries")
     .select("*")
+    .eq("user_id", user.id)
     .gte("logged_at", start)
     .lte("logged_at", end)
     .order("logged_at", { ascending: true });
@@ -144,12 +150,18 @@ export async function deleteFoodEntry(id: string) {
 
 export async function getEntriesForMonth(year: number, month: number) {
   const supabase = createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return [];
+
   const startDate = new Date(year, month - 1, 1).toISOString();
   const endDate = new Date(year, month, 0, 23, 59, 59).toISOString();
 
   const { data, error } = await supabase
     .from("food_entries")
     .select("logged_at")
+    .eq("user_id", user.id)
     .gte("logged_at", startDate)
     .lte("logged_at", endDate);
 
@@ -173,12 +185,18 @@ export async function getMonthCaloriesByDay(
   month: number
 ): Promise<Record<string, number>> {
   const supabase = createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return {};
+
   const startDate = new Date(year, month - 1, 1).toISOString();
   const endDate = new Date(year, month, 0, 23, 59, 59).toISOString();
 
   const { data, error } = await supabase
     .from("food_entries")
     .select("logged_at, calories")
+    .eq("user_id", user.id)
     .gte("logged_at", startDate)
     .lte("logged_at", endDate);
 
