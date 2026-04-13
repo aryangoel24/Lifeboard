@@ -104,6 +104,7 @@ export async function logFromPantry(
     pantryItemId: string,
     amount: number,
     mealCategory: MealCategory,
+    date?: string,
 ) {
     const supabase = createClient();
     const {
@@ -122,6 +123,7 @@ export async function logFromPantry(
     if (fetchError || !item) return { error: "Pantry item not found" };
 
     const macros = scaleNutrition(item as PantryItem, amount);
+    const loggedAt = date ? new Date(date + "T12:00:00").toISOString() : getNow().toISOString();
 
     const entry = {
         user_id: user.id,
@@ -132,11 +134,64 @@ export async function logFromPantry(
         fat: macros.fat,
         meal_category: mealCategory,
         meal_source: "grocery_prepared",
-        logged_at: getNow().toISOString(),
+        logged_at: loggedAt,
     };
 
     const { error: insertError } = await supabase.from("food_entries").insert(entry);
 
+    if (insertError) return { error: insertError.message };
+
+    await Promise.all([updateStreaks(), checkAndUnlockAchievements()]);
+
+    revalidatePath("/dashboard");
+    return { success: true };
+}
+
+export async function logMultipleFromPantry(
+    items: Array<{ pantryItemId: string; amount: number }>,
+    mealCategory: MealCategory,
+    date?: string,
+) {
+    if (items.length === 0) return { error: "No items to log" };
+
+    const supabase = createClient();
+    const {
+        data: { user },
+    } = await supabase.auth.getUser();
+
+    if (!user) return { error: "Unauthorized" };
+
+    const pantryItemIds = items.map((i) => i.pantryItemId);
+    const { data: pantryItems, error: fetchError } = await supabase
+        .from("pantry_items")
+        .select("*")
+        .in("id", pantryItemIds)
+        .eq("user_id", user.id);
+
+    if (fetchError || !pantryItems) return { error: "Failed to fetch pantry items" };
+
+    const loggedAt = date ? new Date(date + "T12:00:00").toISOString() : getNow().toISOString();
+
+    const entries = items.map((item) => {
+        const pantryItem = pantryItems.find((p) => p.id === item.pantryItemId) as PantryItem | undefined;
+        if (!pantryItem) return null;
+        const macros = scaleNutrition(pantryItem, item.amount);
+        return {
+            user_id: user.id,
+            name: pantryItem.name,
+            calories: macros.calories,
+            protein: macros.protein,
+            carbs: macros.carbs,
+            fat: macros.fat,
+            meal_category: mealCategory,
+            meal_source: "grocery_prepared",
+            logged_at: loggedAt,
+        };
+    }).filter(Boolean);
+
+    if (entries.length === 0) return { error: "No valid items found" };
+
+    const { error: insertError } = await supabase.from("food_entries").insert(entries);
     if (insertError) return { error: insertError.message };
 
     await Promise.all([updateStreaks(), checkAndUnlockAchievements()]);

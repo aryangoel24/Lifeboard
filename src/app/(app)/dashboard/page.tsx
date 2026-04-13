@@ -3,6 +3,7 @@ import { createClient } from "@/lib/supabase/server";
 import { getFoodEntries } from "@/lib/actions/food-entries";
 import { getStreaks } from "@/lib/actions/achievements";
 import { getMealTemplates } from "@/lib/actions/meal-templates";
+import { getPantryItems } from "@/lib/actions/pantry";
 import { getWeightEntries } from "@/lib/actions/weight";
 import { getTodayHabits, getHabitEntries } from "@/lib/actions/habits";
 import { getCustomHabits, getTodayCustomHabitEntries, getCustomHabitEntries } from "@/lib/actions/custom-habits";
@@ -40,7 +41,7 @@ export default async function DashboardPage({
   // We don't await it here — it runs alongside other fetches
   const debtComputePromise = computeAndUpdateDebt(today);
 
-  const [entries, profileResult, streaks, templates, recentWeights, todayHabits, customHabits, customHabitEntries, weeklyHabitEntries, weeklyCustomHabitEntries, todaySteps] =
+  const [entries, profileResult, streaks, templates, recentWeights, todayHabits, customHabits, customHabitEntries, weeklyHabitEntries, weeklyCustomHabitEntries, todaySteps, pantryItems] =
     await Promise.all([
       getFoodEntries(date),
       supabase.from("profiles").select("*").eq("id", user.id).single(),
@@ -53,6 +54,7 @@ export default async function DashboardPage({
       getHabitEntries(7),
       getCustomHabitEntries(7),
       getTodaySteps(date),
+      getPantryItems(),
     ]);
 
   // Wait for debt computation to complete, then fetch state
@@ -73,7 +75,7 @@ export default async function DashboardPage({
           </div>
           <DateNavigator date={date} />
         </div>
-        <AddEntryDialog userId={user.id} date={date} />
+        <AddEntryDialog userId={user.id} date={date} pantryItems={pantryItems} />
       </div>
 
       {profile && (

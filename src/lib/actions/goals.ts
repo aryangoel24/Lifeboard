@@ -131,6 +131,16 @@ export async function toggleBuiltinHabitHidden(
 
   if (error) return { error: error.message };
 
+  // When hiding a habit, immediately zero its current-week debt so the banner clears right away.
+  if (hidden) {
+    await supabase
+      .from("habit_debt")
+      .update({ current_week_unpaid_cents: 0, updated_at: new Date().toISOString() })
+      .eq("user_id", user.id)
+      .eq("habit_type", type)
+      .is("custom_habit_id", null);
+  }
+
   revalidatePath("/goals");
   revalidatePath("/dashboard");
   return {};

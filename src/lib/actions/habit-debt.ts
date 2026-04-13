@@ -68,14 +68,37 @@ export async function computeAndUpdateDebt(today: string): Promise<void> {
   };
 
   const optedInHabits: OptedInHabit[] = [];
-  if (profile.creatine_nr_enabled) {
+  if (profile.creatine_nr_enabled && !profile.creatine_hidden) {
     optedInHabits.push({ habitType: "creatine", customHabitId: null, habit: null });
   }
-  if (profile.magnesium_nr_enabled) {
+  if (profile.magnesium_nr_enabled && !profile.magnesium_hidden) {
     optedInHabits.push({ habitType: "magnesium", customHabitId: null, habit: null });
   }
-  if (profile.gym_nr_enabled) {
+  if (profile.gym_nr_enabled && !profile.gym_hidden) {
     optedInHabits.push({ habitType: "gym", customHabitId: null, habit: null });
+  }
+
+  // Zero out current-week debt for any built-in habit that is now hidden,
+  // so stale cents don't show in the banner.
+  const hiddenBuiltins: Array<"creatine" | "magnesium" | "gym"> = (
+    [
+      profile.creatine_hidden && "creatine",
+      profile.magnesium_hidden && "magnesium",
+      profile.gym_hidden && "gym",
+    ] as (string | false)[]
+  ).filter(Boolean) as Array<"creatine" | "magnesium" | "gym">;
+
+  if (hiddenBuiltins.length > 0) {
+    const rowsToZero = debtRows.filter(
+      (d) => d.custom_habit_id === null && hiddenBuiltins.includes(d.habit_type as "creatine" | "magnesium" | "gym") && d.current_week_unpaid_cents > 0
+    );
+    if (rowsToZero.length > 0) {
+      await supabase
+        .from("habit_debt")
+        .update({ current_week_unpaid_cents: 0, updated_at: new Date().toISOString() })
+        .in("id", rowsToZero.map((r) => r.id))
+        .eq("user_id", user.id);
+    }
   }
   for (const h of customHabits) {
     if (h.nr_enabled) {
