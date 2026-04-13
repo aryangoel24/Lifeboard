@@ -127,7 +127,7 @@ function PantryTab({
   return (
     <div className="space-y-4">
       <div className="space-y-2">
-        {rows.map((row, i) => {
+        {rows.map((row) => {
           const selectedItem = pantryItems.find((p) => p.id === row.pantryItemId);
           return (
             <div key={row.id} className="flex gap-2 items-start">
